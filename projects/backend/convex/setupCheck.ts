@@ -32,6 +32,7 @@ import { youtubeSubscriptions } from "./youtubeStore.ts"
 import { decode } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 import { publicAlerts, readAlerts } from "./alerts.ts"
+import { alertActions, type AlertAction } from "@neonflux/contracts/alerts"
 import { alertKinds } from "./alertsDomain.ts"
 import { metadataTypes } from "./metadataLogsDomain.ts"
 
@@ -349,14 +350,19 @@ export const status = serviceQuery({
     handler: async (ctx, { request }): Promise<SetupStatus> => {
         const { serverId } = decode(SetupStatusRequest, request)
         const events = await ctx.db
-            .query("eventSettings")
-            .withIndex("by_server", (q) => q.eq("serverId", serverId))
-            .unique()
+                .query("eventSettings")
+                .withIndex("by_server", (q) => q.eq("serverId", serverId))
+                .unique(),
+            alerts = publicAlerts(await readAlerts(ctx, serverId))
+        const actions = (Object.keys(alertActions) as AlertAction[]).filter(
+            (action) => alerts[action] && alerts[alertActions[action].alert],
+        )
         return {
             sections: await readSetupSections(ctx, serverId),
             managedRoles: await managedRoles(ctx, serverId),
             staffRoleIds: moderationConfig(await readModeration(ctx, serverId)).staffRoleIds,
             threadFeatures: events?.threads ? ["events"] : [],
+            ...(actions.length ? { alertActions: actions } : {}),
         }
     },
 })

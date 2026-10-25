@@ -7,6 +7,7 @@ import { botCall } from "./bot-service.ts"
 import { projectBackupConfig } from "../convex/backupProjections.ts"
 import { backupConfig } from "../convex/backupDomain.ts"
 import { backupImports } from "../convex/backupImports.ts"
+import { replaceMetadataConfiguration } from "../convex/metadataLogsStore.ts"
 
 const modules = {
     "../convex/metadataLogs.ts": () => import("../convex/metadataLogs.ts"),
@@ -145,4 +146,42 @@ test("Metadata log destinations and switches are projected into backups as the s
         await f.backend.run((ctx) => backupImports.backupValidateConfigReferences(ctx, "1", projected, proof)),
         null,
     )
+    // The every-channel choice round-trips, and an archive from before it existed restores listed mode
+    const valueOf = (item: ReturnType<typeof projectBackupConfig>) => {
+        assert(item.family === "metadata")
+        return item.value
+    }
+    const listed = valueOf(projected)
+    assert.equal(listed.allChannels, false)
+    await read(
+        await manage({
+            type: "channels",
+            expectedRevision: (await settings()).revision,
+            allChannels: true,
+            messageChannelIds: [],
+            excludedChannelIds: ["32"],
+        }),
+    )
+    const every = projectBackupConfig(
+        "metadata",
+        await f.backend.run((ctx) =>
+            ctx.db
+                .query("metadataLogSettings")
+                .withIndex("by_server", (q) => q.eq("serverId", "1"))
+                .unique(),
+        ),
+    )
+    const all = valueOf(every)
+    assert.equal(all.allChannels, true)
+    assert.deepEqual(backupConfig(every), every)
+    assert.throws(() =>
+        backupConfig({ family: "metadata", sourceId: every.sourceId, value: { ...all, messageChannelIds: ["31"] } }),
+    )
+    await f.backend.run((ctx) => replaceMetadataConfiguration(ctx, "1", listed))
+    assert.deepEqual([(await settings()).allChannels, (await settings()).messageChannelIds], [false, ["31"]])
+    await f.backend.run((ctx) => replaceMetadataConfiguration(ctx, "1", all))
+    assert.equal((await settings()).allChannels, true)
+    const { allChannels: _absent, ...older } = listed
+    await f.backend.run((ctx) => replaceMetadataConfiguration(ctx, "1", older))
+    assert.equal((await settings()).allChannels, false)
 })

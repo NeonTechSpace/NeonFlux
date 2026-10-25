@@ -26,6 +26,7 @@ import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts
 import { fixSentence, labelList, permissionNames, sentenceList } from "./permission-fix.ts"
 import { ago, clip, code, notSetUp, replyCard, replyText } from "./reply-style.ts"
 import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
+import { alertActionPermissions } from "./alerts-worker.ts"
 
 export function createSetupStore(backend: BackendConfig) {
     const request = createBackendRequest(backend)
@@ -218,13 +219,16 @@ export function readSetupProblems(client: Client, serverId: string, status: Setu
                 problems.push({ kind: "permissions", feature, permissions: permissionNames(required & ~bits) })
         }
         missing("general", basePermissions)
-        // A feature that starts discussion threads also needs Create public threads
+        // A feature that starts discussion threads also needs Create public threads, and an alert action that is on its
+        // own permission
+        const actions = (status?.alertActions ?? []).reduce((bits, action) => bits | alertActionPermissions[action], 0n)
         for (const feature of enabled)
             missing(
                 feature,
                 (features[feature].permissions & ~basePermissions) |
                     (managed.some((entry) => entry.feature === feature) ? Permissions.ManageRoles : 0n) |
-                    (status?.threadFeatures.includes(feature) ? Permissions.CreatePublicThreads : 0n),
+                    (status?.threadFeatures.includes(feature) ? Permissions.CreatePublicThreads : 0n) |
+                    (feature === "alerts" ? actions : 0n),
             )
         // The owner outranks every role. Otherwise the bot's highest role must be above each role it assigns
         for (const entry of managed) {

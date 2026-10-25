@@ -1,28 +1,39 @@
-import { AlertKind } from "@neonflux/contracts/alerts"
+import { AlertKind, type AlertAction } from "@neonflux/contracts/alerts"
+import { InviteCode } from "@neonflux/contracts/common"
+import { Schema } from "effect"
 import { commands } from "@neontechspace/fluxerly/effect"
 import { argument } from "./command-arguments.ts"
 
 export const alertKinds = AlertKind.literals
+/** The action each alert can take, by the alert's name in chat */
+export const actionOf = { bots: "kickBots", webhooks: "deleteWebhooks", privileges: "removePermissions" } as const
+export const actionNames: Record<AlertAction, string> = {
+    kickBots: "kick unexpected bots",
+    deleteWebhooks: "delete unexpected webhooks",
+    removePermissions: "remove gained permissions",
+}
 export type AlertsCommand =
     | { type: "help" }
     | { type: "status" }
     | { type: "expected"; next?: true }
     | { type: "set"; alerts: AlertKind[]; enabled: boolean }
+    | { type: "action"; action: AlertAction; enabled: boolean }
     | { type: "expect"; kind: "bot" | "webhook"; id: string; expected: boolean }
     | { type: "expect"; kind: "webhook"; name: string; expected: boolean }
-export type InvitesCommand = { type: "help" } | { type: "list"; next?: true } | { type: "revoke"; ref: string }
+export type InvitesCommand = { type: "help" } | { type: "list"; next?: true } | { type: "revoke"; code: string }
 
 export const alertsHelp = [
     "!alerts status: Which alerts are on and how many bots and webhooks are marked expected",
     "!alerts expected [next]: The bots and webhooks marked expected",
     "!alerts on|off <alert>|all: Alerts are invites, bots, webhooks, privileges and impersonation. All start off",
     "!alerts expect|unexpect bot <ID>|webhook <name>: An expected bot or webhook raises no alert",
-    "Alerts post in the metadata logs' security category. Send it to a staff channel with !logs metadata route security",
-    "NeonFlux only reports. It never acts on an alert",
+    "!alerts action bots|webhooks|privileges on|off: Kick unexpected bots, delete unexpected webhooks or remove gained permissions. Turning one on needs the owner or an Administrator",
+    "Alerts post in the metadata logs' security category. Send it to a staff-only channel with !logs metadata route security",
+    "NeonFlux acts on an alert only where you turn its action on with !alerts action",
 ].join("\n")
 export const invitesHelp = [
-    "!invites list [next]: The server's invites with creator, uses and expiry, newest first",
-    "!invites revoke <reference>: Revoke the invite the list shows with that reference",
+    "!invites list [next]: The server's invites with code, creator, uses and expiry, newest first",
+    "!invites revoke <code>: Revoke the invite with that code",
 ].join("\n")
 
 export function parseAlertsCommand(args: readonly string[]): AlertsCommand | { error: string } {
@@ -37,6 +48,13 @@ export function parseAlertsCommand(args: readonly string[]): AlertsCommand | { e
         if (name === "all" || alert)
             return { type: "set", alerts: alert ? [alert] : [...alertKinds], enabled: verb === "on" }
         return { error: `Alerts are ${alertKinds.join(", ")} or all` }
+    }
+    if (verb === "action" && args.length === 3) {
+        const alert = args[1]!.toLowerCase(),
+            state = args[2]!.toLowerCase()
+        if (Object.hasOwn(actionOf, alert) && (state === "on" || state === "off"))
+            return { type: "action", action: actionOf[alert as keyof typeof actionOf], enabled: state === "on" }
+        return { error: "Use !alerts action bots|webhooks|privileges on|off" }
     }
     if (
         (verb === "expect" || verb === "unexpect") &&
@@ -63,9 +81,10 @@ export function parseInvitesCommand(args: readonly string[]): InvitesCommand | {
     if (!verb || (verb === "list" && (args.length === 1 || (args.length === 2 && args[1] === "next"))))
         return { type: "list", ...(args[1] ? { next: true } : {}) }
     if (verb === "help" && args.length === 1) return { type: "help" }
+    // A code matches exactly, since codes differ by case
     if (verb === "revoke" && args.length === 2)
-        return /^[a-f0-9]{16}$/i.test(args[1]!)
-            ? { type: "revoke", ref: args[1]!.toLowerCase() }
-            : { error: "Use the 16-character reference !invites list shows" }
+        return Schema.is(InviteCode)(args[1]!)
+            ? { type: "revoke", code: args[1]! }
+            : { error: "Use the invite code !invites list shows" }
     return { error: "Check the invites command syntax. Use !invites help" }
 }

@@ -19,6 +19,7 @@ import { CleanupPolicy } from "./cleanup.ts"
 import { GreetingsRouteSettings, GreetingsSettings, type GreetingsRoute } from "./greetings.ts"
 import { LEVELING_XP_CAP, LevelingSettings } from "./leveling.ts"
 import {
+    METADATA_CHANNEL_LIMIT,
     MetadataLogsEventRoute,
     MetadataLogsRoute,
     metadataCategories,
@@ -225,8 +226,10 @@ const values = {
         enabled: Schema.Boolean,
         routes: List(Schema.Struct(metadataRoute), metadataCategories.length),
         eventRoutes: List(Schema.Struct(metadataEventRoute), metadataEventSelectors.length),
-        messageChannelIds: Ids(50),
-        excludedChannelIds: Ids(50),
+        // Absent in a backup made before the every-channel choice existed, which lists its channels
+        allChannels: Schema.optionalKey(Schema.Boolean),
+        messageChannelIds: Ids(METADATA_CHANNEL_LIMIT),
+        excludedChannelIds: Ids(METADATA_CHANNEL_LIMIT),
     }).check(
         Schema.makeFilter(
             (v) =>
@@ -235,7 +238,8 @@ const values = {
                 unique(v.eventRoutes, (route) => route.eventType) &&
                 [...v.routes, ...v.eventRoutes].every(destination) &&
                 unique(v.messageChannelIds) &&
-                unique(v.excludedChannelIds),
+                unique(v.excludedChannelIds) &&
+                (!v.allChannels || v.messageChannelIds.length === 0),
         ),
     ),
     events: enabled,

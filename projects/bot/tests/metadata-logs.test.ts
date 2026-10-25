@@ -9,16 +9,17 @@ import type {
     MetadataLogsSettings,
     MetadataLogsQueryRequest,
     MetadataLogsAdmitRequest,
+    MetadataLogsAdmitResult,
     MetadataLogsQueryOperation,
     MetadataLogsManageOperation,
     MetadataLogsQueryResult,
     MetadataLogsCounters,
 } from "@neonflux/contracts/metadata-logs"
-import { metadataLogContent } from "@neonflux/contracts/metadata-logs"
+import { metadataLogContent, metadataMessageLink } from "@neonflux/contracts/metadata-logs"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { Permissions } from "@neontechspace/fluxerly/effect"
+import { links, Permissions, type Message } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Deferred, Effect, Exit, Fiber, Redacted } from "effect"
 import { TestClock } from "effect/testing"
@@ -37,6 +38,7 @@ import { readMetadataLogContext } from "../src/metadata-log-permissions.ts"
 import { metadataLogCategories, metadataLogEventSelectors } from "../src/metadata-log-command.ts"
 import { processMetadataLogsPass } from "../src/metadata-log-worker.ts"
 import { createMetadataGatewayAdmission } from "../src/metadata-log-events.ts"
+import { messageRevisionsOf } from "../src/message-revisions.ts"
 import { platform, token } from "./moderation-fixture.ts"
 import type { GeneralSettingsStore } from "../src/general-settings.ts"
 import { mockBackend, prefixStore } from "./backend-fake.ts"
@@ -136,7 +138,7 @@ test("Frozen backend embeds dispatch unchanged and suppress mentions", async () 
                     r.calls.every(
                         (call) =>
                             call.operation.type === "discover" ||
-                            call.operation.binding.routeEventType === "member-remove",
+                            ("binding" in call.operation && call.operation.binding.routeEventType === "member-remove"),
                     ),
                 )
             }),
@@ -400,6 +402,7 @@ test("Adapter preserves disabled event destinations and rejects incomplete desti
         configRevision: 1,
         routes: metadataLogCategories.map((category) => ({ category, revision: 1, enabled: false })),
         eventRoutes: [route],
+        allChannels: false,
         messageChannelIds: [],
         excludedChannelIds: [],
         retained: 0,
@@ -450,6 +453,24 @@ test("Adapter preserves disabled event destinations and rejects incomplete desti
         payload = { type: "settings", settings: { ...settings, eventRoutes: [eventRoute] } }
         await assert.rejects(Effect.runPromise(store.query(request)), /MetadataLogsStoreError/)
     }
+    // A channel change is confirmed only by an answer with the same every-channel choice
+    const change = {
+        serverId: f.ids.guild,
+        messageId: f.nextId(),
+        createdAt: now,
+        context,
+        operation: {
+            type: "channels" as const,
+            expectedRevision: 1,
+            allChannels: true,
+            messageChannelIds: [],
+            excludedChannelIds: [],
+        },
+    }
+    payload = { duplicate: false, type: "settings", settings: { ...settings, revision: 2, allChannels: true } }
+    assert.equal((await Effect.runPromise(store.manage(change))).duplicate, false)
+    payload = { duplicate: false, type: "settings", settings: { ...settings, revision: 2 } }
+    await assert.rejects(Effect.runPromise(store.manage(change)), /MetadataLogsStoreError/)
 })
 
 test("Metadata owner evidence accepts documented false-flag omission and rejects bot, system or malformed account flags", async () => {
@@ -965,6 +986,7 @@ test("metadata changes read the current revisions right before the write", async
         configRevision: 9,
         routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })),
         eventRoutes: [],
+        allChannels: false,
         messageChannelIds: [],
         excludedChannelIds: [],
         retained: 0,
@@ -1001,12 +1023,16 @@ test("metadata changes read the current revisions right before the write", async
                     "!logs metadata event member-remove off",
                     "!logs metadata inherit member-remove",
                     `!logs metadata channels ${f.ids.channel} none`,
+                    // Without an owner the sender owns the route
+                    `!logs metadata route audit <#${f.ids.channel}> on`,
+                    `!logs metadata event member-add ${f.ids.channel} on`,
+                    `!logs metadata channels all none`,
                 ]) {
                     yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
                     yield* p.replies.next()
                     yield* bot.idle()
                 }
-                assert.equal(reads.length, 7)
+                assert.equal(reads.length, 10)
                 assert(reads.every((read) => read.type === "settings"))
                 // Module and channel changes use the module revision, routes their own revision and event overrides the configuration revision
                 assert.deepEqual(
@@ -1041,11 +1067,113 @@ test("metadata changes read the current revisions right before the write", async
                             excludedChannelIds: [],
                             expectedRevision: 20,
                         },
+                        {
+                            type: "route",
+                            category: "audit",
+                            channelId: f.ids.channel,
+                            ownerId: f.ids.user,
+                            enabled: true,
+                            expectedRevision: 4,
+                        },
+                        {
+                            type: "event-route",
+                            eventType: "member-add",
+                            enabled: true,
+                            channelId: f.ids.channel,
+                            ownerId: f.ids.user,
+                            expectedRevision: 9,
+                        },
+                        {
+                            type: "channels",
+                            allChannels: true,
+                            messageChannelIds: [],
+                            excludedChannelIds: [],
+                            expectedRevision: 20,
+                        },
                     ],
                 )
                 assert.deepEqual(
                     writes.map((write) => "recipientOwner" in write),
-                    [false, true, false, true, false, false, false],
+                    [false, true, false, true, false, false, false, true, true, false],
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+test("channel lists take one channel added or removed in chat, applied to the lists read right before the write", async () => {
+    const r = state(),
+        writes: MetadataLogsManageOperation[] = []
+    const settings: MetadataLogsSettings = {
+        enabled: true,
+        revision: 20,
+        configRevision: 9,
+        routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })),
+        eventRoutes: [],
+        allChannels: true,
+        messageChannelIds: [],
+        excludedChannelIds: ["901"],
+        retained: 0,
+        capacity: 10000,
+        retentionMs: 2592000000,
+        suppressed: 0,
+    }
+    r.store.work = () => Effect.succeed({ type: "work", records: [] })
+    r.store.query = () => Effect.sync(() => ({ type: "settings", settings: structuredClone(settings) }) as const)
+    r.store.manage = (input) =>
+        Effect.sync(() => {
+            writes.push(input.operation)
+            const op = input.operation
+            if (op.type === "channels")
+                Object.assign(settings, {
+                    allChannels: op.allChannels ?? false,
+                    messageChannelIds: op.messageChannelIds,
+                    excludedChannelIds: op.excludedChannelIds,
+                })
+            return { duplicate: false, type: "settings", settings: structuredClone(settings) } as const
+        })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.setTime(now)
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store }),
+                    ),
+                    p = platform(bot)
+                bot.rest.respond(`GET /users/${f.ids.user}`, { body: bot.fixtures.user({ bot: false, system: false }) })
+                yield* bot.ready()
+                const send = (content: string) =>
+                    bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(
+                        Effect.andThen(p.replies.next()),
+                        Effect.tap(() => bot.idle()),
+                        Effect.map((reply) => (reply.body as { content: string }).content),
+                    )
+                yield* send("!logs metadata exclude add 902,901")
+                yield* send("!logs metadata exclude remove 901")
+                assert.match(
+                    yield* send("!logs metadata channels add 903"),
+                    /^Message events come from every channel now, so there is no list to change/,
+                )
+                yield* send("!logs metadata channels 904 none")
+                yield* send("!logs metadata channels add 905,904")
+                yield* send("!logs metadata channels remove 904")
+                assert.deepEqual(
+                    writes.map((write) => {
+                        const { expectedRevision: _revision, ...operation } = write as { expectedRevision?: number }
+                        return operation
+                    }),
+                    [
+                        {
+                            type: "channels",
+                            allChannels: true,
+                            messageChannelIds: [],
+                            excludedChannelIds: ["901", "902"],
+                        },
+                        { type: "channels", allChannels: true, messageChannelIds: [], excludedChannelIds: ["902"] },
+                        { type: "channels", messageChannelIds: ["904"], excludedChannelIds: [] },
+                        { type: "channels", messageChannelIds: ["904", "905"], excludedChannelIds: [] },
+                        { type: "channels", messageChannelIds: ["905"], excludedChannelIds: [] },
+                    ],
                 )
                 assert.equal(bot.failures().length, 0)
             }),
@@ -1061,6 +1189,7 @@ test("a metadata change whose write fails gets a reply that says what to do", as
         configRevision: 9,
         routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })),
         eventRoutes: [],
+        allChannels: false,
         messageChannelIds: [],
         excludedChannelIds: [],
         retained: 0,
@@ -1106,7 +1235,7 @@ test("a metadata change whose write fails gets a reply that says what to do", as
         ).pipe(Effect.provide(TestClock.layer())),
     )
 })
-test("gateway admission pauses for a minute after the backend answers that logs are off, and a logs command resumes it", async () => {
+test("gateway admission pauses for a minute after the backend answers that logs are off, and a logs change resumes it", async () => {
     const r = state(),
         admissions: MetadataLogsAdmitRequest[] = []
     r.store.admit = (input) =>
@@ -1136,7 +1265,13 @@ test("gateway admission pauses for a minute after the backend answers that logs 
                 yield* TestClock.adjust("60 seconds")
                 yield* role()
                 assert.equal(admissions.length, 2)
+                // Reading logs changes nothing, so the pause holds
                 yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!logs events list" }))
+                yield* p.replies.next()
+                yield* bot.idle()
+                yield* role()
+                assert.equal(admissions.length, 2)
+                yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!logs metadata module on" }))
                 yield* p.replies.next()
                 yield* bot.idle()
                 yield* role()
@@ -1171,7 +1306,7 @@ test("a disabled answer to an admission sent before a logs change does not pause
                 const first = yield* leave().pipe(Effect.forkScoped({ startImmediately: true }))
                 yield* Deferred.await(entered)
                 // Logs are turned on while the older admission is still waiting for its answer
-                admit.recheck()
+                yield* admit.recheck()
                 yield* Deferred.succeed(release, undefined)
                 yield* Fiber.join(first)
                 yield* leave()
@@ -1218,7 +1353,7 @@ test("gateway admission pauses message events for a minute after the backend ans
                 yield* TestClock.adjust("60 seconds")
                 yield* edit()
                 assert.equal(admissions.length, 4)
-                admit.recheck()
+                yield* admit.recheck()
                 yield* edit()
                 assert.equal(admissions.length, 5)
             }),
@@ -1532,7 +1667,7 @@ function crowdedSettings() {
     // IDs far above every fixture counter, so no test bot's own channels, users or messages can share one of them
     let next = BigInt(f.ids.guild) + 1_000_000n
     const id = () => String(next++),
-        destinations = Array.from({ length: 30 }, id),
+        destinations = Array.from({ length: 31 }, id),
         ids = (count: number) => Array.from({ length: count }, id)
     const settings: MetadataLogsSettings = {
         enabled: true,
@@ -1550,6 +1685,7 @@ function crowdedSettings() {
                 ? { eventType, revision: 1, enabled: false }
                 : { eventType, revision: 1, enabled: true, channelId: destinations[7 + i / 2]!, ownerId: f.ids.user },
         ),
+        allChannels: false,
         messageChannelIds: ids(50),
         excludedChannelIds: ids(50),
         retained: 9500,
@@ -1597,16 +1733,18 @@ function reportBot(
                 body: { code: "UNKNOWN_CHANNEL", message: "Unknown Channel" },
             })
         yield* bot.ready()
+        // Status, categories, overrides and counters sent in a server channel answer there, and the rest by DM
         const send = (content: string, dm = false) =>
             Effect.gen(function* () {
                 const before = p.replies.requests().length
-                yield* bot.emit(
-                    "MESSAGE_CREATE",
-                    bot.fixtures.message(dm ? { guild_id: undefined, channel_id: p.dmId, content } : { content }),
+                const message = bot.fixtures.message(
+                    dm ? { guild_id: undefined, channel_id: p.dmId, content } : { content },
                 )
+                yield* bot.emit("MESSAGE_CREATE", message)
                 const response = yield* p.replies.next()
                 yield* bot.idle()
-                assert.equal(response.path, `/channels/${p.dmId}/messages`)
+                const here = !dm && /^!logs (metadata (status|categories|overrides)|counters)/.test(content)
+                assert.equal(response.path, `/channels/${here ? message.channel_id : p.dmId}/messages`)
                 assert.equal(p.replies.requests().length, before + 1, "One message")
                 return response.body as Body
             })
@@ -1624,13 +1762,13 @@ test("metadata status stays a short summary with every category and override rou
                     const body = yield* send("!logs metadata status"),
                         text = assertShort(body)
                     const summary =
-                        "On. 7 of 7 categories post to a channel. 5 log channels no longer exist. 20 log channels lack permissions"
+                        "On. 7 of 7 categories post to a channel. 6 log channels no longer exist. 20 log channels lack permissions"
                     const note =
                         "Send `!logs metadata categories` for each category and `!logs metadata overrides` for event overrides"
                     const fields = [
-                        ["Event overrides", "46, 23 turned off"],
+                        ["Event overrides", "67, 33 turned off"],
                         ["Message events", "From 50 channels, 50 excluded"],
-                        ["Channels that no longer exist", mentions(destinations.slice(25))],
+                        ["Channels that no longer exist", `${mentions(destinations.slice(25, 30))} and 1 more`],
                         ["NeonFlux lacks permissions in", `${mentions(destinations.slice(0, 5))} and 15 more`],
                         ["Could not check permissions in", mentions(destinations.slice(20, 25))],
                         ["Stored events", "9500 of 10000. The oldest are removed when full"],
@@ -1668,6 +1806,7 @@ test("metadata status of a quiet server shows only the state, message events and
         enabled: false,
         routes: metadataLogCategories.map((category) => ({ category, revision: 1, enabled: false })),
         eventRoutes: [],
+        allChannels: false,
         messageChannelIds: [],
         excludedChannelIds: [],
         retained: 7999,
@@ -1707,35 +1846,35 @@ test("metadata categories and event overrides show plain labels in their own rep
                                 (category, i) =>
                                     `**${category[0]!.toUpperCase()}${category.slice(1)}**: On in <#${destinations[i]}>, owner <@${f.ids.user}>. NeonFlux lacks Send messages, Embed links, Read message history`,
                             ),
-                            "Change one with `!logs metadata route <category> <channel> <owner> on|off`",
+                            "Change one with `!logs metadata route <category> <channel> [owner] on|off`",
                         ].join("\n"),
                     },
                 ])
                 const pages: Body[] = [yield* send("!logs metadata overrides")]
-                // The Next command is printed in the DM, so a list started in the server continues there
-                for (let i = 0; i < 4; i++) pages.push(yield* send("!logs metadata overrides next", true))
+                // A list started in a server channel continues there
+                for (let i = 0; i < 6; i++) pages.push(yield* send("!logs metadata overrides next"))
                 const lines = pages.map((page) => page.embeds![0]!.description!.split("\n").slice(0, -1))
                 // A list page shows 10 entries, the hint to remove one and Next
                 for (const page of pages) assertShort(page, 13)
                 assert.deepEqual(
                     lines.map((page) => page.length),
-                    [10, 10, 10, 10, 6],
+                    [10, 10, 10, 10, 10, 10, 7],
                 )
                 assert.deepEqual(lines[0]!.slice(0, 2), [
                     `**Member joined**: On in <#${destinations[7]}>, owner <@${f.ids.user}>`,
                     "**Member changed**: Off, so it never posts",
                 ])
-                assert.equal(
-                    lines[2]![8],
-                    `**Audit: Server changed**: On in <#${destinations[21]}>, owner <@${f.ids.user}>`,
-                )
+                assert.deepEqual(lines[2]!.slice(8, 10), [
+                    `**Security alert action**: On in <#${destinations[21]}>, owner <@${f.ids.user}>`,
+                    "**Audit: Server changed**: Off, so it never posts",
+                ])
                 assert.equal(
                     pages[0]!.embeds![0]!.description!.split("\n").at(-1),
                     "Send `!logs metadata inherit <event>` to remove one",
                 )
                 assert.deepEqual(
                     pages.map((page) => page.embeds![0]!.fields),
-                    [...Array(4).fill([{ name: "Next", value: "`!logs metadata overrides next`" }]), undefined],
+                    [...Array(6).fill([{ name: "Next", value: "`!logs metadata overrides next`" }]), undefined],
                 )
                 assert.equal(
                     (yield* send("!logs metadata overrides next")).content,
@@ -1928,5 +2067,458 @@ test("event override changes name the event in plain words", async () => {
                 assert.equal(bot.failures().length, 0)
             }),
         ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("a created then edited message and a changed member admit their earlier values once message events reach a log channel", async () => {
+    const r = state(),
+        admissions: MetadataLogsAdmitRequest[] = []
+    r.store.admit = (input) =>
+        Effect.sync(() => {
+            admissions.push(input)
+            return { admitted: true, duplicate: false, record: r.record } as const
+        })
+    r.store.work = () => Effect.succeed({ type: "work", records: [] })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.setTime(now)
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store }),
+                )
+                yield* bot.ready()
+                const author = bot.fixtures.user({ bot: false, system: false })
+                const message = bot.fixtures.message({ author, content: "first text" })
+                // Message events read their channel's parent once
+                bot.rest.respond(`GET /channels/${message.channel_id}`, {
+                    body: bot.fixtures.channel({ id: message.channel_id }),
+                })
+                bot.rest.respond("GET /users/@me", { body: bot.fixtures.botUser() })
+                const edited = (content: string, at: string) => ({
+                    ...message,
+                    content,
+                    edited_timestamp: at,
+                })
+                // Before any admitted message event the process keeps no text
+                yield* bot.emit("MESSAGE_CREATE", message)
+                yield* bot.idle()
+                yield* bot.emit("MESSAGE_UPDATE", edited("second text", "2026-10-04T20:00:01.000Z"))
+                yield* bot.idle()
+                yield* bot.emit("MESSAGE_UPDATE", edited("third text", "2026-10-04T20:00:02.000Z"))
+                yield* bot.idle()
+                yield* bot.emit("MESSAGE_DELETE", {
+                    id: message.id,
+                    channel_id: message.channel_id,
+                    guild_id: f.ids.guild,
+                })
+                yield* bot.idle()
+                const messages = admissions.filter(({ event }) => event.category === "messages")
+                assert.deepEqual(
+                    admissions.map(({ event }) => event.type),
+                    ["message-update", "message-update", "message-delete"],
+                )
+                assert.deepEqual(
+                    messages.map(({ event }) => event.details),
+                    [
+                        { authorId: author.id, earlierUnknown: true, text: "second text" },
+                        { authorId: author.id, before: "second text", text: "third text" },
+                        { authorId: author.id, text: "third text" },
+                    ],
+                )
+                // A member NeonFlux saw join names what changed, and the bot never borrows an actor
+                const joined = bot.fixtures.member({ user: author, nick: "Old" })
+                yield* bot.emit("GUILD_MEMBER_ADD", { ...joined, guild_id: f.ids.guild })
+                yield* bot.idle()
+                yield* bot.emit("GUILD_MEMBER_UPDATE", { ...joined, nick: "New", guild_id: f.ids.guild })
+                yield* bot.idle()
+                const update = admissions.find(({ event }) => event.type === "member-update")!.event
+                assert.deepEqual(update.changedFields, ["nickname"])
+                assert.deepEqual(update.details, { changes: [{ field: "nickname", before: "Old", after: "New" }] })
+                assert.deepEqual(update.actor, { kind: "unknown" })
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("a server that logs message events keeps message text from its start, so the first edit after a restart shows the earlier text", async () => {
+    for (const logged of [true, false]) {
+        const r = state(),
+            admissions: MetadataLogsAdmitRequest[] = [],
+            asked: string[] = []
+        r.store.admit = (input) =>
+            Effect.sync(() => {
+                admissions.push(input)
+                return { admitted: true, duplicate: false, record: r.record } as const
+            })
+        r.store.work = (input) =>
+            Effect.sync(() => {
+                asked.push(input.operation.type)
+                return input.operation.type === "messages"
+                    ? ({ type: "messages", logged } as const)
+                    : ({ type: "work", records: [] } as const)
+            })
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    yield* TestClock.setTime(now)
+                    const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store }),
+                    )
+                    yield* bot.ready()
+                    const author = bot.fixtures.user({ bot: false, system: false })
+                    const message = bot.fixtures.message({ author, content: "first text" })
+                    bot.rest.respond(`GET /channels/${message.channel_id}`, {
+                        body: bot.fixtures.channel({ id: message.channel_id }),
+                    })
+                    bot.rest.respond("GET /users/@me", { body: bot.fixtures.botUser() })
+                    yield* bot.emit("MESSAGE_CREATE", message)
+                    yield* bot.idle()
+                    yield* bot.emit("MESSAGE_UPDATE", {
+                        ...message,
+                        content: "second text",
+                        edited_timestamp: "2026-10-04T20:00:01.000Z",
+                    })
+                    yield* bot.idle()
+                    // One read at the server's start, before any message event
+                    assert.deepEqual(
+                        asked.filter((type) => type === "messages"),
+                        ["messages"],
+                    )
+                    assert.deepEqual(
+                        admissions
+                            .filter(({ event }) => event.category === "messages")
+                            .map(({ event }) => event.details),
+                        [
+                            logged
+                                ? { authorId: author.id, before: "first text", text: "second text" }
+                                : { authorId: author.id, earlierUnknown: true, text: "second text" },
+                        ],
+                        `logged ${logged}`,
+                    )
+                    assert.equal(bot.failures().length, 0)
+                }),
+            ).pipe(Effect.provide(TestClock.layer())),
+        )
+    }
+})
+
+test("reading logs keeps the message text, and a logs change keeps it only while message events are still logged", async () => {
+    const r = state(),
+        admissions: MetadataLogsAdmitRequest[] = [],
+        asked: string[] = []
+    let logged = true
+    const settings: MetadataLogsSettings = {
+        enabled: true,
+        revision: 20,
+        configRevision: 9,
+        routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })),
+        eventRoutes: [],
+        allChannels: true,
+        messageChannelIds: [],
+        excludedChannelIds: [],
+        retained: 0,
+        capacity: 10000,
+        retentionMs: 2592000000,
+        suppressed: 0,
+    }
+    r.store.query = () => Effect.sync(() => ({ type: "settings", settings: structuredClone(settings) }) as const)
+    r.store.manage = () => Effect.succeed({ duplicate: true })
+    r.store.admit = (input) =>
+        Effect.sync(() => {
+            admissions.push(input)
+            return { admitted: true, duplicate: false, record: r.record } as const
+        })
+    r.store.work = (input) =>
+        Effect.sync(() => {
+            asked.push(input.operation.type)
+            return input.operation.type === "messages"
+                ? ({ type: "messages", logged } as const)
+                : ({ type: "work", records: [] } as const)
+        })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.setTime(now)
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store }),
+                    ),
+                    p = platform(bot)
+                bot.rest.respond(`GET /users/${f.ids.user}`, { body: bot.fixtures.user({ bot: false, system: false }) })
+                bot.rest.respond("GET /users/@me", { body: bot.fixtures.botUser() })
+                yield* bot.ready()
+                const author = bot.fixtures.user({ bot: false, system: false })
+                const message = bot.fixtures.message({ author, content: "first text" })
+                bot.rest.respond(`GET /channels/${message.channel_id}`, {
+                    body: bot.fixtures.channel({ id: message.channel_id }),
+                })
+                const say = (content: string) =>
+                    bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(
+                        Effect.andThen(p.replies.next()),
+                        Effect.tap(() => bot.idle()),
+                    )
+                const edit = (content: string, at: string) =>
+                    bot
+                        .emit("MESSAGE_UPDATE", { ...message, content, edited_timestamp: at })
+                        .pipe(Effect.andThen(bot.idle()))
+                yield* bot.emit("MESSAGE_CREATE", message)
+                yield* bot.idle()
+                for (const read of [
+                    "!logs metadata status",
+                    "!logs metadata categories",
+                    "!logs metadata help",
+                    "!logs metadata nothing",
+                ])
+                    yield* say(read)
+                yield* edit("second text", "2026-10-04T20:00:01.000Z")
+                // Message events are no longer logged once the change is made, so its recheck forgets the text
+                logged = false
+                yield* say("!logs metadata module on")
+                yield* edit("third text", "2026-10-04T20:00:02.000Z")
+                assert.deepEqual(
+                    asked.filter((type) => type === "messages"),
+                    ["messages", "messages"],
+                )
+                assert.deepEqual(
+                    admissions.map(({ event }) => event.details),
+                    [
+                        { authorId: author.id, before: "first text", text: "second text" },
+                        { authorId: author.id, earlierUnknown: true, text: "third text" },
+                    ],
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("only the latest messages read decides, a failed read at a start keeps nothing and one after a change keeps what was kept", async () => {
+    const r = state()
+    const answers: Effect.Effect<MetadataLogsWorkResult, MetadataLogsStoreError>[] = []
+    r.store.work = () => answers.shift()!
+    const failed = Effect.fail(new MetadataLogsStoreError({ operation: "work", status: 503 }))
+    const answer = (logged: boolean) => Effect.succeed({ type: "messages", logged } as const)
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.setTime(now)
+                const bot = yield* createTestBot({ token: "synthetic-metadata-read-token" })
+                bot.rest.respond("GET /users/@me", { body: bot.fixtures.botUser() })
+                yield* bot.ready()
+                const memory = messageRevisionsOf(bot.client)
+                let sequence = 0
+                // Whether the memory keeps the text of a message it sees now
+                const keeps = () => {
+                    const id = f.nextId(),
+                        seen = {
+                            id,
+                            channelId: f.ids.channel,
+                            guildId: f.ids.guild,
+                            content: "synthetic text",
+                            embeds: [],
+                            attachments: [],
+                            stickers: [],
+                            author: { id: f.ids.user, username: "Synthetic author", isBot: false },
+                            editedAt: null,
+                            pinned: false,
+                            flags: 0,
+                        } as unknown as Message
+                    memory.created(seen)
+                    return (
+                        memory.changed({ ...seen, editedAt: `2026-10-04T20:00:0${++sequence}.000Z` } as Message)
+                            .previous?.text !== undefined
+                    )
+                }
+                const admit = createMetadataGatewayAdmission(r.store, f.ids.guild, () => Effect.void)
+                memory.keepText(f.ids.guild, true)
+                answers.push(failed)
+                yield* admit.start(bot.client)
+                assert.equal(keeps(), false, "a failed read at a start keeps nothing")
+                answers.push(answer(true))
+                yield* admit.start(bot.client)
+                assert.equal(keeps(), true)
+                answers.push(failed)
+                yield* admit.recheck()
+                assert.equal(keeps(), true, "a failed read after a change keeps what was kept")
+                answers.push(answer(false))
+                yield* admit.recheck()
+                assert.equal(keeps(), false)
+                // A change made while the start read waits is answered by its own read, which wins
+                const entered = yield* Deferred.make<void>(),
+                    release = yield* Deferred.make<void>()
+                answers.push(
+                    Deferred.succeed(entered, undefined).pipe(
+                        Effect.andThen(Deferred.await(release)),
+                        Effect.andThen(answer(true)),
+                    ),
+                    answer(false),
+                )
+                const starting = yield* admit.start(bot.client).pipe(Effect.forkScoped({ startImmediately: true }))
+                yield* Deferred.await(entered)
+                yield* admit.recheck()
+                yield* Deferred.succeed(release, undefined)
+                yield* Fiber.join(starting)
+                assert.equal(keeps(), false, "the start read answered after the change")
+                // An admission answering that message events are off forgets the text at once
+                answers.push(answer(true))
+                yield* admit.start(bot.client)
+                assert.equal(keeps(), true)
+                r.store.admit = () => Effect.succeed({ admitted: false, duplicate: false, reason: "messages-off" })
+                bot.rest.respond(`GET /channels/${f.ids.channel}`, { body: bot.fixtures.channel() })
+                yield* admit(
+                    "messageUpdate",
+                    {
+                        guildId: f.ids.guild,
+                        channelId: f.ids.channel,
+                        id: f.nextId(),
+                        author: { id: f.ids.user, isBot: false, isSystem: false },
+                    },
+                    bot.client,
+                )
+                assert.equal(keeps(), false, "messages-off forgets")
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("an admission answered after a recheck leaves the message text setting to the recheck, in both orders", async () => {
+    const r = state()
+    const reads: boolean[] = []
+    r.store.work = () => Effect.succeed({ type: "messages", logged: reads.shift()! } as const)
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.setTime(now)
+                const bot = yield* createTestBot({ token: "synthetic-metadata-admission-race-token" })
+                bot.rest.respond("GET /users/@me", { body: bot.fixtures.botUser() })
+                bot.rest.respond(`GET /channels/${f.ids.channel}`, { body: bot.fixtures.channel() })
+                yield* bot.ready()
+                const memory = messageRevisionsOf(bot.client)
+                let sequence = 0
+                // Whether the memory keeps the text of a message it sees now
+                const keeps = () => {
+                    const seen = {
+                        id: f.nextId(),
+                        channelId: f.ids.channel,
+                        guildId: f.ids.guild,
+                        content: "synthetic text",
+                        embeds: [],
+                        attachments: [],
+                        stickers: [],
+                        author: { id: f.ids.user, username: "Synthetic author", isBot: false },
+                        editedAt: null,
+                        pinned: false,
+                        flags: 0,
+                    } as unknown as Message
+                    memory.created(seen)
+                    return (
+                        memory.changed({ ...seen, editedAt: `2026-10-04T20:00:0${++sequence}.000Z` } as Message)
+                            .previous?.text !== undefined
+                    )
+                }
+                const admit = createMetadataGatewayAdmission(r.store, f.ids.guild, () => Effect.void)
+                const deletion = () => ({ guildId: f.ids.guild, channelId: f.ids.channel, id: f.nextId() })
+                // Holds one admission's answer until the recheck after a logs change has answered
+                const held = (answer: MetadataLogsAdmitResult) =>
+                    Effect.gen(function* () {
+                        const entered = yield* Deferred.make<void>(),
+                            release = yield* Deferred.make<void>()
+                        r.store.admit = () =>
+                            Deferred.succeed(entered, undefined).pipe(
+                                Effect.andThen(Deferred.await(release)),
+                                Effect.as(answer),
+                            )
+                        const admitting = yield* admit("messageDelete", deletion(), bot.client).pipe(
+                            Effect.forkScoped({ startImmediately: true }),
+                        )
+                        yield* Deferred.await(entered)
+                        return { release: Deferred.succeed(release, undefined), admitting }
+                    })
+                reads.push(true)
+                yield* admit.start(bot.client)
+                assert.equal(keeps(), true)
+                // Message logging is turned off while an admitted message event waits for its answer
+                const admitted = yield* held({ admitted: true, duplicate: false, record: r.record })
+                reads.push(false)
+                yield* admit.recheck()
+                assert.equal(keeps(), false)
+                yield* admitted.release
+                yield* Fiber.join(admitted.admitting)
+                assert.equal(keeps(), false, "an older admitted answer keeps no text after logging was turned off")
+                // Message logging is turned on again while an admission answered as off waits
+                const refused = yield* held({ admitted: false, duplicate: false, reason: "messages-off" })
+                reads.push(true)
+                yield* admit.recheck()
+                assert.equal(keeps(), true)
+                yield* refused.release
+                yield* Fiber.join(refused.admitting)
+                assert.equal(keeps(), true, "an older answer as off forgets nothing after logging was turned on")
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("a deleted message of another bot stays out of message logs, while a member's deletion is logged", async () => {
+    const r = state(),
+        admissions: MetadataLogsAdmitRequest[] = []
+    r.store.admit = (input) =>
+        Effect.sync(() => {
+            admissions.push(input)
+            return { admitted: true, duplicate: false, record: r.record } as const
+        })
+    r.store.work = (input) =>
+        Effect.succeed(
+            input.operation.type === "messages"
+                ? ({ type: "messages", logged: true } as const)
+                : ({ type: "work", records: [] } as const),
+        )
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.setTime(now)
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { metadata: r.store }),
+                )
+                bot.rest.respond("GET /users/@me", { body: bot.fixtures.botUser() })
+                yield* bot.ready()
+                const other = bot.fixtures.user({ id: f.nextId(), bot: true, system: false })
+                const member = bot.fixtures.user({ bot: false, system: false })
+                const robot = bot.fixtures.message({ id: f.nextId(), author: other, content: "synthetic bot text" })
+                const human = bot.fixtures.message({ id: f.nextId(), author: member, content: "synthetic member text" })
+                bot.rest.respond(`GET /channels/${human.channel_id}`, {
+                    body: bot.fixtures.channel({ id: human.channel_id }),
+                })
+                for (const message of [robot, human]) {
+                    yield* bot.emit("MESSAGE_CREATE", message)
+                    yield* bot.idle()
+                }
+                // Fluxer sends a deletion's text and author, but no bot flag
+                for (const message of [robot, human]) {
+                    yield* bot.emit("MESSAGE_DELETE", {
+                        id: message.id,
+                        channel_id: message.channel_id,
+                        guild_id: f.ids.guild,
+                        content: message.content,
+                        author_id: message.author.id,
+                    })
+                    yield* bot.idle()
+                }
+                assert.deepEqual(
+                    admissions.map(({ event }) => [event.type, event.details?.text]),
+                    [["message-delete", "synthetic member text"]],
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+
+test("a message log's jump link is the SDK's message link", () => {
+    const serverId = f.ids.guild,
+        channelId = f.ids.channel,
+        messageId = f.nextId()
+    assert.equal(
+        metadataMessageLink(serverId, channelId, messageId),
+        links.message({ id: messageId, channelId }, { id: channelId, guildId: serverId }),
     )
 })

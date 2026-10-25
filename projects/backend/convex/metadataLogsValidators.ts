@@ -56,6 +56,33 @@ export const metadataEventValidator = v.object({
     privateChannel: v.optional(v.boolean()),
     auditAction: v.optional(v.number()),
     outcome: v.optional(literals(MetadataLogsOutcome.literals)),
+    details: v.optional(
+        v.object({
+            authorId: v.optional(v.string()),
+            before: v.optional(v.string()),
+            text: v.optional(v.string()),
+            earlierUnknown: v.optional(v.literal(true)),
+            attachments: v.optional(
+                v.array(v.object({ name: v.string(), size: v.number(), url: v.optional(v.string()) })),
+            ),
+            attachmentCount: v.optional(v.number()),
+            authors: v.optional(v.array(v.object({ userId: v.string(), count: v.number() }))),
+            changes: v.optional(
+                v.array(
+                    v.object({
+                        field: v.string(),
+                        before: v.optional(v.string()),
+                        after: v.optional(v.string()),
+                        added: v.optional(v.string()),
+                        removed: v.optional(v.string()),
+                    }),
+                ),
+            ),
+            moreChanges: v.optional(v.number()),
+            reason: v.optional(v.string()),
+            inviteCode: v.optional(v.string()),
+        }),
+    ),
 })
 export const metadataRouteValidator = v.object({
     category: metadataCategoryValidator,

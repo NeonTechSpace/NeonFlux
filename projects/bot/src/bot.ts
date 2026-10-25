@@ -172,7 +172,19 @@ import { parseProfileCommand, profilePublic } from "./profile-command.ts"
 import { handleProfileCommand } from "./profile-management.ts"
 import { processProfilePass } from "./profile-worker.ts"
 import { observeCosts, startCostSummary } from "./costs.ts"
-import { createMessageRevisions } from "./message-revisions.ts"
+import { carryEarlierMessage, earlierMessageOf, messageRevisionsOf } from "./message-revisions.ts"
+import {
+    forgetChannel,
+    forgetMember,
+    forgetRole,
+    forgetServerChannels,
+    forgetServerResources,
+    rememberChannel,
+    rememberGuild,
+    rememberMember,
+    rememberRole,
+    seedServerResources,
+} from "./resource-memory.ts"
 import {
     forgetShardThreads,
     forgetServerThreads,
@@ -399,7 +411,6 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
     // Single mode always names its configured server. Multi mode serves the servers registered now
     const served = (serverId: string) =>
         scope.mode === "single" ? serverId === scope.serverIds[0] : runtimes.has(serverId)
-    const revisions = createMessageRevisions()
     // Finds the open intake a plain DM answers. The lookup binds no server, so it uses the root backend configuration
     const intakes =
         scope.mode === "single" && stores.tickets
@@ -455,10 +466,21 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                 // A runtime still starting has not loaded whether it checks bot messages, so the check waits for its setup
                 const checked =
                     checker && (yield* serving(checker)) && checker.options.botMessages.enabled() ? checker : undefined
-                if (posted?.author.isBot && !checked) return
-                // A link preview or another embed-only update changes nothing a feature reads
-                if (name === "messageUpdate" && !revisions.changed((context as BotEventContext<"messageUpdate">).event))
+                const revisions = messageRevisionsOf(context.client)
+                // A deletion carries no author flags, so the memory notes another bot's message to keep it out of logs
+                if (posted?.author.isBot && !checked) {
+                    if (name === "messageCreate") revisions.observed(posted)
                     return
+                }
+                // A link preview or another embed-only update changes nothing a feature reads. The memory returns what it
+                // knew of the message before, which the routed event carries to metadata logs
+                const edit =
+                    name === "messageUpdate"
+                        ? revisions.changed((context as BotEventContext<"messageUpdate">).event)
+                        : undefined
+                if (edit && !edit.needed) return
+                // Metadata logs compare a member's changes with the member a message last carried
+                if (posted?.member && guildId !== undefined) rememberMember(context.client, posted.member)
                 if (posted && checked) {
                     if (name === "messageCreate") revisions.created(posted)
                     yield* checked.options.botMessages.handle(
@@ -476,8 +498,10 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                         messageContext.message.webhookId ||
                         (messageContext.message.type !== MessageType.Default &&
                             messageContext.message.type !== MessageType.Reply)
-                    )
+                    ) {
+                        revisions.observed(messageContext.message)
                         return
+                    }
                     revisions.created(messageContext.message)
                     // Selector validation precedes private reads and feature admission
                     selected = selectServerCommand(messageContext.message.content, scope, served, guildId)
@@ -546,6 +570,7 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                 if (!runtime) return
                 const event = guildId && payload.guildId === undefined ? { ...context.event, guildId } : context.event
                 carryReceipt(context.event, event)
+                if (edit) carryEarlierMessage(event, edit.previous)
                 let routed = { ...context, event }
                 if (name === "messageCreate") {
                     const original = context as BotEventContext<"messageCreate">
@@ -632,8 +657,13 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                       maxPendingMessages: MULTI_EVENT_QUEUE,
                   }
                 : {}),
+            // The roles the SDK holds and the server itself start its resource memory again, and its messages are forgotten
             handler: ({ event, client }: BotEventContext<"guildCreate">) =>
-                Effect.sync(() => forgetServerThreads(client, event.id)),
+                Effect.gen(function* () {
+                    forgetServerThreads(client, event.id)
+                    messageRevisionsOf(client).forgetServer(event.id)
+                    seedServerResources(client, event, yield* client.roles.getAll(event.id))
+                }),
         },
         // A temporarily unavailable server keeps its runtime. Any other deletion in multi mode means the bot no longer sees the server
         guildDelete: {
@@ -652,6 +682,8 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
             handler: (context: BotEventContext<"guildDelete">) =>
                 Effect.suspend(() => {
                     forgetServerThreads(context.client, context.event.id)
+                    forgetServerResources(context.client, context.event.id)
+                    messageRevisionsOf(context.client).forgetServer(context.event.id)
                     return multi && !context.event.unavailable ? Effect.void : routedDelete(context)
                 }),
         },
@@ -670,7 +702,13 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
         observe: (observation: Observation) => {
             observeCosts(observation)
             // A lost connection can miss events that a new session does not replay
-            if (observation.type === "reconnect" && connected) forgetShardThreads(connected, observation.shardId)
+            if (observation.type === "reconnect" && connected) {
+                const client = connected
+                forgetShardThreads(client, observation.shardId)
+                messageRevisionsOf(client).forgetWhere(
+                    (guildId) => client.shardIdForGuild(guildId) === observation.shardId,
+                )
+            }
         },
         gateway: { ignoredEvents: "auto" as const },
         setup: (client: Client) =>
@@ -1330,6 +1368,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         client,
                     )).notify
                 if (admitMetadata) {
+                    yield* admitMetadata.start(client)
                     const recheck = admitMetadata.recheck
                     metadataRechecks.set(config.serverId, recheck)
                     yield* Effect.addFinalizer(() =>
@@ -1992,7 +2031,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             return
                                         }
                                         if (metadataInvocation) {
-                                            // Gateway admission pauses while logs are off, so a logs command rechecks it
+                                            // Gateway admission pauses while logs are off, so a settings change rechecks it.
+                                            // A read, help or a forgotten record changes no setting and keeps the message text
+                                            const changes =
+                                                !("error" in parsedMetadata!) &&
+                                                parsedMetadata!.type === "manage" &&
+                                                parsedMetadata!.operation.type !== "forget"
                                             if (metadata)
                                                 yield* handleMetadataLogCommand(
                                                     metadata,
@@ -2000,7 +2044,13 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                     parsedMetadata!,
                                                     context,
                                                     metadataWorker,
-                                                ).pipe(Effect.ensuring(Effect.sync(() => admitMetadata?.recheck())))
+                                                ).pipe(
+                                                    Effect.ensuring(
+                                                        changes
+                                                            ? (admitMetadata?.recheck() ?? Effect.void)
+                                                            : Effect.void,
+                                                    ),
+                                                )
                                             return
                                         }
                                         if (name === "cleanup") {
@@ -2355,7 +2405,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             messageUpdate: {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
-                        if (admitMetadata) yield* admitMetadata("messageUpdate", event, client)
+                        if (admitMetadata) yield* admitMetadata("messageUpdate", event, client, earlierMessageOf(event))
                         if (
                             !moderation ||
                             event.guildId !== config.serverId ||
@@ -2373,7 +2423,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             guildMemberAdd: {
                 handler: (context) =>
                     Effect.gen(function* () {
-                        if (admitMetadata) yield* admitMetadata("guildMemberAdd", context.event, context.client)
+                        if (admitMetadata) {
+                            rememberMember(context.client, context.event)
+                            yield* admitMetadata("guildMemberAdd", context.event, context.client)
+                        }
                         if (context.event.guildId !== config.serverId) return
                         if (analyticsWorker && (yield* optional("analytics"))) yield* analyticsWorker.join()
                         if (milestoneWorker) yield* milestoneWorker.notifyMember(context.event.userId)
@@ -2433,7 +2486,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             guildMemberRemove: {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
-                        if (admitMetadata) yield* admitMetadata("guildMemberRemove", event, client)
+                        if (admitMetadata) {
+                            forgetMember(client, event.guildId, event.userId)
+                            yield* admitMetadata("guildMemberRemove", event, client)
+                        }
                         if (event.guildId !== config.serverId) return
                         if (analyticsWorker && (yield* optional("analytics"))) yield* analyticsWorker.leave()
                         if (eventWorker) yield* eventWorker.notifyMember(event.userId)
@@ -2451,7 +2507,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             guildMemberUpdate: {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
-                        if (admitMetadata) yield* admitMetadata("guildMemberUpdate", event, client)
+                        if (admitMetadata)
+                            yield* admitMetadata("guildMemberUpdate", event, client, rememberMember(client, event))
                         if (event.guildId !== config.serverId) return
                         if (securityAlerts) yield* securityAlerts.memberUpdate(event, client)
                         // Milestones follow joins and leaves only. An update keeps the join time, and delivery rechecks membership
@@ -2463,47 +2520,85 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             )
                     }),
             },
+            // A deleted message's record shows what the process remembered of it, and the memory forgets it
             messageDelete: {
-                handler: ({ event, client }) => admitMetadata?.("messageDelete", event, client) ?? Effect.void,
+                handler: ({ event, client }) =>
+                    Effect.suspend(() => {
+                        const previous = messageRevisionsOf(client).deleted(event.id)
+                        return admitMetadata?.("messageDelete", event, client, previous) ?? Effect.void
+                    }),
             },
             messageDeleteBulk: {
-                handler: ({ event, client }) => admitMetadata?.("messageDeleteBulk", event, client) ?? Effect.void,
+                handler: ({ event, client }) =>
+                    Effect.suspend(() => {
+                        const memory = messageRevisionsOf(client)
+                        const previous = event.ids.map((id) => memory.deleted(id))
+                        return admitMetadata?.("messageDeleteBulk", event, client, previous) ?? Effect.void
+                    }),
             },
+            // Resource changes are compared with what the bot last saw, kept only while metadata logs can use it
             guildRoleCreate: {
-                handler: ({ event, client }) => admitMetadata?.("guildRoleCreate", event, client) ?? Effect.void,
+                handler: ({ event, client }) =>
+                    Effect.suspend(() => {
+                        if (!admitMetadata) return Effect.void
+                        rememberRole(client, event)
+                        return admitMetadata("guildRoleCreate", event, client)
+                    }),
             },
             guildRoleUpdate: {
-                handler: ({ event, client }) => admitMetadata?.("guildRoleUpdate", event, client) ?? Effect.void,
+                handler: ({ event, client }) =>
+                    admitMetadata?.("guildRoleUpdate", event, client, rememberRole(client, event)) ?? Effect.void,
             },
             guildRoleDelete: {
-                handler: ({ event, client }) => admitMetadata?.("guildRoleDelete", event, client) ?? Effect.void,
+                handler: ({ event, client }) =>
+                    Effect.suspend(() => {
+                        forgetRole(client, event.id)
+                        return admitMetadata?.("guildRoleDelete", event, client) ?? Effect.void
+                    }),
             },
             guildRoleUpdateBulk: {
-                handler: ({ event, client }) => admitMetadata?.("guildRoleUpdateBulk", event, client) ?? Effect.void,
+                handler: ({ event, client }) =>
+                    Effect.suspend(() => {
+                        if (!admitMetadata) return Effect.void
+                        for (const role of event.roles) rememberRole(client, role)
+                        return admitMetadata("guildRoleUpdateBulk", event, client)
+                    }),
             },
             guildChannelCreate: {
                 handler: ({ event, client }) =>
-                    Effect.andThen(
-                        structureChanged,
-                        admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void,
-                    ),
+                    Effect.suspend(() => {
+                        if (admitMetadata) rememberChannel(client, event)
+                        return Effect.andThen(
+                            structureChanged,
+                            admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void,
+                        )
+                    }),
             },
-            // A changed category can move its channels or change their permissions, so the threads kept for the server are forgotten
+            // A changed category can move its channels or change their permissions, so the threads and channels kept for
+            // the server are forgotten
             guildChannelUpdate: {
                 handler: ({ event, client }) =>
                     Effect.suspend(() => {
-                        if (event.type === ChannelType.Category) forgetServerThreads(client, event.guildId)
+                        if (event.type === ChannelType.Category) {
+                            forgetServerThreads(client, event.guildId)
+                            forgetServerChannels(client, event.guildId)
+                        }
+                        const previous = admitMetadata ? rememberChannel(client, event) : undefined
                         return Effect.andThen(
                             structureChanged,
-                            admitMetadata?.("guildChannelUpdate", event, client) ?? Effect.void,
+                            admitMetadata?.("guildChannelUpdate", event, client, previous) ?? Effect.void,
                         )
                     }),
             },
             guildChannelDelete: {
                 handler: ({ event, client }) =>
                     Effect.gen(function* () {
+                        forgetChannel(client, event.id)
                         // Fluxer deletes a channel's threads with it and sends no thread events for them
-                        if (event.type === ChannelType.Category) forgetServerThreads(client, event.guildId)
+                        if (event.type === ChannelType.Category) {
+                            forgetServerThreads(client, event.guildId)
+                            forgetServerChannels(client, event.guildId)
+                        }
                         const threadIds = event.type === ChannelType.Category ? [] : forgetThreadsOf(client, event.id)
                         if (voiceRooms && event.guildId === config.serverId) yield* voiceRooms.channelDeleted(event.id)
                         yield* structureChanged
@@ -2561,6 +2656,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                 handler: ({ event, client }) =>
                     Effect.suspend(() => {
                         forgetServerThreads(client, event.guildId)
+                        forgetServerChannels(client, event.guildId)
                         return Effect.andThen(
                             structureChanged,
                             admitMetadata?.("guildChannelUpdateBulk", event, client) ?? Effect.void,
@@ -2568,7 +2664,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     }),
             },
             guildUpdate: {
-                handler: ({ event, client }) => admitMetadata?.("guildUpdate", event, client) ?? Effect.void,
+                handler: ({ event, client }) =>
+                    admitMetadata?.("guildUpdate", event, client, rememberGuild(client, event)) ?? Effect.void,
             },
             guildAuditLogEntryCreate: {
                 handler: ({ event, client }) =>
@@ -2578,12 +2675,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             yield* securityAlerts.audit(event, client)
                     }),
             },
-            // Invite logs belong to security alerts, which keep the invite code out of every record
+            // Invite logs belong to security alerts, whose records name the invite code for staff
             inviteCreate: {
                 handler: ({ event }) => securityAlerts?.inviteCreated(event) ?? Effect.void,
             },
             inviteDelete: {
-                handler: ({ event }) => securityAlerts?.inviteDeleted(event.channelId) ?? Effect.void,
+                handler: ({ event }) => securityAlerts?.inviteDeleted(event) ?? Effect.void,
             },
             messageReactionAdd: {
                 handler: ({ event, client }) =>

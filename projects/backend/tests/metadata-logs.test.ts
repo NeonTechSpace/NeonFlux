@@ -240,6 +240,21 @@ test("Strict finite ingress rejects private bodies and invented attribution at e
     const row = await f.admitted()
     assert.deepEqual(row.event.actor, { kind: "unknown" })
     assert(!JSON.stringify(row).includes("synthetic private value"))
+    // Details pass only with the keys their kind of record may carry, within their bounds
+    const nickname = { field: "nickname", before: "Old", after: "New" }
+    const changed = await f.admitted(f.event({ changedFields: ["nickname"], details: { changes: [nickname] } }))
+    assert.deepEqual(changed.event.details, { changes: [nickname] })
+    assert.match(changed.presentation!.embed.description, /\*\*Nickname\*\*: Old → New/)
+    for (const details of [
+        { text: "message text on a member record" },
+        { changes: [{ ...nickname, field: "roles" }] },
+        { changes: [{ field: "nickname" }] },
+        { changes: [{ ...nickname, before: "x".repeat(301) }] },
+        { changes: [nickname, nickname] },
+        { unknown: true },
+        {},
+    ])
+        await status(await f.admit(f.event({ changedFields: ["nickname"], details } as never)), 400)
 })
 
 test("Stable native IDs and raw join epochs dedupe separately from session observation sequences", async (t) => {
@@ -269,11 +284,18 @@ test("Stable native IDs and raw join epochs dedupe separately from session obser
     assert.equal((await f.read(await f.admit(audit))).reason, "duplicate")
     const after = await f.admitted()
     assert.deepEqual(after.event.actor, { kind: "unknown" })
-    for (const auditAction of [40, 41, 42, 72])
-        await status(
-            await f.admit({ ...audit, auditAction, source: { kind: "audit", auditEntryId: String(auditAction) } }),
-            400,
-        )
+    // Every audit action Fluxer lists is logged, and an entry without a target too
+    for (const [auditAction, resourceIds] of [
+        [72, ["20"]],
+        [21, []],
+    ] as const)
+        await f.admitted({
+            ...audit,
+            auditAction,
+            resourceIds: [...resourceIds],
+            source: { kind: "audit", auditEntryId: String(auditAction) },
+        })
+    await status(await f.admit({ ...audit, auditAction: 99, source: { kind: "audit", auditEntryId: "99" } }), 400)
 })
 
 test("Security alerts have their own category, and name an actor only from their own audit entry or a new invite's event", async (t) => {
@@ -290,10 +312,19 @@ test("Security alerts have their own category, and name an actor only from their
         changedFields: ["never-expires", "unlimited-uses"],
         actor: { kind: "event", userId: "12" },
     })
-    const unrouted = await f.admitted(invite)
+    const unrouted = await f.admitted({ ...invite, details: { inviteCode: "AbC123" } })
     assert.equal(unrouted.delivery, null)
     assert.deepEqual(unrouted.event.actor, { kind: "event", userId: "12" })
-    assert.ok(unrouted.presentation!.embed.description.includes("The invite code is not recorded"))
+    assert.ok(unrouted.presentation!.embed.description.includes("Code: `AbC123`"))
+    for (const inviteCode of ["has space", "back`tick", "x".repeat(65)])
+        await status(
+            await f.admit({
+                ...invite,
+                source: { kind: "observation", sessionId: "4".repeat(32), sequence: 1 },
+                details: { inviteCode },
+            }),
+            400,
+        )
     await f.route("security", "32")
     assert.equal(
         (await f.admitted(f.event({ category: "security", type: "bot-join", resourceIds: ["40"], changedFields: [] })))
@@ -324,7 +355,7 @@ test("Security alerts have their own category, and name an actor only from their
     await status(await f.admit({ ...invite, actor: { kind: "event", userId: "12" }, count: 2 }), 400)
 })
 
-test("Actual role and channel bulk projections admit one bounded resource record with the provider payload count", async (t) => {
+test("Actual role and channel bulk projections admit one resource record with the provider payload count and 20 IDs", async (t) => {
     const f = await fixture(t)
     await f.open()
     const { projectMetadataEvent } = await import("../../bot/src/metadata-log-projector.ts")
@@ -350,30 +381,27 @@ test("Actual role and channel bulk projections admit one bounded resource record
         assert.equal(after.categories.resources, before.categories.resources + 1)
         assert(!JSON.stringify(row).includes("synthetic private"))
         assert.equal((await f.read(await f.admit(event))).reason, "duplicate")
-        await status(
-            await f.admit({ ...event, count: 1001, source: { ...scope, kind: "observation" } } as MetadataLogsEvent),
-            400,
-        )
-        assert.equal(
-            projectMetadataEvent(
-                name,
-                {
-                    guildId: "1",
-                    [index === 0 ? "roles" : "channels"]: [
-                        ...resources,
-                        ...Array.from({ length: 1001 - count }, (_, i) => ({ id: String(20000 + i) })),
-                    ],
-                },
-                { ...scope, sequence: index + 3 },
-            ),
-            undefined,
-        )
+        // A larger batch is counted in full too, still with 20 IDs
+        const larger = projectMetadataEvent(
+            name,
+            {
+                guildId: "1",
+                [index === 0 ? "roles" : "channels"]: [
+                    ...resources,
+                    ...Array.from({ length: 1001 - count }, (_, i) => ({ id: String(20000 + i) })),
+                ],
+            },
+            { ...scope, sequence: index + 3 },
+        )!
+        const admittedLarger = await f.admitted(larger)
+        assert.deepEqual([admittedLarger.event.count, admittedLarger.event.resourceIds.length], [1001, 20])
     }
 })
 
 test("Unknown-author deletes and bounded bulk summaries are admitted only with explicit ordinary-channel opt-in", async (t) => {
     const f = await fixture(t)
     await f.open()
+    await f.route("messages", "35")
     await f.read(
         await f.manage({
             type: "channels",
@@ -501,35 +529,188 @@ test("Thread events are resource records that name their parent channel and the 
         await status(await f.admit(event), 400)
 })
 
-test("A server where no channel logs messages answers messages-off without writing, until one is listed", async (t) => {
+test("Message events answer messages-off without writing until a message event is routed and a channel can be logged", async (t) => {
     const f = await fixture(t)
     await f.open()
-    const deletion = f.event({
+    const deletion = (messageId: string, channelId = "31") =>
+        f.event({
+            category: "messages",
+            type: "message-delete",
+            source: { kind: "message-delete", messageId },
+            resourceIds: [messageId],
+            changedFields: [],
+            channelId,
+            authorBot: null,
+            privateChannel: false,
+            details: { authorId: "20", text: "synthetic member text" },
+        })
+    // The bot asks this when a server starts, and keeps message text only while it is true
+    const logged = async () => ((await f.read(await f.work({ type: "messages" }))) as { logged: boolean }).logged
+    const before = await f.settings()
+    // A new server logs every channel, but no category or override sends message events anywhere yet
+    assert.equal(before.allChannels, true)
+    assert.equal(await logged(), false)
+    assert.equal((await f.read(await f.admit(deletion("800")))).reason, "messages-off")
+    assert.equal((await f.settings()).suppressed, before.suppressed)
+    assert.equal(
+        await f.backend
+            .run((ctx) => ctx.db.query("metadataLogRecords").collect())
+            .then((rows) => rows.filter((row) => row.event.category === "messages").length),
+        0,
+    )
+    // An override for one message event is enough, and another unrouted message event stays out
+    await f.read(
+        await f.manage({
+            type: "event-route",
+            eventType: "message-delete",
+            expectedRevision: (await f.settings()).configRevision,
+            enabled: true,
+            channelId: "35",
+            ownerId: "10",
+            recipientOwner: f.context("10", "35"),
+        }),
+    )
+    assert.equal(await logged(), true)
+    const admitted = await f.admitted(deletion("801", "36"))
+    assert.match(admitted.presentation!.embed.description, /Author: <@20>/)
+    // The author is stored on the record, so the member's own data request finds it
+    assert.equal(
+        await f.backend.run(
+            async (ctx) =>
+                (
+                    await ctx.db
+                        .query("metadataLogRecords")
+                        .withIndex("by_member_data", (q) => q.eq("authorId", "20").eq("serverId", "1"))
+                        .unique()
+                )?.recordNo,
+        ),
+        admitted.recordNo,
+    )
+    assert.match(admitted.presentation!.embed.description, /Text:\n```\nsynthetic member text\n```/)
+    const update = f.event({
         category: "messages",
-        type: "message-delete",
-        source: { kind: "message-delete", messageId: "800" },
-        resourceIds: ["800"],
-        changedFields: [],
-        channelId: "31",
-        authorBot: null,
+        type: "message-update",
+        resourceIds: ["802"],
+        changedFields: ["update"],
+        channelId: "36",
+        authorBot: false,
         privateChannel: false,
     })
-    const before = await f.settings()
-    assert.equal((await f.read(await f.admit(deletion))).reason, "messages-off")
-    assert.equal((await f.settings()).suppressed, before.suppressed)
+    assert.equal((await f.read(await f.admit(update))).reason, "excluded")
+    // Listed mode with no channel logs nothing
     await f.read(
         await f.manage({
             type: "channels",
-            expectedRevision: before.revision,
+            expectedRevision: (await f.settings()).revision,
+            allChannels: false,
+            messageChannelIds: [],
+            excludedChannelIds: [],
+        }),
+    )
+    assert.equal((await f.settings()).allChannels, false)
+    assert.equal(await logged(), false)
+    assert.equal((await f.read(await f.admit(deletion("803")))).reason, "messages-off")
+    await f.read(
+        await f.manage({
+            type: "channels",
+            expectedRevision: (await f.settings()).revision,
             messageChannelIds: ["31"],
             excludedChannelIds: [],
         }),
     )
-    assert.equal((await f.read(await f.admit(deletion))).admitted, true)
+    assert.equal((await f.read(await f.admit(deletion("804")))).admitted, true)
+    assert.equal((await f.read(await f.admit(deletion("805", "36")))).reason, "excluded")
+    assert.equal(await logged(), true)
+    // Logs that are off log no message events, whatever their routes say
+    await f.read(await f.manage({ type: "module", expectedRevision: (await f.settings()).revision, enabled: false }))
+    assert.equal(await logged(), false)
+})
+test("A messages route whose every message event is silenced logs no message events", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.route("messages", "35")
+    const logged = async () => ((await f.read(await f.work({ type: "messages" }))) as { logged: boolean }).logged
+    assert.equal(await logged(), true)
+    const types = ["message-update", "message-delete", "message-bulk-delete"]
+    for (const [index, eventType] of types.entries()) {
+        await f.read(
+            await f.manage({
+                type: "event-route",
+                eventType,
+                expectedRevision: (await f.settings()).configRevision,
+                enabled: false,
+            }),
+        )
+        // The others still follow the category until the last one is silenced too
+        assert.equal(await logged(), index < types.length - 1, eventType)
+    }
+    const deletion = f.event({
+        category: "messages",
+        type: "message-delete",
+        source: { kind: "message-delete", messageId: "910" },
+        resourceIds: ["910"],
+        changedFields: [],
+        channelId: "36",
+        authorBot: null,
+        privateChannel: false,
+    })
+    assert.equal((await f.read(await f.admit(deletion))).reason, "messages-off")
+})
+test("Every channel mode logs any channel except exclusions and log channels, and older rows keep their list", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.route("messages", "35")
+    await f.read(
+        await f.manage({
+            type: "channels",
+            expectedRevision: (await f.settings()).revision,
+            allChannels: true,
+            messageChannelIds: [],
+            excludedChannelIds: ["32"],
+        }),
+    )
+    const deletion = (messageId: string, channelId: string) =>
+        f.event({
+            category: "messages",
+            type: "message-delete",
+            source: { kind: "message-delete", messageId },
+            resourceIds: [messageId],
+            changedFields: [],
+            channelId,
+            authorBot: null,
+            privateChannel: false,
+        })
+    assert.equal((await f.read(await f.admit(deletion("900", "36")))).admitted, true)
+    for (const [messageId, channelId] of [
+        ["901", "32"],
+        ["902", "35"],
+        ["903", "30"],
+    ] as const)
+        assert.equal((await f.read(await f.admit(deletion(messageId, channelId)))).reason, "excluded")
+    // Listing channels together with every channel is refused
+    await status(
+        await f.manage({
+            type: "channels",
+            expectedRevision: (await f.settings()).revision,
+            allChannels: true,
+            messageChannelIds: ["31"],
+            excludedChannelIds: [],
+        }),
+        400,
+    )
+    // A row from before the choice existed has no field and keeps listed mode
+    await f.backend.run(async (ctx) => {
+        const row = (await ctx.db.query("metadataLogSettings").collect())[0]!
+        await ctx.db.patch(row._id, { allChannels: undefined, messageChannelIds: ["31"] })
+    })
+    assert.equal((await f.settings()).allChannels, false)
+    assert.equal((await f.read(await f.admit(deletion("904", "36")))).reason, "excluded")
+    assert.equal((await f.read(await f.admit(deletion("905", "31")))).admitted, true)
 })
 test("Message rules treat a thread as its parent channel for listed and excluded channels", async (t) => {
     const f = await fixture(t)
     await f.open()
+    await f.route("messages", "35")
     await f.read(
         await f.manage({
             type: "channels",
@@ -787,6 +968,34 @@ test("Retention expires settled data while keeping unresolved anchors", async (t
     await status(await f.manage({ type: "forget", recordNo: unknown.recordNo, confirm: true }), 409)
 })
 
+test("A message record whose post is not confirmed still goes with its member text when it expires", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.route("messages", "35")
+    const text = await f.admitted(
+            f.event({
+                category: "messages",
+                type: "message-delete",
+                source: { kind: "message-delete", messageId: "800" },
+                resourceIds: ["800"],
+                changedFields: [],
+                channelId: "31",
+                authorBot: false,
+                privateChannel: false,
+                details: { authorId: "20", text: "synthetic member text" },
+            }),
+        ),
+        anchor = await f.admitted()
+    for (const record of [text, anchor]) {
+        const grant = await f.reserve(record)
+        await f.read(await f.claim(grant))
+        await f.read(await f.outcome(grant, "failed"))
+    }
+    f.advance(2592000001)
+    await f.cleanup()
+    await status(await f.query({ type: "show", recordNo: text.recordNo }), 404)
+    assert.equal((await f.show(anchor.recordNo)).delivery!.state, "failed")
+})
 test("A post reported unsent is tried again, unlike one whose result is unknown", async (t) => {
     const f = await fixture(t)
     await f.open()
@@ -999,6 +1208,9 @@ test("Private DM reports bind the reading admin, the bot and that DM", async (t)
         )
     await status(await f.query({ type: "diagnose", section: "core" }, dm), 400)
     assert.equal((await f.counters()).retainedMetadataRecords, 0)
+    // Status and counters may answer in a server channel, without a private proof
+    for (const operation of [{ type: "counters" }, { type: "settings" }])
+        await f.read(await f.post("/metadata-logs/query", { serverId: "1", context: f.context(), operation }))
 })
 
 test("Current ticket-slot and moderation-case counters use owning indexed state rather than open-only scans", async (t) => {
@@ -1265,7 +1477,7 @@ test("Individual audit actions override the audit catchall and group without inf
     await status(
         await f.manage({
             type: "event-route",
-            eventType: "audit-entry:21",
+            eventType: "audit-entry:99",
             expectedRevision: (await f.settings()).configRevision,
             enabled: false,
         }),
@@ -1278,8 +1490,8 @@ test("New immutable embeds preserve category hues and semantic tones", async (t)
     await f.open()
     const { metadataEventTypes, metadataEventSelectors, metadataPalette, metadataPresentation, metadataContent } =
         await import("../convex/metadataLogsDomain.ts")
-    assert.equal(metadataEventTypes.length, 28)
-    assert.equal(metadataEventSelectors.length, 46)
+    assert.equal(metadataEventTypes.length, 29)
+    assert.equal(metadataEventSelectors.length, 67)
     const addition = await f.admitted(f.event({ type: "member-add", changedFields: [] })),
         departure = await f.admitted(f.event({ type: "member-remove", changedFields: [] })),
         modification = await f.admitted()
@@ -1303,14 +1515,14 @@ test("New immutable embeds preserve category hues and semantic tones", async (t)
         changedFields: [],
         resourceIds: [],
     })
-    assert.equal(metadataPresentation(1, disconnected).embed.color, metadataPalette.operations[3])
+    assert.equal(metadataPresentation(1, disconnected, "1").embed.color, metadataPalette.operations[3])
     assert.equal(
-        metadataPresentation(1, { ...disconnected, outcome: "reconnected" }).embed.color,
+        metadataPresentation(1, { ...disconnected, outcome: "reconnected" }, "1").embed.color,
         metadataPalette.operations[0],
     )
     const ambiguous = { ...disconnected }
     delete ambiguous.outcome
-    assert.equal(metadataPresentation(1, ambiguous).embed.color, metadataPalette.operations[1])
+    assert.equal(metadataPresentation(1, ambiguous, "1").embed.color, metadataPalette.operations[1])
     const grant = await f.reserve(addition)
     assert.equal(grant.content, "")
     assert.deepEqual(grant.embed, addition.presentation!.embed)
@@ -1365,6 +1577,36 @@ test("A record's text names members, roles and channels as mentions with a times
                 auditAction: 12,
             }),
             "About: <#31>",
+        ],
+        ...(
+            [
+                [72, "Messages: 31"],
+                [50, "Webhook: 31"],
+                [61, "Emoji: 31"],
+                [92, "Sticker: 31"],
+                [111, "About: <#31>"],
+            ] as const
+        ).map(([auditAction, about]): [MetadataLogsEvent, string] => [
+            event({
+                category: "audit",
+                type: "audit-entry",
+                source: audit,
+                actor: by,
+                resourceIds: ["31"],
+                auditAction,
+            }),
+            `By: <@10>\n${about}\nSource: Audit log`,
+        ]),
+        [
+            event({
+                category: "audit",
+                type: "audit-entry",
+                source: audit,
+                actor: by,
+                resourceIds: [],
+                auditAction: 21,
+            }),
+            "Event: audit-entry (audit)\nBy: <@10>\nSource: Audit log",
         ],
         [event({ category: "resources", type: "server-update", resourceIds: ["1"] }), "About: This server"],
         [
@@ -1468,6 +1710,7 @@ test("Full immutable embed reconciliation rejects changed colors, fields and pre
 test("Every override destination is excluded from message admission", async (t) => {
     const f = await fixture(t)
     await f.open()
+    await f.route("messages", "35")
     await f.read(
         await f.manage({
             type: "event-route",
@@ -1498,4 +1741,153 @@ test("Every override destination is excluded from message admission", async (t) 
         privateChannel: false,
     })
     assert.equal((await f.read(await f.admit(deletion))).reason, "excluded")
+})
+
+test("Message posts show the author, a jump link, both texts in code blocks and the attachments", async () => {
+    const { metadataPresentation } = await import("../convex/metadataLogsDomain.ts")
+    const { metadataMessageLink } = await import("@neonflux/contracts/metadata-logs")
+    const edit: MetadataLogsEvent = {
+        category: "messages",
+        type: "message-update",
+        source: { kind: "observation", sessionId: "1".repeat(32), sequence: 1 },
+        observedAt: Date.parse("2026-10-04T20:00:00Z"),
+        actor: { kind: "unknown" },
+        resourceIds: ["789"],
+        changedFields: ["update"],
+        count: 1,
+        channelId: "456",
+        authorBot: false,
+        privateChannel: false,
+        details: {
+            authorId: "123",
+            before: "old text",
+            text: "new ``` text",
+            attachments: [
+                { name: "cat*.png", size: 122880, url: "https://cdn.example.invalid/cat.png" },
+                { name: "a (1).png", size: 1024, url: "https://cdn.example.invalid/a (1).png" },
+            ],
+        },
+    }
+    const text = metadataPresentation(42, edit, "1").embed.description
+    assert.equal(metadataMessageLink("1", "456", "789"), "https://fluxer.app/channels/1/456/789")
+    for (const line of [
+        "Author: <@123>",
+        "Channel: <#456>",
+        "Message: [Jump to message](https://fluxer.app/channels/1/456/789)",
+        "Attachment: [cat\\*.png](https://cdn.example.invalid/cat.png) (120 KB)",
+        "Attachment: [a \\(1\\).png](https://cdn.example.invalid/a%20%281%29.png) (1 KB)",
+        "Before:\n```\nold text\n```",
+        "After:\n```\nnew `\u200b`\u200b` text\n```",
+        "Changed: update",
+    ])
+        assert.ok(text.includes(line), `${line}\n---\n${text}`)
+    // No run of backticks, however long, can close a block
+    for (const ticks of ["````", "``````", "end`"]) {
+        const fenced = metadataPresentation(46, { ...edit, details: { before: ticks, text: "x" } }, "1").embed
+        const inside = fenced.description.split("Before:\n```\n")[1]!.split("\n```")[0]!
+        assert.equal(inside.replaceAll("\u200b", ""), ticks)
+        assert.doesNotMatch(inside, /``/)
+    }
+    // A pin of a remembered message keeps its text, which shows once instead of as unavailable earlier text
+    const pinned = metadataPresentation(
+        47,
+        { ...edit, changedFields: ["pinned"], details: { authorId: "123", text: "same text" } },
+        "1",
+    ).embed.description
+    assert.match(pinned, /Text:\n```\nsame text\n```/)
+    assert.doesNotMatch(pinned, /Before|After/)
+    const unknown = metadataPresentation(43, { ...edit, details: { text: "now", earlierUnknown: true } }, "1").embed
+    assert.match(unknown.description, /Before: Earlier text unavailable\nAfter:\n```\nnow\n```/)
+    const deleted = metadataPresentation(
+        44,
+        {
+            ...edit,
+            type: "message-delete",
+            source: { kind: "message-delete", messageId: "789" },
+            changedFields: [],
+            details: { text: "" },
+        },
+        "1",
+    ).embed
+    assert.match(deleted.description, /Text: \(no text\)/)
+    assert.match(
+        metadataPresentation(
+            45,
+            {
+                ...edit,
+                type: "message-delete",
+                source: { kind: "message-delete", messageId: "789" },
+                changedFields: [],
+                details: undefined,
+            } as never,
+            "1",
+        ).embed.description,
+        /Text: Unavailable/,
+    )
+})
+
+test("The largest records stay within one embed description, counting what does not fit", async () => {
+    const { metadataPresentation } = await import("../convex/metadataLogsDomain.ts")
+    const { metadataPlain, MetadataLogsEvent: schema } = await import("@neonflux/contracts/metadata-logs")
+    const { Schema } = await import("effect")
+    const valid = Schema.decodeUnknownSync(schema, { onExcessProperty: "error" })
+    const message: MetadataLogsEvent = valid({
+        category: "messages",
+        type: "message-update",
+        source: { kind: "observation", sessionId: "1".repeat(32), sequence: 1 },
+        observedAt: Date.parse("2026-10-04T20:00:00Z"),
+        actor: { kind: "unknown" },
+        resourceIds: ["789"],
+        changedFields: ["update", "pinned", "flags"],
+        count: 1,
+        channelId: "456",
+        parentChannelId: "455",
+        authorBot: false,
+        privateChannel: false,
+        details: {
+            authorId: "123",
+            before: "b".repeat(4000),
+            text: "a".repeat(4000),
+            attachments: Array.from({ length: 10 }, (_, i) => ({
+                name: `${i}${"n".repeat(255)}`,
+                size: 52428800,
+                url: `https://cdn.example.invalid/${"u".repeat(480)}`,
+            })),
+            attachmentCount: 1000,
+        },
+    })
+    const posted = metadataPresentation(9007199254740991, message, "1").embed.description
+    assert.ok(posted.length <= 4096, String(posted.length))
+    assert.match(posted, /Before:\n```\nb+…\n```/)
+    assert.match(posted, /After:\n```\na+…\n```/)
+    assert.match(posted, /\d+ more attachments/)
+    assert.match(posted, /When: <t:\d+:f>\nParent channel: <#455>$/)
+    const audit: MetadataLogsEvent = valid({
+        category: "audit",
+        type: "audit-entry",
+        source: { kind: "audit", auditEntryId: "50" },
+        observedAt: Date.parse("2026-10-04T20:00:00Z"),
+        actor: { kind: "audit", userId: "10" },
+        resourceIds: ["20"],
+        changedFields: [],
+        count: 1,
+        auditAction: 31,
+        details: {
+            changes: Array.from({ length: 20 }, (_, i) => ({
+                field: `key_${i}`,
+                before: "x".repeat(300),
+                after: "y".repeat(300),
+            })),
+            moreChanges: 30,
+            reason: "r".repeat(512),
+        },
+    })
+    const audited = metadataPresentation(1, audit, "1").embed.description
+    assert.ok(audited.length <= 4096, String(audited.length))
+    assert.match(audited, /Reason:\n```\nr+\n```/)
+    assert.match(audited, /\d+ more changes/)
+    assert.match(audited, /\*\*Key_0\*\*: x+ → y+/)
+    // A member-chosen name cannot start a line, a mention or formatting
+    assert.equal(metadataPlain("**Boss**\n<@1> [x](y)"), "\\*\\*Boss\\*\\* \\<\\@1\\> \\[x\\]\\(y\\)")
+    assert.equal(metadataPlain("abcdef", 4), "abc…")
 })

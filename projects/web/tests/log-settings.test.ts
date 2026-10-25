@@ -35,6 +35,7 @@ function snapshot(): DeepMutable<DashboardMetadataSnapshot> {
                 ...(category === "membership" ? { channelId: "123", ownerId: "789" } : {}),
             })),
             eventRoutes: [],
+            allChannels: false,
             messageChannelIds: [],
             excludedChannelIds: [],
             retained: 0,
@@ -141,9 +142,30 @@ test("Channel allowlist and exclusions queue structured IDs while preserving dis
     assert.deepEqual(calls[0]?.operation, {
         type: "channels",
         expectedRevision: 3,
+        allChannels: false,
         messageChannelIds: ["123"],
         excludedChannelIds: ["456"],
     })
+})
+test("Every channel mode hides the channel list and queues only the exclusions", async () => {
+    const remote = snapshot()
+    remote.settings.allChannels = true
+    const { ui, calls } = setup(remote)
+    const filters = section(ui, "Logging channel filters")
+    assert.equal((filters.getByLabelText("Log messages from") as HTMLSelectElement).value, "all")
+    assert.equal(filters.queryByLabelText("Only log messages from these channels"), null)
+    selectChannel(filters, "Never log messages from these channels", "⭐ evt")
+    await submit(filters)
+    assert.deepEqual(calls[0]?.operation, {
+        type: "channels",
+        expectedRevision: 3,
+        allChannels: true,
+        messageChannelIds: [],
+        excludedChannelIds: ["456"],
+    })
+    // Switching to listed mode shows the list again
+    fireEvent.change(filters.getByLabelText("Log messages from"), { target: { value: "listed" } })
+    assert.ok(filters.getByLabelText("Only log messages from these channels"))
 })
 test("Message filters offer forums, whose posts count as the forum", async () => {
     const { ui, calls } = setup()
@@ -153,20 +175,21 @@ test("Message filters offer forums, whose posts count as the forum", async () =>
     assert.deepEqual(calls[0]?.operation, {
         type: "channels",
         expectedRevision: 3,
+        allChannels: false,
         messageChannelIds: ["321"],
         excludedChannelIds: [],
     })
 })
-test("Existing fifty-channel filters stay editable, and a fifty-first selection is rejected before queueing", async () => {
+test("Existing 500-channel filters stay editable, and a 501st selection is rejected before queueing", async () => {
     const remote = snapshot()
-    const configured = Array.from({ length: 50 }, (_, index) => String(1000 + index))
+    const configured = Array.from({ length: 500 }, (_, index) => String(1000 + index))
     remote.settings.messageChannelIds = configured
     remote.settings.excludedChannelIds = configured
     const first = setup(remote),
         filters = section(first.ui, "Logging channel filters")
     selectChannel(filters, "Only log messages from these channels", "evt")
     await submit(filters)
-    assert.ok(filters.getByRole("alert").textContent?.includes("Choose up to 50 distinct channels"))
+    assert.ok(filters.getByRole("alert").textContent?.includes("Choose up to 500 distinct channels"))
     assert.equal(first.calls.length, 0)
     fireEvent.click(filters.getByRole("button", { name: "Remove ⭐ Event Log", hidden: true }))
     fireEvent.click(filters.getAllByRole("button", { name: "Remove 1000", hidden: true })[0]!)
@@ -175,15 +198,16 @@ test("Existing fifty-channel filters stay editable, and a fifty-first selection 
     assert.deepEqual(first.calls[0]?.operation, {
         type: "channels",
         expectedRevision: 3,
+        allChannels: false,
         messageChannelIds: [...configured.slice(1), "456"],
         excludedChannelIds: configured,
     })
 })
-test("All seven group palettes, twenty-eight event types and eighteen audit actions remain available without custom color settings", () => {
+test("All seven group palettes, twenty-nine event types and thirty-eight audit actions remain available without custom color settings", () => {
     const { ui } = setup()
     for (const name of ["Membership", "Resources", "Messages", "Audit", "Settings", "Operations", "Security alerts"])
         assert.equal(within(ui.getByRole("list", { name: `${name} color legend` })).getAllByRole("listitem").length, 4)
-    assert.equal(ui.getAllByLabelText(/ routing$/).length, 53)
+    assert.equal(ui.getAllByLabelText(/ routing$/).length, 74)
     assert.ok(ui.container.querySelector("input[type=color]") === null)
     assert.ok(ui.getByText(/Who made a change is shown only/))
 })

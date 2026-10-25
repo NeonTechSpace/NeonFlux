@@ -15,7 +15,9 @@ import {
     metadataBoundRecord,
     metadataCanonicalPayload,
     metadataDelivery,
+    metadataMessagesRouted,
     publicMetadataRecord,
+    publicMetadataSettings,
     readMetadataSettings,
 } from "./metadataLogsStore.ts"
 import { readSettings } from "./moderationStore.ts"
@@ -163,6 +165,10 @@ export const work = serviceMutation({
                 }
             }
             return { type: "work", records, ...(!page.isDone ? { nextCursor: page.continueCursor } : {}) }
+        }
+        if (op.type === "messages") {
+            const settings = publicMetadataSettings(await readMetadataSettings(ctx, serverId))
+            return { type: "messages", logged: settings.enabled && metadataMessagesRouted(settings) }
         }
         const binding = metadataBinding(op.binding),
             row = await metadataBoundRecord(ctx, serverId, binding),

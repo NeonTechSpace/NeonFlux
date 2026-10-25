@@ -578,9 +578,9 @@ test("audit attribution remains on its exact source entry and cannot attach to n
         reason: "duplicate",
     })
     for (const changed of [
-        { auditAction: 40 },
+        { auditAction: 99 },
         { resourceIds: ["SyntheticInviteCode"] },
-        { resourceIds: [] },
+        { resourceIds: ["20", "21"] },
         { source: { kind: "observation", sessionId: "1".repeat(32), sequence: 20 } },
     ])
         assert.equal(
@@ -672,7 +672,6 @@ test("message opt-in excludes private channels, every log destination and bot fe
     assert.equal((await f.counters()).categories.messages, 1)
     const excessive = [
         message({ resourceIds: Array.from({ length: 21 }, (_, i) => String(5000 + i)) }),
-        message({ type: "message-bulk-delete", count: 1001 }),
         message({ changedFields: ["content"] }),
     ]
     for (const event of excessive)
@@ -732,12 +731,13 @@ test("one-time claim survives route replacement and late outcome never rewrites 
     assert(!(await f.discover()).records.some((row) => row.recordNo === record.recordNo))
 })
 
-test("private reports require exact one-to-one recipients and denied reads admit no records", async (t) => {
+test("DM reports require exact one-to-one recipients, server channel reports need none, and reads admit no records", async (t) => {
     const f = await fixture(t)
     await f.open()
     const before = await f.counters()
+    const dm = { ...f.context("90"), channelType: 1 as const }
     for (const operation of [{ type: "counters" }] as MetadataLogsQueryOperation[]) {
-        const request = f.queryInput(operation)
+        const request = f.queryInput(operation, dm)
         const { privateRead: omitted, ...withoutProof } = request
         assert.equal((await f.post("/metadata-logs/query", withoutProof)).status, 403)
         for (const privateRead of [
@@ -749,6 +749,8 @@ test("private reports require exact one-to-one recipients and denied reads admit
             assert([400, 403].includes(status), "Unverified private context must be rejected before sensitive reads")
         }
         await f.query(operation)
+        const { privateRead: _proof, ...inChannel } = f.queryInput(operation)
+        assert.equal((await f.post("/metadata-logs/query", inChannel)).status, 200)
     }
     assert.deepEqual(await f.counters(), before)
 })
@@ -1021,7 +1023,7 @@ test("actual gateway projection admit discovery worker SDK send claim and outcom
     )
 })
 
-test("actual projector strips private audit values and batches while original moderation grammar keeps precedence", async (t) => {
+test("actual projector keeps audit reasons and changes, no bulk text, and original moderation grammar keeps precedence", async (t) => {
     const f = await fixture(t)
     await f.open("messages")
     await f.manage({
@@ -1066,7 +1068,13 @@ test("actual projector strips private audit values and batches while original mo
     )
     assert(audit)
     assert.deepEqual(audit.actor, { kind: "audit", userId: "11" })
-    assert(!JSON.stringify(await f.admitted(audit)).includes("SyntheticPrivate"))
+    // Staff see the audit entry's own reason and values, as Fluxer recorded them
+    const audited = await f.admitted(audit)
+    assert.deepEqual(audited.event.details, {
+        changes: [{ field: "nick", before: "SyntheticPrivateOld", after: "SyntheticPrivateNew" }],
+        reason: "SyntheticPrivateReason",
+    })
+    assert.match(audited.presentation.embed.description, /\*\*Nick\*\*: SyntheticPrivateOld → SyntheticPrivateNew/)
     const removal = projectMetadataEvent(
         "guildMemberRemove",
         { guildId: "1", userId: "20", actorId: "11", reason: "SyntheticPrivateReason" },

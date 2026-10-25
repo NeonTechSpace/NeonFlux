@@ -1,4 +1,4 @@
-import { metadataEventLabel } from "@neonflux/contracts/metadata-logs"
+import { METADATA_CHANNEL_LIMIT, metadataEventLabel } from "@neonflux/contracts/metadata-logs"
 import type {
     MetadataLogsCategory,
     MetadataLogsEventSelector,
@@ -18,6 +18,7 @@ import type { FormValues } from "./settings-form"
 import { QueuedForm } from "./configuration-form"
 import { idValue, idsValue } from "./configuration-values"
 import { SearchPicker } from "./search-picker"
+import { ChoiceField } from "./configuration-fields"
 import { messageChannels, publicationChannels } from "./catalog-options"
 
 type LogSettingsQueue = (
@@ -72,6 +73,7 @@ const events = {
     "webhook-change": { category: "security" },
     "privilege-change": { category: "security" },
     impersonation: { category: "security" },
+    "alert-action": { category: "security" },
     "audit-entry:1": { category: "audit" },
     "audit-entry:10": { category: "audit" },
     "audit-entry:11": { category: "audit" },
@@ -80,6 +82,7 @@ const events = {
     "audit-entry:14": { category: "audit" },
     "audit-entry:15": { category: "audit" },
     "audit-entry:20": { category: "audit" },
+    "audit-entry:21": { category: "audit" },
     "audit-entry:22": { category: "audit" },
     "audit-entry:23": { category: "audit" },
     "audit-entry:24": { category: "audit" },
@@ -90,6 +93,25 @@ const events = {
     "audit-entry:30": { category: "audit" },
     "audit-entry:31": { category: "audit" },
     "audit-entry:32": { category: "audit" },
+    "audit-entry:40": { category: "audit" },
+    "audit-entry:41": { category: "audit" },
+    "audit-entry:42": { category: "audit" },
+    "audit-entry:50": { category: "audit" },
+    "audit-entry:51": { category: "audit" },
+    "audit-entry:52": { category: "audit" },
+    "audit-entry:60": { category: "audit" },
+    "audit-entry:61": { category: "audit" },
+    "audit-entry:62": { category: "audit" },
+    "audit-entry:72": { category: "audit" },
+    "audit-entry:73": { category: "audit" },
+    "audit-entry:74": { category: "audit" },
+    "audit-entry:75": { category: "audit" },
+    "audit-entry:90": { category: "audit" },
+    "audit-entry:91": { category: "audit" },
+    "audit-entry:92": { category: "audit" },
+    "audit-entry:110": { category: "audit" },
+    "audit-entry:111": { category: "audit" },
+    "audit-entry:112": { category: "audit" },
 } satisfies Record<MetadataLogsEventSelector, { category: MetadataLogsCategory }>
 const categories = Object.keys(groups) as MetadataLogsCategory[]
 const eventTypes = Object.keys(events) as MetadataLogsEventSelector[]
@@ -257,6 +279,7 @@ export function LogSettings(props: LogSettingsProps) {
                 snapshot={{
                     revision,
                     values: {
+                        scope: settings.allChannels ? "all" : "listed",
                         messageChannelIds: JSON.stringify(settings.messageChannelIds),
                         excludedChannelIds: JSON.stringify(settings.excludedChannelIds),
                     },
@@ -265,22 +288,38 @@ export function LogSettings(props: LogSettingsProps) {
                 operation={(values) => ({
                     type: "channels",
                     expectedRevision: settings.revision,
-                    messageChannelIds: idsValue(values.messageChannelIds, 50, "channels"),
-                    excludedChannelIds: idsValue(values.excludedChannelIds, 50, "channels"),
+                    allChannels: values.scope === "all",
+                    messageChannelIds:
+                        values.scope === "all"
+                            ? []
+                            : idsValue(values.messageChannelIds, METADATA_CHANNEL_LIMIT, "channels"),
+                    excludedChannelIds: idsValue(values.excludedChannelIds, METADATA_CHANNEL_LIMIT, "channels"),
                 })}
                 fields={(values, edit, disabled) => (
                     <>
-                        <SearchPicker
-                            {...picker}
-                            label="Only log messages from these channels"
-                            multiple
+                        <ChoiceField
+                            label="Log messages from"
+                            value={String(values.scope)}
                             disabled={disabled}
-                            value={JSON.parse(String(values.messageChannelIds)) as string[]}
-                            onChange={(selected) => edit("messageChannelIds", JSON.stringify(selected))}
+                            onChange={(value) => edit("scope", value)}
+                            options={[
+                                { value: "all", label: "Every channel except excluded ones" },
+                                { value: "listed", label: "Only these channels" },
+                            ]}
                         />
-                        <p className="field-help">
-                            Choose up to fifty channels in each list. With none chosen, no message events are logged
-                        </p>
+                        {values.scope === "listed" ? (
+                            <>
+                                <SearchPicker
+                                    {...picker}
+                                    label="Only log messages from these channels"
+                                    multiple
+                                    disabled={disabled}
+                                    value={JSON.parse(String(values.messageChannelIds)) as string[]}
+                                    onChange={(selected) => edit("messageChannelIds", JSON.stringify(selected))}
+                                />
+                                <p className="field-help">With none chosen, no message events are logged</p>
+                            </>
+                        ) : null}
                         <SearchPicker
                             {...picker}
                             label="Never log messages from these channels"
@@ -290,8 +329,9 @@ export function LogSettings(props: LogSettingsProps) {
                             onChange={(selected) => edit("excludedChannelIds", JSON.stringify(selected))}
                         />
                         <p className="field-help">
-                            These lists also apply to message events that have their own override. Private channels and
-                            messages from bots are never logged
+                            Choose up to 500 channels in each list. These lists also apply to message events that have
+                            their own override. DMs, ticket channels, log channels and messages from bots are never
+                            logged, so exclude staff-only channels whose messages you do not want in a log
                         </p>
                     </>
                 )}

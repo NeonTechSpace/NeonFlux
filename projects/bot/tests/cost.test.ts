@@ -126,7 +126,8 @@ function idleStores(calls: string[]) {
         sticky: fake("sticky", { list: () => ({ stickies: [] }) }),
         sidebar: fake("sidebar", {}),
         memberList: fake("memberList", {}),
-        // Security alert settings load once at startup too, so with every alert off events cost nothing more
+        // Security alert settings load once at startup too, so with every alert off events cost nothing more. Startup also
+        // checks for actions a stopped process left unfinished
         alerts: fake("alerts", {
             get: () => ({
                 settings: {
@@ -135,10 +136,14 @@ function idleStores(calls: string[]) {
                     webhooks: false,
                     privileges: false,
                     impersonation: false,
+                    kickBots: false,
+                    deleteWebhooks: false,
+                    removePermissions: false,
                     expectedBotIds: [],
                     expectedWebhookIds: [],
                 },
             }),
+            observeActions: () => ({ uncertain: 0, admitted: false }),
         }),
         // Help desk settings load once at startup, so a message costs nothing more
         helpDesk: fake("helpDesk", {

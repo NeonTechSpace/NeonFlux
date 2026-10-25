@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { Id, Int, List } from "./common.ts"
 import { StaffClass } from "./moderation.ts"
+import { AlertAction } from "./alerts.ts"
 
 // What !setup, !health and the dashboard permission check read, the bot's answer to that check, and the recovery inbox
 
@@ -83,7 +84,8 @@ export type SetupStatusRequest = typeof SetupStatusRequest.Type
 const ids = Schema.mutable(Schema.Array(Id))
 /**
  * Each section's state, the roles each feature assigns and the moderation staff roles.
- * threadFeatures lists the features that start discussion threads, which need Create public threads
+ * threadFeatures lists the features that start discussion threads, which need Create public threads, and alertActions the
+ * security alert actions that are on with their alert, which need their own permissions
  */
 export const SetupStatus = Schema.Struct({
     sections: Schema.mutable(
@@ -92,6 +94,7 @@ export const SetupStatus = Schema.Struct({
     managedRoles: Schema.mutable(Schema.Array(Schema.Struct({ feature: DashboardOverviewSection, roleIds: ids }))),
     staffRoleIds: Schema.Record(StaffClass, ids),
     threadFeatures: Schema.mutable(Schema.Array(DashboardOverviewSection)),
+    alertActions: Schema.optionalKey(Schema.mutable(Schema.Array(AlertAction))),
 })
 export type SetupStatus = typeof SetupStatus.Type
 export const SetupReadyRequest = Schema.Struct({ serverId: Id })

@@ -1446,7 +1446,8 @@ test("A switch that turns on, a changed route and a changed mapping reach the pe
     // A log route that changes takes its next revision, and the module's and the shared revisions move with the settings
     await r.restore(all.metadata.before)
     const logs = () => r.db.run((ctx) => ctx.db.query("metadataLogSettings").first())
-    assert.deepEqual([(await logs())!.revision, (await logs())!.configRevision], [1, 1])
+    // A new server logs every channel, so an archive that lists its channels moves the module revision
+    assert.deepEqual([(await logs())!.revision, (await logs())!.configRevision], [2, 1])
     await r.restore(all.metadata.after)
     const after = (await logs())!
     assert.deepEqual(
@@ -1456,7 +1457,7 @@ test("A switch that turns on, a changed route and a changed mapping reach the pe
             after.routes.map((x) => x.revision),
             after.eventRoutes.map((x) => x.revision),
         ],
-        [2, 2, [2, 1, 1, 1, 1, 1, 1], [2]],
+        [3, 2, [2, 1, 1, 1, 1, 1, 1], [2]],
     )
     // The ledger of roles a role setting names moves to its next revision. Reservations that read the same as the server's are not sent, so only the second restore takes a revision
     await r.restore(all.roles.before)

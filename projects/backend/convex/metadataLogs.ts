@@ -180,8 +180,9 @@ export const query = serviceQuery({
         const op = input.operation,
             context = metadataContext(input.context, true)
         await metadataAdmin(ctx, serverId, context, true)
-        // Reports reach admins privately, bound to the reading admin, the bot and that DM
-        if (context.channelType === 1 || op.type === "counters") {
+        // A DM report is bound to the reading admin, the bot and that DM. The bot answers event lists and records only
+        // by DM, since they hold member text from channels a server channel's readers may not see
+        if (context.channelType === 1) {
             if (input.privateRead === undefined) fail(403, "Verified one-to-one private report required")
             metadataPrivate(input.privateRead, context.actor.userId, context.botId)
             if (

@@ -44,22 +44,24 @@ export const metadataPalette = {
     operations: [0xfb7f6b, 0xf25d50, 0xdc443c, 0xb92f2d],
     security: [0xf472b6, 0xec4899, 0xdb2777, 0xbe185d],
 } as const
-// What a security record means for staff. NeonFlux only reports these and never acts on them
+// What a security record means for staff. NeonFlux acts only on the alerts whose action a server turned on
 const securityNotes: Partial<Record<MetadataLogsEventType, string>> = {
-    "invite-create": "About: the invite's channel. The invite code is not recorded",
-    "invite-delete": "About: the invite's channel, when Fluxer names it. The invite code is not recorded",
+    "invite-create": "About: the invite's channel",
+    "invite-delete": "About: the invite's channel, when Fluxer names it",
     "bot-join": "A bot that is not marked expected joined. Mark it expected with the alerts command if you added it",
     "webhook-change":
         "A webhook that is not marked expected was created or changed. Mark it expected with the alerts command if it is yours",
     "privilege-change":
         "Changed names the dangerous permissions. About: the role, or the member and the roles they gained",
     impersonation: "About: the member, then the staff member or owner whose name theirs closely matches",
+    "alert-action":
+        "NeonFlux acted on an alert because its action is turned on. Changed names the action and its outcome. Turn it off with the alerts command",
 }
 export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
     if (event.type === "audit-entry")
-        return [10, 13, 23, 28, 30].includes(event.auditAction!)
+        return [10, 13, 23, 28, 30, 40, 50, 60, 74, 90, 110].includes(event.auditAction!)
             ? 0
-            : [12, 15, 20, 22, 27, 32].includes(event.auditAction!)
+            : [12, 15, 20, 21, 22, 27, 32, 42, 52, 62, 72, 73, 92, 112].includes(event.auditAction!)
               ? 3
               : 2
     if (event.type === "gateway-discontinuity")
@@ -82,11 +84,17 @@ export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
         return 3
     return 2
 }
-export function metadataPresentation(recordNo: number, event: MetadataLogsEvent): MetadataLogsPresentation {
-    const description = metadataContent(recordNo, event).split("\n").slice(1)
-    if (event.parentChannelId !== undefined) description.push(`Parent channel: <#${event.parentChannelId}>`)
-    if (event.type === "member-remove") description.push("Departure cause: Unknown")
-    if (securityNotes[event.type]) description.push(securityNotes[event.type]!)
+export function metadataPresentation(
+    recordNo: number,
+    event: MetadataLogsEvent,
+    serverId: string,
+): MetadataLogsPresentation {
+    const notes = [
+        ...(event.parentChannelId !== undefined ? [`Parent channel: <#${event.parentChannelId}>`] : []),
+        ...(event.type === "member-remove" ? ["Departure cause: Unknown"] : []),
+        ...(securityNotes[event.type] ? [securityNotes[event.type]!] : []),
+    ]
+    const content = metadataContent(recordNo, event, serverId, notes)
     const label =
         event.auditAction !== undefined
             ? metadataEventLabel(`audit-entry:${event.auditAction}`)
@@ -99,7 +107,7 @@ export function metadataPresentation(recordNo: number, event: MetadataLogsEvent)
         format: "embed-v1",
         embed: {
             title: `Metadata #${recordNo}: ${label}`,
-            description: description.join("\n"),
+            description: content.slice(content.indexOf("\n") + 1),
             color: metadataPalette[event.category][metadataTone(event)],
         },
     }

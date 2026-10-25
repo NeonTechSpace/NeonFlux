@@ -9,6 +9,7 @@ import type {
     MetadataLogsManageOperation,
     MetadataLogsCategory,
 } from "@neonflux/contracts/metadata-logs"
+import { METADATA_CHANNEL_LIMIT } from "@neonflux/contracts/metadata-logs"
 import { serverCommands, serverLabel, serverOption, serverText } from "./server-scope.ts"
 import { format, permissionBits, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
@@ -73,9 +74,11 @@ function statusCard(s: MetadataLogsSettings, checks: Checks, command: Command): 
                 : []),
             [
                 "Message events",
-                s.messageChannelIds.length
-                    ? `From ${plural(s.messageChannelIds.length, "channel")}${s.excludedChannelIds.length ? `, ${s.excludedChannelIds.length} excluded` : ""}`
-                    : "From no channels yet",
+                s.allChannels
+                    ? `From every channel, ${s.excludedChannelIds.length} excluded`
+                    : s.messageChannelIds.length
+                      ? `From ${plural(s.messageChannelIds.length, "channel")}${s.excludedChannelIds.length ? `, ${s.excludedChannelIds.length} excluded` : ""}`
+                      : "From no channels yet",
             ],
             ...(gone.length ? [["Channels that no longer exist", channels(gone)] as const] : []),
             ...(lacking.length ? [["NeonFlux lacks permissions in", channels(lacking)] as const] : []),
@@ -108,7 +111,7 @@ const categoriesCard = (s: MetadataLogsSettings, checks: Checks, command: Comman
             return `**${capital(r.category)}**: ${r.enabled ? `On in ${destination(r.channelId, r.ownerId)}` : r.channelId ? `Off (${destination(r.channelId, r.ownerId)})` : "Off"}${check}`
         }),
     ].join("\n"),
-    note: `Change one with ${code(command("metadata route <category> <channel> <owner> on|off"))}`,
+    note: `Change one with ${code(command("metadata route <category> <channel> [owner] on|off"))}`,
 })
 const overrideLine = (r: MetadataLogsEventRoute) =>
     `**${metadataEventLabel(r.eventType)}**: ${r.enabled ? `On in ${destination(r.channelId, r.ownerId)}` : "Off, so it never posts"}`
@@ -190,7 +193,11 @@ const recordCard = (r: MetadataLogsRecord, command: (rest: string) => string): C
 const recordLine = (r: MetadataLogsRecord) =>
     `**#${r.recordNo}** ${eventLabel(r.event)}${r.event.actor.kind === "unknown" ? "" : ` by ${format.userMention(r.event.actor.userId)}`}, ${ago(r.event.observedAt)}`
 
-/** Fresh private owner/admin report. Reads never admit log events and failures have no public report fallback */
+/**
+ * A fresh owner or admin report. Status, categories, overrides and counters sent in a server's text or announcement
+ * channel answer there. Event lists and records hold member text from channels the channel's readers may not see, so
+ * they always answer by DM. Reads never admit log events
+ */
 export function handleMetadataPrivateReport(
     store: MetadataLogsStore,
     config: BotConfig,
@@ -201,17 +208,28 @@ export function handleMetadataPrivateReport(
     return Effect.gen(function* () {
         const { message, client } = context
         if ((message.guildId !== undefined && message.guildId !== config.serverId) || message.author.isSystem) return
+        // A thread, forum post or voice channel cannot hold the report, so it goes to the DM then
+        const here =
+            message.guildId !== undefined && (operation.type === "settings" || operation.type === "counters")
+                ? yield* readMetadataLogContext(client, config.serverId, message.author.id, message.channelId).pipe(
+                      Effect.catch((error) =>
+                          error.stage === "channelType" ? Effect.succeed(undefined) : Effect.fail(error),
+                      ),
+                  )
+                : undefined
         const channelId =
-            message.guildId === undefined
+            here || message.guildId === undefined
                 ? message.channelId
                 : (yield* client.directMessages.open(message.author.id, { timeoutMs: 5000 })).id
-        const fresh = yield* readMetadataLogContext(client, config.serverId, message.author.id, channelId, true)
-        if (!fresh.privateRead) return yield* Effect.fail(new MetadataLogHandlingError({ stage: "private" }))
-        // Reports go to the private DM, which accepts only the fixed !
+        const fresh =
+            here ?? (yield* readMetadataLogContext(client, config.serverId, message.author.id, channelId, true))
+        if (!here && !fresh.privateRead) return yield* Effect.fail(new MetadataLogHandlingError({ stage: "private" }))
+        // A DM accepts only the fixed !
         const card = (value: Card) => sendCard(client, channelId, config, value)
         const send = (content: string) =>
             Effect.gen(function* () {
-                const label = config.scope?.mode === "multi" ? yield* serverLabel(client, config.serverId) : undefined
+                const label =
+                    config.scope?.mode === "multi" && !here ? yield* serverLabel(client, config.serverId) : undefined
                 yield* client.messages.send(
                     channelId,
                     { content: label ? serverText(content, label) : content },
@@ -238,7 +256,7 @@ export function handleMetadataPrivateReport(
             .query({
                 serverId: config.serverId,
                 context: fresh.context,
-                privateRead: fresh.privateRead,
+                ...(fresh.privateRead ? { privateRead: fresh.privateRead } : {}),
                 operation: before ? { type: "list", beforeRecordNo: before } : operation,
             })
             .pipe(
@@ -373,7 +391,7 @@ function changed(change: MetadataLogChange) {
         case "clear":
             return `${capital(change.category)} events no longer have a log channel`
         case "channels":
-            return `Message events now come from ${change.messageChannelIds.map(format.channelMention).join(", ") || "no channels"}. Excluded: ${change.excludedChannelIds.map(format.channelMention).join(", ") || "none"}`
+            return `Message events now come from ${change.allChannels ? "every channel" : channels(change.messageChannelIds, 20) || "no channels"}. Excluded: ${channels(change.excludedChannelIds, 20) || "none"}`
         case "event-route":
             return change.enabled
                 ? `**${metadataEventLabel(change.eventType)}** events now post in ${destination(change.channelId, change.ownerId)}`
@@ -402,6 +420,7 @@ function manageMetadataLogs(
         const fresh = yield* readMetadataLogContext(client, config.serverId, message.author.id, destination)
         let managementContext = fresh.context
         let operation: MetadataLogsManageOperation
+        let applied: MetadataLogChange | undefined
         if (command.type === "reconcile") {
             const found = yield* store.query({
                 serverId: config.serverId,
@@ -429,7 +448,12 @@ function manageMetadataLogs(
             )).context
         } else if (command.operation.type === "forget") operation = command.operation
         else {
-            const change = command.operation
+            const typed = command.operation
+            // A route the sender names no owner for is theirs
+            let change =
+                typed.type === "route" || (typed.type === "event-route" && typed.enabled)
+                    ? { ...typed, ownerId: typed.ownerId ?? message.author.id }
+                    : typed
             // An enabled route needs its owner's own fresh authority in the destination
             const recipient =
                 change.type === "route" || (change.type === "event-route" && change.enabled)
@@ -447,6 +471,38 @@ function manageMetadataLogs(
             const { revision, routes, configRevision } = current.settings,
                 routeRevision = (category: MetadataLogsCategory) =>
                     routes.find((r) => r.category === category)!.revision
+            // A list edit becomes the whole lists, from the ones just read
+            if (change.type === "channel-list") {
+                const edit = change,
+                    s = current.settings,
+                    edited = (list: readonly string[]) =>
+                        edit.add
+                            ? [...list, ...edit.channelIds.filter((id) => !list.includes(id))]
+                            : list.filter((id) => !edit.channelIds.includes(id))
+                if (edit.list === "listed" && s.allChannels) {
+                    yield* reply(
+                        "Message events come from every channel now, so there is no list to change. Exclude channels with `!logs metadata exclude add <channel IDs>`",
+                    )
+                    return
+                }
+                const messageChannelIds =
+                        edit.list === "listed" ? edited(s.messageChannelIds) : [...s.messageChannelIds],
+                    excludedChannelIds =
+                        edit.list === "excluded" ? edited(s.excludedChannelIds) : [...s.excludedChannelIds]
+                if (Math.max(messageChannelIds.length, excludedChannelIds.length) > METADATA_CHANNEL_LIMIT) {
+                    yield* reply(
+                        `Each channel list holds at most ${METADATA_CHANNEL_LIMIT} channels. Nothing was changed`,
+                    )
+                    return
+                }
+                change = {
+                    type: "channels",
+                    ...(s.allChannels ? { allChannels: true } : {}),
+                    messageChannelIds,
+                    excludedChannelIds,
+                }
+            }
+            applied = change
             operation =
                 change.type === "module" || change.type === "channels"
                     ? { ...change, expectedRevision: revision }
@@ -474,8 +530,8 @@ function manageMetadataLogs(
             result.duplicate
                 ? "That change was already made. Check !logs metadata status before another change"
                 : result.type === "settings"
-                  ? command.type === "manage" && command.operation.type !== "forget"
-                      ? changed(command.operation)
+                  ? applied
+                      ? changed(applied)
                       : "Metadata log settings saved"
                   : result.type === "forgotten"
                     ? `Record #${result.recordNo} forgotten. Posted log messages stay`

@@ -325,6 +325,8 @@ test("The owner's DM export reads every settings family, leveling, cases and app
         "youtube",
     ])
     assert.deepEqual(file.settings.general, { prefix: "!", replyStyle: "text", nickname: null })
+    // A server without log settings exports the defaults, where message events come from every channel
+    assert.deepEqual([file.settings.logs!.allChannels, file.settings.logs!.messageChannelIds], [true, []])
     // The second moderation page continues the watchlist without repeating the first page's lists
     const watchlist = file.settings.moderation!.watchlist as Array<{ userId: string }>
     assert.deepEqual([watchlist.length, new Set(watchlist.map((row) => row.userId)).size], [25, 25])

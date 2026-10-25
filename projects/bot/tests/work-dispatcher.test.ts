@@ -374,9 +374,17 @@ function multiBackend(firstPass: Promise<ServiceWork>, setupHold?: Promise<void>
         if (path === "/afk/observe") return { cleared: false, statuses: [] }
         return Response.json({ error: "Backend unavailable" }, { status: 503 })
     }, quietSignal)
+    // The metadata read at a server's start asks whether message events are logged, and is no worker pass
+    const startRead = (request: Seen) =>
+        (request.body as { operation?: { type?: string } }).operation?.type === "messages"
     const workerCalls = (server: string) =>
         seen
-            .filter((request) => request.server === server && Object.values(workerPaths).includes(request.path))
+            .filter(
+                (request) =>
+                    request.server === server &&
+                    Object.values(workerPaths).includes(request.path) &&
+                    !startRead(request),
+            )
             .map((request) => request.path)
     return { client, seen, called, changes, workerCalls }
 }

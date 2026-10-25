@@ -272,10 +272,12 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                 // Sticky messages run from memory, so an applied change reloads them and posts or removes copies at once
                 if (job.family === "sticky" && result.job.state === "applied")
                     yield* stickyRuntimes.get(serverId)?.reload() ?? Effect.void
-                // Security alerts also check in-memory settings
+                // Security alerts and their actions also check in-memory settings
                 if (
                     job.family === "alerts" &&
-                    (job.operation.type === "set" || job.operation.type === "expect") &&
+                    (job.operation.type === "set" ||
+                        job.operation.type === "expect" ||
+                        job.operation.type === "action") &&
                     result.job.state === "applied"
                 )
                     yield* alertRuntimes.get(serverId)?.reload() ?? Effect.void

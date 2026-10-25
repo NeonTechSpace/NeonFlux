@@ -20,6 +20,8 @@ export const visibleText = (value: string) => value.replace(/[\u000c\u202e]/g, "
 export const hasText = (value: string) => visibleText(value) !== ""
 
 export const Id = Schema.String.check(Schema.makeFilter(isId))
+/** A Fluxer invite code as staff see and type it: 1 to 64 letters, digits, _ or - */
+export const InviteCode = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,64}$/))
 /** A safe integer from min to max */
 export const Int = (min = 0, max = Number.MAX_SAFE_INTEGER) =>
     Schema.Finite.check(

@@ -1,6 +1,7 @@
 import {
     ALERT_EXPECTED_LIMIT,
-    ALERT_INVITE_LIMIT,
+    ALERT_INVITE_PAGE,
+    alertActions,
     type AlertInvite,
     type AlertsOperation,
     type AlertsResult,
@@ -20,44 +21,70 @@ import { readServerManager, replyPrefix, withPrefix } from "./general-settings.t
 import { sourceTimestamp } from "./responses.ts"
 import { at, code, notSetUp, onOff, replyCard, replyText } from "./reply-style.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
-import { nativeFix } from "./permission-fix.ts"
-import { SafetyPermissionError } from "./safety-permissions.ts"
-import { alertKinds, alertsHelp, invitesHelp, parseAlertsCommand, parseInvitesCommand } from "./alerts-command.ts"
+import { fixSentence, nativeFix, permissionNames } from "./permission-fix.ts"
+import { readAuthenticatedBotId, readSafetyAuthority, SafetyPermissionError } from "./safety-permissions.ts"
+import {
+    actionNames,
+    alertKinds,
+    alertsHelp,
+    invitesHelp,
+    parseAlertsCommand,
+    parseInvitesCommand,
+} from "./alerts-command.ts"
 import { AlertsStoreError, type AlertsStore } from "./alerts-store.ts"
-import type { SecurityAlerts } from "./alerts-worker.ts"
+import { alertActionPermissions, shownInviteCode, type SecurityAlerts } from "./alerts-worker.ts"
+
+/** NeonFlux's own permissions in the server, from a fresh read of its roles */
+const readBotServerPermissions = (client: Client, serverId: string) =>
+    Effect.gen(function* () {
+        const botId = yield* readAuthenticatedBotId(client)
+        const { guild, roles, bot } = yield* readSafetyAuthority(client, serverId, botId)
+        return client.permissions.calculate({ guild, member: bot, roles })
+    })
 
 export class AlertsHandlingError extends Data.TaggedError("AlertsHandlingError")<{ readonly stage: "invite" }> {}
 
 const INVITE_PAGE = 10,
     EXPECTED_PAGE = 10
 const managerOnly = "Only the server owner or members with Manage community can manage security alerts and invites"
+const actionOwnerOnly = "Only the server owner or an Administrator can turn an alert action on"
 
-/** A short hash that names an invite without its code. The code grants access, so NeonFlux never shows or stores it */
+/** A short hash of an invite's code, which dashboard revocations name the invite by */
 export const inviteRef = (code: string) => createHash("sha256").update(code).digest("hex").slice(0, 16)
-const summary = (invite: InviteMetadata): AlertInvite => ({
-    ref: inviteRef(invite.code),
-    channelId: invite.channel.id,
-    inviterId: invite.inviterId ?? null,
-    uses: invite.uses,
-    maxUses: invite.maxUses,
-    expiresAt: invite.expiresAt ?? null,
-    createdAt: invite.createdAt,
-    temporary: invite.temporary,
-})
+const summary = (invite: InviteMetadata): AlertInvite => {
+    const code = shownInviteCode(invite.code)
+    return {
+        ref: inviteRef(invite.code),
+        ...(code ? { code } : {}),
+        channelId: invite.channel.id,
+        inviterId: invite.inviterId ?? null,
+        uses: invite.uses,
+        maxUses: invite.maxUses,
+        expiresAt: invite.expiresAt ?? null,
+        createdAt: invite.createdAt,
+        temporary: invite.temporary,
+    }
+}
 /** The server's invites, newest first, read fresh from Fluxer. Listing needs Manage community */
 export const readInvites = (client: Client, serverId: string) =>
     client.invites
         .fetchForGuild(serverId, { timeoutMs: 5000 })
         .pipe(Effect.map((invites) => [...invites].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))))
-const inviteList = (invites: readonly InviteMetadata[]) => ({
-    invites: invites.slice(0, ALERT_INVITE_LIMIT).map(summary),
-    more: invites.length > ALERT_INVITE_LIMIT,
-})
-/** Revokes the invite ref names, from a fresh read, and returns the invites that remain */
-function revokeInvite(client: Client, serverId: string, ref: string, actorId: string) {
+/** One dashboard page of invites. An offset past the end shows the last page, such as after revoking the last page's only invite */
+const inviteList = (invites: readonly InviteMetadata[], offset = 0) => {
+    const last = Math.max(0, Math.ceil(invites.length / ALERT_INVITE_PAGE) - 1) * ALERT_INVITE_PAGE,
+        start = Math.min(offset, last)
+    return {
+        invites: invites.slice(start, start + ALERT_INVITE_PAGE).map(summary),
+        ...(start ? { offset: start } : {}),
+        more: invites.length > start + ALERT_INVITE_PAGE,
+    }
+}
+/** Revokes the invite the test picks, from a fresh read, and returns the invites that remain */
+function revokeInvite(client: Client, serverId: string, picks: (code: string) => boolean, actorId: string) {
     return Effect.gen(function* () {
         const invites = yield* readInvites(client, serverId),
-            target = invites.find((invite) => inviteRef(invite.code) === ref)
+            target = invites.find((invite) => picks(invite.code))
         if (!target) return undefined
         yield* client.invites.delete(target.code, { auditReason: `Revoked with NeonFlux by ${actorId}` })
         return invites.filter((invite) => invite !== target)
@@ -67,7 +94,7 @@ function revokeInvite(client: Client, serverId: string, ref: string, actorId: st
 function describe(error: unknown) {
     if (error instanceof AlertsStoreError) {
         if (error.status === 429)
-            return `A server can mark at most ${ALERT_EXPECTED_LIMIT} expected bots and ${ALERT_EXPECTED_LIMIT} expected webhooks. Remove one first`
+            return `A server can mark up to ${ALERT_EXPECTED_LIMIT.toLocaleString("en-US")} expected bots and as many webhooks, the most one stored list holds. Remove one first`
         if (error.status === 409)
             return "Alert settings changed on the website while this command ran. Check `!alerts status` and try again"
         if (error.status === 403) return managerOnly
@@ -135,20 +162,24 @@ export function handleAlertsCommand(
             yield* reply(alertsHelp)
             return
         }
-        const { actor, manager } = yield* readServerManager(client, serverId, message.author.id)
+        const { actor, manager, authority } = yield* readServerManager(client, serverId, message.author.id)
         if (!manager) {
             yield* reply(managerOnly)
+            return
+        }
+        // An action spends NeonFlux's own permissions, so turning one on needs the owner or an Administrator
+        if (command.type === "action" && command.enabled && !authority.isOwner && !authority.isAdmin) {
+            yield* reply(actionOwnerOnly)
             return
         }
         const s = runtime.settings(),
             prefix = replyPrefix(serverId, message.guildId)
         if (command.type === "status") {
             const names = (enabled: boolean) =>
-                    alertKinds
-                        .filter((kind) => s[kind] === enabled)
-                        .map(capital)
-                        .join(", "),
-                skipped = runtime.skipped()
+                alertKinds
+                    .filter((kind) => s[kind] === enabled)
+                    .map(capital)
+                    .join(", ")
             const expected = [
                 ...(s.expectedBotIds.length ? [plural(s.expectedBotIds.length, "bot")] : []),
                 ...(s.expectedWebhookIds.length ? [plural(s.expectedWebhookIds.length, "webhook")] : []),
@@ -162,8 +193,10 @@ export function handleAlertsCommand(
                         ["Off", names(false)],
                         ["Expected", expected],
                         [
-                            "Skipped by the rate limit",
-                            skipped ? `${plural(skipped, "alert")} since NeonFlux started` : "",
+                            "Actions",
+                            (["kickBots", "deleteWebhooks", "removePermissions"] as const)
+                                .map((action) => `${actionNames[action]} ${onOff(s[action]).toLowerCase()}`)
+                                .join(", "),
                         ],
                     ] as const
                 ).filter(([, value]) => value),
@@ -241,8 +274,25 @@ export function handleAlertsCommand(
         let result: AlertsResult | undefined
         if (command.type === "set")
             for (const alert of command.alerts) result = yield* manage({ type: "set", alert, enabled: command.enabled })
+        else if (command.type === "action")
+            result = yield* manage({ type: "action", action: command.action, enabled: command.enabled })
         else result = yield* manage({ type: "expect", kind: command.kind, id, expected: command.expected })
         yield* runtime.changed(result!.settings)
+        if (command.type === "action") {
+            const alert = alertActions[command.action].alert
+            // An action spends NeonFlux's own permission, so turning one on says when NeonFlux lacks it
+            const needed = alertActionPermissions[command.action]
+            const lacking =
+                command.enabled &&
+                (yield* readBotServerPermissions(client, serverId).pipe(
+                    Effect.map((bits) => (bits & needed) !== needed),
+                    Effect.catch(() => Effect.succeed(false)),
+                ))
+            yield* reply(
+                `${capital(actionNames[command.action])} turned ${onOff(command.enabled).toLowerCase()}${command.enabled && !result!.settings[alert] ? `. It acts once the ${alert} alert is on` : ""}${lacking ? `. It fails until NeonFlux has it: ${fixSentence({ permissions: permissionNames(needed) })}` : ""}`,
+            )
+            return
+        }
         yield* reply(
             command.type === "set"
                 ? `${command.alerts.length > 1 ? "All alerts" : `The ${command.alerts[0]} alert`} turned ${onOff(command.enabled).toLowerCase()}`
@@ -278,11 +328,16 @@ export function handleInvitesCommand(
             return
         }
         if (command.type === "revoke") {
-            const remaining = yield* revokeInvite(client, serverId, command.ref, message.author.id)
+            const remaining = yield* revokeInvite(
+                client,
+                serverId,
+                (inviteCode) => inviteCode === command.code,
+                message.author.id,
+            )
             yield* reply(
                 remaining
-                    ? `Invite ${code(command.ref)} revoked. Members who joined with it stay`
-                    : "No current invite has that reference. Check `!invites list`",
+                    ? `Invite ${code(command.code)} revoked. Members who joined with it stay`
+                    : "No current invite has that code. Check `!invites list`",
             )
             return
         }
@@ -311,8 +366,9 @@ export function handleInvitesCommand(
                 ...(invite.maxUses === 0 ? ["unlimited uses"] : []),
                 ...(invite.temporary ? ["temporary membership"] : []),
             ]
+            const inviteCode = shownInviteCode(invite.code)
             return (
-                `${code(inviteRef(invite.code))}: ${format.channelMention(invite.channel.id)}, by ${invite.inviterId ? format.userMention(invite.inviterId) : "unknown"}, ` +
+                `${inviteCode ? `${code(inviteCode)}: ` : ""}${format.channelMention(invite.channel.id)}, by ${invite.inviterId ? format.userMention(invite.inviterId) : "unknown"}, ` +
                 `${invite.maxUses ? `${invite.uses} of ${invite.maxUses} uses` : `${invite.uses} uses`}${invite.expiresAt ? `, expires ${at(Date.parse(invite.expiresAt))}` : ""}${flags.length ? `. Flagged: ${flags.join(", ")}` : ""}`
             )
         })
@@ -320,7 +376,7 @@ export function handleInvitesCommand(
         yield* replyCard(context, serverId, {
             title: "Invites",
             description: lines.join("\n"),
-            note: `Each line starts with the invite's reference. Revoke one with ${code(`${prefix}invites revoke <reference>`)}`,
+            note: `Each line starts with the invite's code. Revoke one with ${code(`${prefix}invites revoke <code>`)}`,
             ...(page < pages ? { fields: [["Next", code(`${prefix}invites list next`)] as const] } : {}),
         })
     }).pipe(
@@ -329,7 +385,7 @@ export function handleInvitesCommand(
     )
 }
 
-/** Native work a dashboard invite request needs: revoke the named invite, then hand the backend the invites that remain, without codes */
+/** Native work a dashboard invite request needs: revoke the named invite, then hand the backend the requested page of the invites that remain */
 export function prepareAlertsDashboardJob(client: Client, serverId: string, job: DashboardConfigurationReadyJob) {
     return Effect.gen(function* () {
         if (
@@ -337,11 +393,12 @@ export function prepareAlertsDashboardJob(client: Client, serverId: string, job:
             (job.operation.type !== "invites-refresh" && job.operation.type !== "invite-revoke")
         )
             return undefined
+        const op = job.operation
         const invites =
-            job.operation.type === "invite-revoke"
-                ? yield* revokeInvite(client, serverId, job.operation.ref, job.actorId)
+            op.type === "invite-revoke"
+                ? yield* revokeInvite(client, serverId, (inviteCode) => inviteRef(inviteCode) === op.ref, job.actorId)
                 : yield* readInvites(client, serverId)
         if (!invites) return yield* Effect.fail(new AlertsHandlingError({ stage: "invite" }))
-        return { context: inviteList(invites), undo: Effect.void }
+        return { context: inviteList(invites, op.offset), undo: Effect.void }
     })
 }

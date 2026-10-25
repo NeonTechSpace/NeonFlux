@@ -984,7 +984,7 @@ keep you from deleting the channel's policy on the dashboard
 
 ## Metadata logs
 
-Owners and Administrators extend `!logs` with metadata logging. Existing moderation log commands keep their meaning. Configure in a server channel. Status, category, override, counter, event and delivery reports arrive in a private DM, and these reads also work from a verified one-to-one DM. `!logs events list` and `!logs metadata overrides` show 10 entries a page, and `next` shows the following page
+Owners and Administrators extend `!logs` with metadata logging. Existing moderation log commands keep their meaning. Configure in a server channel. Status, category, override and counter reports sent in a Text or Announcement channel answer there. Event lists, records and delivery reports arrive in a private DM, since records hold message text from channels the channel's readers may not see. All these reads also work from a verified one-to-one DM. `!logs events list` and `!logs metadata overrides` show 10 entries a page, and `next` shows the following page
 
 ```text
 !logs metadata help
@@ -992,12 +992,15 @@ Owners and Administrators extend `!logs` with metadata logging. Existing moderat
 !logs metadata categories
 !logs metadata overrides [next]
 !logs metadata module on|off
-!logs metadata route <category> <channel> <owner> on|off
+!logs metadata route <category> <channel> [owner] on|off
 !logs metadata clear <category>
-!logs metadata event <event> <channel> <owner> on
+!logs metadata event <event> <channel> [owner] on
 !logs metadata event <event> off
 !logs metadata inherit <event>
+!logs metadata channels all [excluded-IDs]
 !logs metadata channels <channel-IDs|none> <excluded-IDs|none>
+!logs metadata channels add|remove <channel-IDs>
+!logs metadata exclude add|remove <channel-IDs>
 !logs events list [next]
 !logs events show <record>
 !logs delivery show|reconcile <record>
@@ -1005,17 +1008,17 @@ Owners and Administrators extend `!logs` with metadata logging. Existing moderat
 !logs counters
 ```
 
-Categories are `membership`, `resources`, `messages`, `audit`, `settings`, `operations` and `security`. The `security` category carries the [security alerts and invite logs](#security-alerts-and-invites) that `!alerts` turns on. The module and every route start disabled. Message events also need channel opt-in, with at most 50 channels and 50 exclusions. DMs, private ticket channels, log channels and NeonFlux's own feedback are never logged. Send a change that names no channel in a Text or Announcement channel, since a thread, forum post or voice channel is refused
+Categories are `membership`, `resources`, `messages`, `audit`, `settings`, `operations` and `security`. The `security` category carries the [security alerts and invite logs](#security-alerts-and-invites) that `!alerts` turns on. The module and every route start disabled. A route's owner is the Owner or Administrator who receives its posts and must be able to view, send and read history in its channel. Without a named owner it is you. Message events come from every channel except the excluded ones with `channels all`, or from only the listed channels, with up to 500 channels in each list. `channels add|remove` and `exclude add|remove` change one list without retyping it, and `channels add` needs listed mode. They and `channels all` take channels split by commas or spaces, and `channels all` without channels excludes none. A new server starts with every channel, and a server set up before this choice keeps its list. Message events are recorded only while the messages category or a message event override posts to a channel. DMs, private ticket channels, log channels and NeonFlux's own feedback are never logged. Send a change that names no channel in a Text or Announcement channel, since a thread, forum post or voice channel is refused
 
 `!logs metadata status` is a summary: Whether the module is on, how many categories post to a channel, the number of event overrides, the message channels, the log channels that no longer exist and the log channels where NeonFlux currently lacks View channel, Send messages, Embed links or Read message history. It shows the stored record count only once 8000 of the 10000 records are in use. `!logs metadata categories` shows each category's channel and whether NeonFlux can post there. Replies and log post titles name events in plain words, such as Member joined or Audit: Member kicked. `event` and `inherit` take that name, in any case and with or without the colon, as in `!logs metadata event member joined off`, or the event code, such as `member-add` or `audit-entry:20`. `!logs counters` shows open tickets, stored moderation cases, stored metadata records by category and the log posts that are waiting, failed or not confirmed
 
-The dashboard's Channel logs section configures the same settings, including per-event overrides for twenty-eight event types and eighteen audit actions. An event without an override uses its category route. An audit-action override, such as `audit-entry:20` for kicks, wins over the audit category. An enabled override sends even when its category is off, a disabled one suppresses the event, and `inherit` removes the override
+The dashboard's Channel logs section configures the same settings, including per-event overrides for twenty-nine event types and thirty-eight audit actions. An event without an override uses its category route. An audit-action override, such as `audit-entry:20` for kicks, wins over the audit category. An enabled override sends even when its category is off, a disabled one suppresses the event, and `inherit` removes the override
 
 Each category has a color: Membership green, resources blue, messages cyan, audit purple, settings amber, operations coral red and security pink. Shade shows the kind of change, with the darkest tone for destructive actions. A member leaving is neutral and unattributed, while kicks and bans proven by the audit log use the darkest tone
 
-Each log post names the members, roles and channels of its record as mentions that notify no one and shows its time in each reader's timezone. Messages and webhooks appear by their IDs
+Each log post names the members, roles and channels of its record as mentions that notify no one and shows its time in each reader's timezone. Webhooks, emoji, stickers and messages an audit entry names appear by their IDs. A message edit shows the author, the channel, a link to the message, the earlier and the new text in code blocks and the attachments. A deletion shows the author, the text and the attachments NeonFlux knew. A bulk deletion shows the count and the authors NeonFlux knew with how many messages each wrote, without text. Member, role, channel, server and thread changes show each changed value before and after, such as a nickname, the roles added and removed or the permissions a role gained and lost. Audit log entries show their reason and every value Fluxer recorded before and after. Names and values are escaped, so text in them cannot fake a line or a mention, and a post that would exceed one embed shortens its text blocks with … and counts the change and attachment lines left out
 
-Logged events cover member joins, updates and removals, role and channel changes, thread and forum post creation, changes and deletion, server updates, message edits and deletions and new audit log entries. Thread events use the resources category with their own event types `thread-create`, `thread-update` and `thread-delete`, and name the parent channel. A thread change names the changed fields `name`, `archived`, `locked` and `tags` when NeonFlux saw the thread before, since Fluxer sends only the new state. A thread NeonFlux merely joins is not logged as created. Deleting a channel deletes its threads without separate events, so one `thread-delete` record counts the threads NeonFlux knew in that channel. Records keep IDs, times, proven actors or unknown attribution, changed field names and counts. They never keep message text, attachments, reasons, raw audit changes or invite codes. Settings records cover moderation and log settings, security and DEFCON, metadata configuration and changes saved on the dashboard
+Logged events cover member joins, updates and removals, role and channel changes, thread and forum post creation, changes and deletion, server updates, message edits and deletions and every action Fluxer records in its audit log, such as kicks, bans, role and member changes, invites, webhooks, emoji, stickers, pins, prunes and message deletions with the member who deleted them. An audit entry without a target, such as a prune, is logged without one. Thread events use the resources category with their own event types `thread-create`, `thread-update` and `thread-delete`, and name the parent channel. A thread change names the changed fields `name`, `archived`, `locked` and `tags` when NeonFlux saw the thread before, since Fluxer sends only the new state. A thread NeonFlux merely joins is not logged as created. Deleting a channel deletes its threads without separate events, so one `thread-delete` record counts the threads NeonFlux knew in that channel. Records keep IDs, times, proven actors or unknown attribution, the changed values above, message text up to 4000 characters per side, Fluxer's longest message, up to 10 attachment names and links, audit reasons and invite codes. Audit values whose names look like tokens, secrets or passwords are left out. Fluxer sends a deleted message's text but not an edited message's earlier text or the earlier state of a changed member, role, channel or server, so NeonFlux compares with what it saw last. It keeps the last 10000 messages and up to 8 MiB of their text for all servers together, and keeps a server's message text, never a DM's, while its message events reach a log channel. It also keeps the IDs of the last 10000 messages of other bots, webhooks and the system, never their text, since a deletion does not say whether a bot wrote it, so those deletions stay out of logs. It asks the backend about that when the server starts and after each logs change made in chat, on the dashboard or by a restore, and forgets the server's text only when the answer says its message events no longer reach a log channel. Reading logs, help and forgetting a record keep it. So an edit has no earlier text only for a message NeonFlux did not keep: One sent before NeonFlux started or while message events were not logged, one pushed out of the last 10000 messages or 8 MiB of text, or one sent before a lost connection to Fluxer or before its server became available or unavailable, since NeonFlux then forgets that server's messages because it may have missed their edits. It keeps up to 50000 roles, 20000 channels, 20000 members and 5000 servers, learns channels and members from their events and forgets a server's copies when the server becomes available or unavailable. A change NeonFlux has no earlier copy of says that earlier values are unavailable. Settings records cover moderation and log settings, security and DEFCON, metadata configuration and changes saved on the dashboard
 
 Each server keeps at most 10000 records, and the oldest is evicted when a new one arrives. Delivery runs as NeonFlux
 under the server automation policy, and DEFCON 1 pauses it. Disabling keeps records, and re-enabling can deliver the
@@ -1030,40 +1033,52 @@ channel no longer exists, each post for it fails without being sent and is not t
 for the record, `!logs metadata status` and `!logs metadata categories` name the channel and the [recovery
 inbox](#recovery-inbox) counts the failed posts, so route the category or event to another channel. A post whose channel
 could not be read for another reason, such as a timeout, a rate limit or a Fluxer server error, is tried again a minute
-later. Logs are append-only and settled records expire after 30 days. While logs are off, the bot sends no gateway
-events for a minute after the backend answers that they are off, or until a `!logs` command or a logs change on the
-dashboard
+later. Logs are append-only and settled records expire after 30 days. A record that holds message text, earlier text
+or attachments also expires after 30 days while its post is not confirmed, so member text is never kept longer. While logs are off, the bot sends no gateway
+events for a minute after the backend answers that they are off, or until a logs change in chat, on the dashboard or by a
+restore
 
 ## Security alerts and invites
 
-Security alerts tell staff about changes that often come before a raid or a takeover. Every alert starts off, and NeonFlux only reports. It never kicks, bans, revokes or changes anything on its own. Alerts are records in the metadata log's `security` category, so they need metadata logs on and the category, or one of its events, routed to a staff channel, as `!setup alerts` explains
+Security alerts tell staff about changes that often come before a raid or a takeover. Every alert starts off. NeonFlux only reports, unless staff turn on an alert's action as described below. Alerts are records in the metadata log's `security` category, so they need metadata logs on and the category, or one of its events, routed to a channel, as `!setup alerts` explains. Invite logs show invite codes, which let anyone join, so route the category to a channel only staff can read
 
 | Alert | Event type | What it reports |
 | --- | --- | --- |
-| `invites` | `invite-create`, `invite-delete` | Each invite created or deleted, with its channel and creator. An invite that never expires or has unlimited uses is flagged with `never-expires` or `unlimited-uses` |
+| `invites` | `invite-create`, `invite-delete` | Each invite created or deleted, with its code, channel and creator. An invite that never expires or has unlimited uses is flagged with `never-expires` or `unlimited-uses` |
 | `bots` | `bot-join` | A bot that joins and is not marked expected |
 | `webhooks` | `webhook-change` | A webhook that is created or changed and is not marked expected, with who did it |
-| `privileges` | `privilege-change` | A role created or changed to hold Administrator, Manage community, Manage roles, Manage channels, Manage webhooks, Ban members, Kick members or Time out members, or a member given a role with one of them, read from the audit entry's added roles or from the member's roles before and after. The record names the gained permissions and who made the change |
+| `privileges` | `privilege-change` | A role created or changed to hold Administrator, Manage community, Manage roles, Manage channels, Manage webhooks, Ban members, Kick members or Time out members, or a member given a role with one of them. Both are read from the audit entry alone, which lists a role's permissions or a member's roles before and after. The record names the gained permissions and who made the change |
 | `impersonation` | `impersonation` | A member whose username or server nickname looks like the owner's name or a staff member's username, display name or nickname |
 
 | Task | Command |
 | --- | --- |
-| Show which alerts are on and how many bots and webhooks are expected | `!alerts status` |
+| Show which alerts and actions are on and how many bots and webhooks are expected | `!alerts status` |
 | List the expected bots and webhooks, ten at a time | `!alerts expected [next]` |
 | Turn an alert or all of them on or off | `!alerts on\|off invites\|bots\|webhooks\|privileges\|impersonation\|all` |
 | Mark a bot or webhook as expected, or stop. A webhook's ID works too | `!alerts expect\|unexpect bot <ID>\|webhook <name>` |
-| List the server's invites, newest first | `!invites list [next]` |
-| Revoke an invite | `!invites revoke <reference>` |
+| Turn an alert's action on or off | `!alerts action bots\|webhooks\|privileges on\|off` |
+| List the server's invites with their codes, newest first | `!invites list [next]` |
+| Revoke an invite | `!invites revoke <code>` |
 
-All commands need the server owner, an Administrator or Manage community. The dashboard's [Security alerts section](WEB.md#security-alerts) changes the same settings
+All commands need the server owner, an Administrator or Manage community. Turning an action on needs the server owner or an Administrator, since the action spends NeonFlux's own permissions. The reply says when NeonFlux lacks the action's permission, and while the action and its alert are on, `!setup`, `!health` and the dashboard's permission check name it too. The dashboard's [Security alerts section](WEB.md#security-alerts) changes the same settings
 
-Webhook and privilege alerts come from new audit log entries, which name the webhook or role and the member who made the change, so they need View activity log. The actor is taken only from the entry that describes the change and is never guessed. A member role change counts when the entry lists the added role IDs, which has not been checked against live Fluxer. A bot join comes from the join itself, so its alert names no actor. Route the audit action `audit-entry:28` to see who added a bot. Invite lists and the staff names impersonation compares need Manage community
+Every action starts off and runs only while its alert is on, at every DEFCON level. It runs only once its alert is on record, so nothing acts while metadata logs are off. Any alerts manager can turn an action off, also at DEFCON 1
 
-Impersonation compares names after removing accents, case, spaces and punctuation and folding digits and letters from other scripts that look like Latin letters, such as `0` for `o` or a Cyrillic `а`. Names that then match, or differ by one character from five characters on and by two from ten on, raise one alert per member and name. Names shorter than three characters never match. Staff means the owner and up to 50 members of each of the five highest roles holding Administrator, Manage community, Ban members, Kick members or Time out members. NeonFlux reads them at most every ten minutes
+| Action | `!alerts action` | What NeonFlux does |
+| --- | --- | --- |
+| Kick unexpected bots | `bots` | Kicks a bot that joins and is not marked expected, once a fresh read shows a bot account that is not NeonFlux or the owner. It needs Kick members and a higher role than the bot, also when the bot holds Administrator |
+| Delete unexpected webhooks | `webhooks` | Deletes a newly created webhook that is not marked expected, unless the server owner, NeonFlux or an expected bot created it. It needs Manage webhooks. A changed webhook is only reported |
+| Remove gained permissions | `privileges` | Removes from a role the permissions its audit entry added that the alert names and the role still holds, unless the server owner, NeonFlux or an expected bot made the change. It needs Manage roles and a higher role than that role. A member given a role is only reported, since NeonFlux removes only roles it granted |
 
-Invite codes grant access to the server, so NeonFlux never shows, logs or stores them. `!invites list` names each invite by a 16-character reference derived from its code, with its channel, creator, uses, maximum uses, expiry and flags. `!invites revoke` takes that reference, reads the current invites and deletes the matching one. Members who joined with it stay
+A webhook or role change whose audit entry names no actor is only reported. NeonFlux tries each action once, after its alert, and a short `alert-action` record names the action and its outcome. The outcome is `succeeded`, `failed` when NeonFlux lacked the permission or the rank, the request was never sent or Fluxer refused it, or `uncertain` otherwise, such as when Fluxer did not answer within five seconds or NeonFlux stopped before it learned the result. NeonFlux never repeats an uncertain action, so check the server yourself. An event Fluxer delivers twice acts once
 
-Each server gets at most ten alerts at once and then one a minute. Skipped alerts are counted in `!alerts status` until NeonFlux restarts. `!alerts expected` and a webhook named in `!alerts expect` read the server's webhooks fresh, which needs Manage webhooks. A webhook NeonFlux cannot read shows its ID, which `!alerts unexpect webhook` takes. The alert settings are read once when a server starts and kept in memory, so with every alert off an event costs no backend call. Up to 50 bots and 50 webhooks can be marked expected
+Webhook and privilege alerts come from new audit log entries, which name the webhook or role and the member who made the change, so they need View activity log. The actor is taken only from the entry that describes the change and is never guessed. A member role change counts when the entry lists the member's roles before and after, which has not been checked against live Fluxer. A bot join comes from the join itself, so its alert names no actor. Route the audit action `audit-entry:28` to see who added a bot. Invite lists and the staff names impersonation compares need Manage community
+
+Impersonation compares names after removing accents, case, spaces and punctuation and folding digits and letters from other scripts that look like Latin letters, such as `0` for `o` or a Cyrillic `а`. Names that then match, or differ by one character from five characters on and by two from ten on, raise one alert per member and name. Names shorter than three characters never match. Staff means the owner and every member of each role holding Administrator, Manage community, Ban members, Kick members or Time out members. NeonFlux reads them at most every ten minutes, up to 2,000 role members in one read, so a larger staff is read over the next refreshes, highest roles first
+
+`!invites list` starts each line with the invite's code, then its channel, creator, uses, maximum uses, expiry and flags. `!invites revoke` takes the code exactly as the list shows it, since codes differ by case, reads the current invites and deletes that one. Members who joined with it stay. A code grants access to the server, and invite logs and the dashboard's invite list show codes as well, so only staff should read them
+
+Every alert becomes its own record, and Fluxer's rate limits pace their delivery. `!alerts expected` and a webhook named in `!alerts expect` read the server's webhooks fresh, which needs Manage webhooks. A webhook NeonFlux cannot read shows its ID, which `!alerts unexpect webhook` takes. The alert settings are read once when a server starts and kept in memory, so with every alert off an event costs no backend call. Up to 8,192 bots and 8,192 webhooks can be marked expected, the most one stored list holds
 
 ## Temporary voice rooms
 
@@ -1535,7 +1550,7 @@ A number means the server at that place in the last `!mydata` list shown to you.
 not reach, and its records are counted for that server alone. When the list reached its read limit, every count says "or more" and a note says that a server can be missing. A confirmation deletes only in the server whose deletion
 you previewed last, and a newer list asks you to preview again
 
-Deletion removes your AFK status, custom command cooldowns, leveling XP with its message receipts and staff corrections, greeting records, rules acknowledgment, newcomer checklist completion, role picker role checks, birthday and anniversary enrollment, ticket drafts, event RSVPs, suggestion votes, your places in open groups, your closed suggestions, your showcase records and your profile with any profile save from the website that the bot has not handled yet. A seat you held goes to the next member on the event's waitlist, and suggestion cards update their vote counts. After deleting your rules acknowledgment, acknowledge the rules again before features that require it work for you. Deletion does not remove messages NeonFlux already sent, such as greetings, event cards, showcases or log entries. Delete a showcase on the website first to remove its message too
+Deletion removes your AFK status, custom command cooldowns, leveling XP with its message receipts and staff corrections, greeting records, rules acknowledgment, newcomer checklist completion, role picker role checks, birthday and anniversary enrollment, ticket drafts, event RSVPs, suggestion votes, your places in open groups, your closed suggestions, your showcase records, the message log records of your edited and deleted messages, the log records of your joins, departures and member changes, the audit log records about you, such as a kick, a ban or a nickname or role change, with their reasons, your place in a bulk deletion's log record, which keeps the other authors, and your profile with any profile save from the website that the bot has not handled yet. A seat you held goes to the next member on the event's waitlist, and suggestion cards update their vote counts. After deleting your rules acknowledgment, acknowledge the rules again before features that require it work for you. Deletion does not remove messages NeonFlux already sent, such as greetings, event cards, showcases or log entries. Delete a showcase on the website first to remove its message too
 
 Some data stays because a rule needs it, and the reply says why:
 
@@ -1547,6 +1562,7 @@ Some data stays because a rule needs it, and the reply says why:
 - Birthday and anniversary posts already sent stay recorded until 30 days after posting, and the years you were celebrated stay for 400 days, so no year is celebrated twice
 - An open suggestion stays while staff review it. Withdraw it with `!suggest withdraw`, then delete again
 - A greeting that is being sent stays until it finishes
+- A message log record whose post is being sent stays until it finishes, and the log post itself stays in the log channel
 - Security records, such as spam detection counts, watchlist entries and verification links, keep their own expiry and are not listed
 
 One request reads or deletes a bounded amount. An export of every server first searches each kind of data for the
@@ -1569,7 +1585,7 @@ One bot token, process and backend serve every server. Each server has its own s
 ### Add the bot to a server
 
 Server owners and managers add NeonFlux from the dashboard's **Add NeonFlux to a server** link, shown only in multi
-mode. It opens Fluxer's bot authorization with the permission mask `9008694256823542`:
+mode. It opens Fluxer's bot authorization with the permission mask `9008694793694454`:
 
 | Permission | Used for |
 | --- | --- |
@@ -1583,6 +1599,7 @@ mode. It opens Fluxer's bot authorization with the permission mask `900869425682
 | Kick members, Ban members, Time out members | Kicks, bans, timeouts, warnings and quarantine |
 | View activity log | Audit entries in metadata logs |
 | Manage community | Invite lists and staff names for security alerts |
+| Manage webhooks | Webhook names in alert lists and deleting unexpected webhooks when that security alert action is on |
 | Manage threads | Help desk forums |
 | Change own nickname | Changing the bot's own nickname in that server |
 | Send messages in threads, Create public threads, Create private threads | Channel locks and ticket closes, which deny these too, because Fluxer lets a bot deny only permissions it holds |

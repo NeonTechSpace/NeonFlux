@@ -1,5 +1,6 @@
 import {
     MetadataConfigurationOperation,
+    metadataEventTypes,
     sameMetadataLogBinding,
     type MetadataLogsBinding,
     type MetadataLogsContext,
@@ -56,6 +57,7 @@ export async function metadataState(ctx: MutationCtx, serverId: string) {
         configRevision: 0,
         routes: defaultMetadataRoutes(),
         eventRoutes: [],
+        allChannels: true,
         messageChannelIds: [],
         excludedChannelIds: [],
         retained: 0,
@@ -78,6 +80,8 @@ export function publicMetadataSettings(row: Doc<"metadataLogSettings"> | null): 
         configRevision: row?.configRevision ?? 0,
         routes: row?.routes ?? defaultMetadataRoutes(),
         eventRoutes: row?.eventRoutes ?? [],
+        // A new server starts with every channel, and an older row without the choice keeps its list
+        allChannels: row ? (row.allChannels ?? false) : true,
         messageChannelIds: row?.messageChannelIds ?? [],
         excludedChannelIds: row?.excludedChannelIds ?? [],
         retained: row?.retained ?? 0,
@@ -171,11 +175,15 @@ export async function metadataDelivery(
     const unresolved =
         (delivery.state === "uncertain" && !delivery.resolution) ||
         (delivery.state === "failed" && !delivery.noDispatch && !delivery.resolution)
+    // A record of message text, its earlier text or attachments goes when it expires even while its post is not confirmed, so
+    // member text is never kept past the record's 30 days. Other unconfirmed records stay so staff can still check their post
+    const details = row.event.details,
+        memberText = details?.text !== undefined || details?.before !== undefined || !!details?.attachments?.length
     await ctx.db.patch(row._id, {
         delivery,
         actionable,
         nextCheckAt: delivery.nextCheckAt,
-        cleanupAt: actionable || unresolved ? undefined : row.expiresAt,
+        cleanupAt: actionable || (unresolved && !memberText) ? undefined : row.expiresAt,
         ...extras,
     })
     return publicMetadataRecord((await ctx.db.get(row._id))!)
@@ -239,8 +247,59 @@ export async function removeMetadataRecord(
         .withIndex("by_binding", (q) => q.eq("serverId", row.serverId).eq("recordNo", row.recordNo))
         .take(3)
     for (const attempt of attempts) await ctx.db.delete(attempt._id)
+    const authors = await ctx.db
+        .query("metadataLogAuthors")
+        .withIndex("by_record", (q) => q.eq("serverId", row.serverId).eq("recordNo", row.recordNo))
+        .take(20)
+    for (const author of authors) await ctx.db.delete(author._id)
     await ctx.db.delete(row._id)
 }
+/** Removes a member from the bulk deletion record that counts them, which keeps the other authors. The post already in the
+ * log channel stays, as with other messages NeonFlux sent. A post being sent keeps the record until it finishes */
+export async function removeMetadataAuthor(ctx: MutationCtx, link: Doc<"metadataLogAuthors">) {
+    const row = await ctx.db
+        .query("metadataLogRecords")
+        .withIndex("by_number", (q) => q.eq("serverId", link.serverId).eq("recordNo", link.recordNo))
+        .unique()
+    if (row?.delivery?.state === "reserved") return false
+    if (row) {
+        const { authors, ...details } = row.event.details ?? {}
+        const rest = (authors ?? []).filter((author) => author.userId !== link.userId)
+        const event = {
+            ...row.event,
+            details: rest.length ? { ...details, authors: rest } : undefined,
+        } as MetadataLogsEvent
+        if (!event.details) delete (event as { details?: unknown }).details
+        await ctx.db.patch(row._id, { event, presentation: metadataPresentation(row.recordNo, event, row.serverId) })
+    }
+    await ctx.db.delete(link._id)
+    return true
+}
+/** The member a record is about, whom member data rights find it by. An audit entry counts for the member it targets,
+ * such as a kick, a ban or a nickname or role change, and never for whoever made the change, as with moderation cases.
+ * Security alert records, such as a possible impersonation, are security records and stay out like the watchlist */
+const recordMember = (event: MetadataLogsEvent) =>
+    event.category === "messages"
+        ? event.details?.authorId
+        : event.category === "membership" ||
+            (event.category === "audit" && event.auditAction! >= 20 && event.auditAction! <= 27)
+          ? event.resourceIds[0]
+          : undefined
+const MESSAGE_EVENT_TYPES = metadataEventTypes.filter((type) => type.startsWith("message-"))
+/** Whether some channel's message events go to a log channel, by the module's channel choice and its message routes */
+export const metadataMessagesRouted = (state: {
+    allChannels?: boolean
+    messageChannelIds: readonly string[]
+    routes: readonly { category: string; enabled: boolean }[]
+    eventRoutes: readonly { eventType: string; enabled: boolean }[]
+}) =>
+    (state.allChannels || state.messageChannelIds.length > 0) &&
+    // Each message event follows its own override, or the messages category without one
+    MESSAGE_EVENT_TYPES.some(
+        (type) =>
+            (state.eventRoutes.find((r) => r.eventType === type) ?? state.routes.find((r) => r.category === "messages"))
+                ?.enabled,
+    )
 export async function admitMetadata(
     ctx: MutationCtx,
     serverId: string,
@@ -255,8 +314,15 @@ export async function admitMetadata(
     let state = await metadataState(ctx, serverId)
     const now = Date.now()
     if (!state.enabled && !forceEnabled) return { admitted: false, duplicate: false, reason: "disabled" }
-    // No channel logs messages, so the bot can stop asking for a while
-    if (event.category === "messages" && !state.messageChannelIds.length)
+    const eventRoute =
+            (event.auditAction === undefined
+                ? undefined
+                : state.eventRoutes.find((r) => r.eventType === `audit-entry:${event.auditAction}`)) ??
+            state.eventRoutes.find((r) => r.eventType === event.type),
+        route = eventRoute ?? state.routes.find((r) => r.category === event.category)!
+    // No channel logs messages, or no message event goes to a log channel, so the bot can stop asking for a while.
+    // Message records hold member text, which is kept only when it is posted
+    if (event.category === "messages" && !metadataMessagesRouted(state))
         return { admitted: false, duplicate: false, reason: "messages-off" }
     if (event.category === "messages" && event.channelId) {
         // A message in a thread counts as in its parent channel too, so a ticket's or log destination's threads stay private
@@ -284,7 +350,8 @@ export async function admitMetadata(
             retainedDestination ||
             listed([moderation?.config.logChannelId]) ||
             ticket ||
-            !listed(state.messageChannelIds) ||
+            (!state.allChannels && !listed(state.messageChannelIds)) ||
+            !route.enabled ||
             event.authorBot === true ||
             event.privateChannel !== false
         ) {
@@ -305,13 +372,7 @@ export async function admitMetadata(
         if (oldest) await removeMetadataRecord(ctx, oldest)
         state = (await ctx.db.get(state._id))!
     }
-    const eventRoute =
-            (event.auditAction === undefined
-                ? undefined
-                : state.eventRoutes.find((r) => r.eventType === `audit-entry:${event.auditAction}`)) ??
-            state.eventRoutes.find((r) => r.eventType === event.type),
-        route = eventRoute ?? state.routes.find((r) => r.category === event.category)!,
-        recordNo = state.nextRecordNo
+    const recordNo = state.nextRecordNo
     if (!Number.isSafeInteger(recordNo + 1)) fail(503, "Metadata sequence exhausted")
     const delivery: MetadataLogsDelivery | null =
         route.enabled && route.channelId && route.ownerId
@@ -327,19 +388,23 @@ export async function admitMetadata(
                   nextCheckAt: now,
               }
             : null
+    const member = recordMember(event)
     const id = await ctx.db.insert("metadataLogRecords", {
         serverId,
         recordNo,
         sourceKey: metadataSourceKey(event),
         event,
+        ...(member ? { authorId: member } : {}),
         admittedAt: now,
         expiresAt: now + METADATA_RETENTION,
-        presentation: metadataPresentation(recordNo, event),
+        presentation: metadataPresentation(recordNo, event, serverId),
         ...(delivery ? {} : { cleanupAt: now + METADATA_RETENTION }),
         delivery,
         actionable: delivery !== null,
         nextCheckAt: now,
     })
+    for (const author of event.details?.authors ?? [])
+        await ctx.db.insert("metadataLogAuthors", { serverId, recordNo, userId: author.userId, count: author.count })
     await ctx.db.patch(state._id, {
         retained: state.retained + 1,
         nextRecordNo: recordNo + 1,
@@ -539,6 +604,7 @@ async function applyMetadata(ctx: MutationCtx, serverId: string, operation: unkn
             changedFields.push("enabled")
         } else {
             await ctx.db.patch(state._id, {
+                allChannels: op.allChannels ?? false,
                 messageChannelIds: op.messageChannelIds,
                 excludedChannelIds: op.excludedChannelIds,
                 revision,
@@ -610,14 +676,14 @@ async function applyMetadata(ctx: MutationCtx, serverId: string, operation: unkn
 }
 
 /**
- * Replaces the logging switch, the routes, the event routes and the channel lists, as a backup restore does. A route that changes takes its
+ * Replaces the logging switch, the routes, the event routes, the every-channel choice and the channel lists, as a backup restore does. A route that changes takes its
  * next revision, and turning logging or a route on wakes the posts that waited while it was off. The caller has checked who may receive the
  * logs of a route that turns on
  */
 export async function replaceMetadataConfiguration(
     ctx: MutationCtx,
     serverId: string,
-    next: Pick<Doc<"metadataLogSettings">, "enabled" | "messageChannelIds" | "excludedChannelIds"> & {
+    next: Pick<Doc<"metadataLogSettings">, "enabled" | "allChannels" | "messageChannelIds" | "excludedChannelIds"> & {
         routes: Omit<Doc<"metadataLogSettings">["routes"][number], "revision">[]
         eventRoutes: Omit<Doc<"metadataLogSettings">["eventRoutes"][number], "revision">[]
     },
@@ -636,9 +702,10 @@ export async function replaceMetadataConfiguration(
         const old = state.eventRoutes.find((route) => route.eventType === want.eventType)
         return old && unchanged(old, want) ? old : { ...want, revision: configRevision }
     })
+    // A backup made before the every-channel choice existed lists its channels
     const channelsChanged =
-        canonicalJson([state.messageChannelIds, state.excludedChannelIds]) !==
-        canonicalJson([next.messageChannelIds, next.excludedChannelIds])
+        canonicalJson([state.allChannels ?? false, state.messageChannelIds, state.excludedChannelIds]) !==
+        canonicalJson([next.allChannels ?? false, next.messageChannelIds, next.excludedChannelIds])
     await ctx.db.patch(state._id, {
         enabled: next.enabled,
         revision:
@@ -646,6 +713,8 @@ export async function replaceMetadataConfiguration(
         configRevision,
         routes,
         eventRoutes,
+        // An archive from before the every-channel choice leaves the row without it, which reads as listed mode
+        allChannels: next.allChannels,
         messageChannelIds: next.messageChannelIds,
         excludedChannelIds: next.excludedChannelIds,
     })

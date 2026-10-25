@@ -16,6 +16,8 @@ import { MEMBER_DATA, MEMBER_DATA_EXEMPT } from "../convex/memberData.ts"
 import { defaultLevelingSettings } from "../convex/levelingDomain.ts"
 import { insertDocument, serverIndexes, tableNames } from "./schema-documents.ts"
 import { botCall } from "./bot-service.ts"
+import { admitMetadata, metadataState, removeMetadataRecord } from "../convex/metadataLogsStore.ts"
+import type { MetadataLogsEvent } from "@neonflux/contracts/metadata-logs"
 
 const secret = "synthetic-member-data-secret-0000000000000000000"
 const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET"] as const
@@ -401,4 +403,235 @@ test("A large deletion continues across bounded calls and repeats harmlessly", a
     const again = await deleteAll(t, "70", "10")
     assert.deepEqual([again[0]!.deleted, again[0]!.cursor], [[], null])
     assert.equal((await t.run((ctx) => ctx.db.query("auditLogEntries").collect())).length, 2)
+})
+
+test("A member's message log records list, export and delete, and one being posted stays until it finishes", async () => {
+    const t = backend()
+    const record = (recordNo: number, authorId: string, state: "queued" | "reserved" | null) => ({
+        serverId: "10",
+        recordNo,
+        sourceKey: `synthetic-${recordNo}`,
+        event: {
+            category: "messages" as const,
+            type: "message-delete" as const,
+            source: { kind: "message-delete" as const, messageId: String(500 + recordNo) },
+            observedAt: now,
+            actor: { kind: "unknown" as const },
+            resourceIds: [String(500 + recordNo)],
+            changedFields: [],
+            count: 1,
+            channelId: "31",
+            authorBot: false,
+            privateChannel: false,
+            details: {
+                authorId,
+                text: `Synthetic message ${recordNo}`,
+                attachments: [{ name: "synthetic.png", size: 10 }],
+            },
+        },
+        authorId,
+        admittedAt: now,
+        expiresAt: now + 30 * DAY,
+        presentation: { format: "embed-v1" as const, embed: { title: "Metadata", description: "Synthetic", color: 0 } },
+        delivery:
+            state === null
+                ? null
+                : {
+                      recordNo,
+                      routeRevision: 1,
+                      moduleRevision: 1,
+                      generation: 1,
+                      channelId: "35",
+                      ownerId: "10",
+                      state,
+                      nextCheckAt: now,
+                  },
+        actionable: state !== null,
+        nextCheckAt: now,
+    })
+    await t.run(async (ctx) => {
+        await ctx.db.insert("metadataLogRecords", record(1, "70", null))
+        await ctx.db.insert("metadataLogRecords", record(2, "70", "reserved"))
+        await ctx.db.insert("metadataLogRecords", record(3, "71", null))
+    })
+    const list: MemberDataList = await call(t, "/service/member-data/list", { userId: "70" })
+    assert.deepEqual(
+        list.servers[0]!.features.find((feature) => feature.feature === "Message and member logs"),
+        { feature: "Message and member logs", count: 2, kept: null },
+    )
+    const { records } = await exportAll(t, "70", "10")
+    assert.deepEqual(records.find((item) => item.feature === "Message and member logs")!.data, {
+        recordNo: 1,
+        type: "message-delete",
+        channelId: "31",
+        observedAt: now,
+        text: "Synthetic message 1",
+        attachments: ["synthetic.png"],
+    })
+    assert.ok(!JSON.stringify(records).includes("Synthetic message 3"))
+    const pages = await deleteAll(t, "70", "10")
+    assert.deepEqual(
+        pages.flatMap((page) => page.deleted.map((item) => [item.feature, item.count])),
+        [["Message and member logs", 1]],
+    )
+    assert.deepEqual(
+        pages.flatMap((page) => page.kept.map((item) => [item.feature, item.count, item.reason])),
+        [["Message and member logs", 1, "Still being sent. Delete again once it finishes"]],
+    )
+    const left = await t.run(async (ctx) =>
+        (await ctx.db.query("metadataLogRecords").collect()).map((row) => row.recordNo),
+    )
+    assert.deepEqual(left, [2, 3])
+})
+
+test("A bulk deletion's authors and a member's membership records reach their own data request without another member's", async () => {
+    const t = backend()
+    const event = (extra: Partial<MetadataLogsEvent>): MetadataLogsEvent => ({
+        category: "messages",
+        type: "message-bulk-delete",
+        source: { kind: "observation", sessionId: "1".repeat(32), sequence: 1 },
+        observedAt: now,
+        actor: { kind: "unknown" },
+        resourceIds: ["501", "502", "503"],
+        changedFields: [],
+        count: 3,
+        ...extra,
+    })
+    await t.run(async (ctx) => {
+        const settings = await metadataState(ctx, "10")
+        await ctx.db.patch(settings._id, {
+            enabled: true,
+            routes: settings.routes.map((route) => ({ ...route, enabled: true, channelId: "35", ownerId: "10" })),
+        })
+        await admitMetadata(
+            ctx,
+            "10",
+            event({
+                channelId: "31",
+                authorBot: null,
+                privateChannel: false,
+                details: {
+                    authors: [
+                        { userId: "70", count: 2 },
+                        { userId: "71", count: 1 },
+                    ],
+                },
+            }),
+        )
+        await admitMetadata(
+            ctx,
+            "10",
+            event({
+                category: "membership",
+                type: "member-update",
+                source: { kind: "observation", sessionId: "1".repeat(32), sequence: 2 },
+                resourceIds: ["70"],
+                changedFields: ["nickname"],
+                count: 1,
+                details: { changes: [{ field: "nickname", before: "Synthetic old", after: "Synthetic new" }] },
+            }),
+        )
+    })
+    const { records } = await exportAll(t, "70", "10")
+    assert.deepEqual(
+        records.filter((item) => item.feature.endsWith("logs")),
+        [
+            {
+                feature: "Message and member logs",
+                data: {
+                    recordNo: 2,
+                    type: "member-update",
+                    observedAt: now,
+                    changes: [{ field: "nickname", before: "Synthetic old", after: "Synthetic new" }],
+                },
+            },
+            { feature: "Bulk deletion logs", data: { recordNo: 1, type: "message-bulk-delete", messages: 2 } },
+        ],
+    )
+    assert.ok(!JSON.stringify(records).includes('"71"'))
+    const pages = await deleteAll(t, "70", "10")
+    assert.deepEqual(
+        pages.flatMap((page) => page.deleted.map((item) => [item.feature, item.count])),
+        [
+            ["Message and member logs", 1],
+            ["Bulk deletion logs", 1],
+        ],
+    )
+    // The bulk record stays for the other author, and its post no longer names the member who asked
+    const left = await t.run(async (ctx) => ({
+        records: await ctx.db.query("metadataLogRecords").collect(),
+        authors: await ctx.db.query("metadataLogAuthors").collect(),
+    }))
+    assert.deepEqual(
+        left.records.map((row) => [row.recordNo, row.event.details]),
+        [[1, { authors: [{ userId: "71", count: 1 }] }]],
+    )
+    assert.doesNotMatch(left.records[0]!.presentation.embed.description, /<@70>/)
+    assert.match(left.records[0]!.presentation.embed.description, /<@71>/)
+    assert.deepEqual(
+        left.authors.map((row) => row.userId),
+        ["71"],
+    )
+    assert.deepEqual(
+        (await exportAll(t, "71", "10")).records.map((item) => item.data),
+        [{ recordNo: 1, type: "message-bulk-delete", messages: 1 }],
+    )
+    // A record that expires or is forgotten takes its author links with it
+    await t.run(async (ctx) => removeMetadataRecord(ctx, (await ctx.db.query("metadataLogRecords").first())!))
+    assert.equal((await t.run((ctx) => ctx.db.query("metadataLogAuthors").collect())).length, 0)
+})
+
+test("An audit record about a member, such as a nickname change, is exported and deleted for that member and not for whoever made it", async () => {
+    const t = backend()
+    await t.run(async (ctx) => {
+        const settings = await metadataState(ctx, "10")
+        await ctx.db.patch(settings._id, {
+            enabled: true,
+            routes: settings.routes.map((route) => ({ ...route, enabled: true, channelId: "35", ownerId: "10" })),
+        })
+        const audit = (auditEntryId: string, auditAction: number, resourceIds: string[]): MetadataLogsEvent => ({
+            category: "audit",
+            type: "audit-entry",
+            source: { kind: "audit", auditEntryId },
+            observedAt: now,
+            actor: { kind: "audit", userId: "71" },
+            resourceIds,
+            changedFields: [],
+            count: 1,
+            auditAction,
+            details: {
+                changes: [{ field: "nick", before: "Synthetic old", after: "Synthetic new" }],
+                reason: "Synthetic reason",
+            },
+        })
+        await admitMetadata(ctx, "10", audit("900", 24, ["70"]))
+        // A channel change names no member, so it stays with the server's log
+        await admitMetadata(ctx, "10", audit("901", 11, ["31"]))
+    })
+    assert.deepEqual(
+        (await exportAll(t, "70", "10")).records.filter((item) => item.feature === "Message and member logs"),
+        [
+            {
+                feature: "Message and member logs",
+                data: {
+                    recordNo: 1,
+                    type: "audit-entry",
+                    observedAt: now,
+                    changes: [{ field: "nick", before: "Synthetic old", after: "Synthetic new" }],
+                    auditAction: 24,
+                    reason: "Synthetic reason",
+                },
+            },
+        ],
+    )
+    assert.equal((await exportAll(t, "71", "10")).records.length, 0)
+    const pages = await deleteAll(t, "70", "10")
+    assert.deepEqual(
+        pages.flatMap((page) => page.deleted.map((item) => [item.feature, item.count])),
+        [["Message and member logs", 1]],
+    )
+    assert.deepEqual(
+        (await t.run((ctx) => ctx.db.query("metadataLogRecords").collect())).map((row) => row.event.auditAction),
+        [11],
+    )
 })

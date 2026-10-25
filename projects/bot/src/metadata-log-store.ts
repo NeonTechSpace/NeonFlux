@@ -104,6 +104,7 @@ export function createMetadataLogsStore(config: BackendConfig): MetadataLogsStor
                 if (op.type === "channels")
                     return (
                         v.settings.revision === op.expectedRevision + 1 &&
+                        v.settings.allChannels === (op.allChannels ?? false) &&
                         JSON.stringify(v.settings.messageChannelIds) === JSON.stringify(op.messageChannelIds) &&
                         JSON.stringify(v.settings.excludedChannelIds) === JSON.stringify(op.excludedChannelIds)
                     )
@@ -127,6 +128,7 @@ export function createMetadataLogsStore(config: BackendConfig): MetadataLogsStor
         work: (input) =>
             call("work", input, MetadataLogsWorkResult, (v, now) => {
                 const op = input.operation
+                if (op.type === "messages") return v.type === "messages"
                 if (op.type === "discover")
                     return (
                         v.type === "work" &&

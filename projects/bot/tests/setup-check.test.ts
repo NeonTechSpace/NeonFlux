@@ -816,6 +816,36 @@ test("events with discussion threads on need Create public threads", async () =>
     )
 })
 
+test("alert actions that are on need NeonFlux's own permission for them", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot({ token: "synthetic-setup-token" })
+                platform(bot, { botPermissions: limited | Permissions.ViewAuditLog | Permissions.ManageGuild })
+                const status = (alertActions?: ("kickBots" | "deleteWebhooks" | "removePermissions")[]) => ({
+                    sections: [{ id: "alerts" as const, state: "on" as const }],
+                    managedRoles: [],
+                    staffRoleIds: { moderation: [], cases: [], automod: [], security: [], appeals: [] },
+                    threadFeatures: [],
+                    ...(alertActions ? { alertActions } : {}),
+                })
+                const alerts = (problems: readonly SetupProblem[]) =>
+                    problems.filter((problem) => "feature" in problem && problem.feature === "alerts")
+                assert.deepEqual(alerts(yield* readSetupProblems(bot.client, bot.fixtures.ids.guild, status())), [])
+                assert.deepEqual(
+                    alerts(
+                        yield* readSetupProblems(
+                            bot.client,
+                            bot.fixtures.ids.guild,
+                            status(["kickBots", "deleteWebhooks"]),
+                        ),
+                    ),
+                    [{ kind: "permissions", feature: "alerts", permissions: ["KickMembers", "ManageWebhooks"] }],
+                )
+            }),
+        ),
+    )
+})
 test("recovery entries keep the members, roles and channels the backend writes as mentions", () => {
     const entry: RecoveryEntry = {
         kind: "work",

@@ -279,7 +279,7 @@ test("Multi-server sessions carry the bot invite with the derived permissions, a
         [
             ["client_id", "synthetic-client-id"],
             ["scope", "bot"],
-            ["permissions", "9008694256823542"],
+            ["permissions", "9008694793694454"],
         ],
     )
     const single = (await (await fixture().handlers.session(request())).json()) as { inviteUrl?: string }

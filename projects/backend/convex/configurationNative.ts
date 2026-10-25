@@ -230,7 +230,9 @@ export async function configurationNativeTarget(
         (family === "moderation" && patch.defcon !== undefined) ||
         (family === "memberlist" && op.type === "reset") ||
         family === "onboarding" ||
-        family === "presets"
+        family === "presets" ||
+        // An alert action spends NeonFlux's own permissions, so only the owner or an Administrator turns one on
+        (family === "alerts" && op.type === "action" && op.enabled === true)
     )
         target.requiresOwnerAdmin = true
     if (channels.size) target.channelIds = [...channels]
@@ -288,7 +290,7 @@ export async function configurationNativeOperation(
             ).channelId
         else if (input.context !== undefined) fail(400, "Unexpected native context")
     }
-    // An invite refresh or revocation carries the invites the bot read afterwards, without their codes
+    // An invite refresh or revocation carries the page of invites the bot read afterwards, with their codes
     else if (family === "alerts" && (op.type === "invites-refresh" || op.type === "invite-revoke"))
         op.invites = alertInviteList(input.context, input.observedAt)
     else if (family === "tickets") {

@@ -83,6 +83,7 @@ export const backupConfigValues = {
         enabled: v.boolean(),
         routes: v.array(v.object(metadataRoute)),
         eventRoutes: v.array(v.object(metadataEventRoute)),
+        allChannels: v.optional(v.boolean()),
         messageChannelIds: v.array(v.string()),
         excludedChannelIds: v.array(v.string()),
     }),

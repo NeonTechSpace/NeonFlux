@@ -69,7 +69,7 @@ export function processDashboardMetadataPass(config: BotConfig, client: Client) 
                 )
                     return yield* Effect.fail(new DashboardMetadataError({ stage: "result" }))
                 // Gateway admission pauses while logs are off, so an applied change rechecks it
-                if (result.job.state === "applied") metadataRechecks.get(serverId)?.()
+                if (result.job.state === "applied") yield* metadataRechecks.get(serverId)?.() ?? Effect.void
             }).pipe(
                 Effect.catchCause((cause) =>
                     Cause.hasInterrupts(cause)

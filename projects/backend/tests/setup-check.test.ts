@@ -6,6 +6,7 @@ import { api } from "../convex/_generated/api.js"
 import { tokenHash } from "../convex/dashboard.ts"
 import { SETUP_CHECK_INTERVAL_MS, SETUP_CHECK_MS } from "../convex/setupCheck.ts"
 import { botCall } from "./bot-service.ts"
+import { defaultAlertSettings } from "../convex/alertsDomain.ts"
 
 const modules = {
     "../convex/setupCheck.ts": () => import("../convex/setupCheck.ts"),
@@ -184,6 +185,26 @@ test("events with discussion threads on are named, so the bot checks Create publ
     assert.deepEqual(await read(), ["events"])
 })
 
+test("alert actions that are on with their alert are named, so the bot checks their own permissions", async () => {
+    const t = backend()
+    const read = async () =>
+        ((await (await botCall(t, "/setup/status", { serverId: "10" })).json()) as { alertActions?: string[] })
+            .alertActions
+    assert.equal(await read(), undefined)
+    await t.run(async (ctx) => {
+        await ctx.db.insert("alertSettings", {
+            serverId: "10",
+            ...defaultAlertSettings(),
+            bots: true,
+            kickBots: true,
+            deleteWebhooks: true,
+            updatedAt: 1,
+            updatedBy: "10",
+        })
+    })
+    // The webhook action waits for its alert, so only the kick counts
+    assert.deepEqual(await read(), ["kickBots"])
+})
 test("the bot reads the moderation staff roles, and the safety audit's problems are stored only when well formed", async () => {
     const t = backend(),
         args = await session(t)

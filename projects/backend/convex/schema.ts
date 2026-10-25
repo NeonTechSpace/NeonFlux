@@ -616,6 +616,9 @@ export default defineSchema({
         configRevision: v.number(),
         routes: v.array(metadataRouteValidator),
         eventRoutes: v.array(metadataEventRouteValidator),
+        // Message events from every channel except the excluded ones. A row without it lists its channels, as rows did
+        // before this choice existed
+        allChannels: v.optional(v.boolean()),
         messageChannelIds: v.array(v.string()),
         excludedChannelIds: v.array(v.string()),
         retained: v.number(),
@@ -636,6 +639,9 @@ export default defineSchema({
         recordNo: v.number(),
         sourceKey: v.string(),
         event: metadataEventValidator,
+        // The member a record is about, the author of a message record that keeps details or the member of a membership
+        // record, so a member's own data request finds it
+        authorId: v.optional(v.string()),
         admittedAt: v.number(),
         expiresAt: v.number(),
         presentation: metadataPresentationValidator,
@@ -652,7 +658,17 @@ export default defineSchema({
         .index("by_deadline", ["delivery.state", "delivery.grant.dispatchExpiresAt"])
         .index("by_destination", ["serverId", "delivery.channelId"])
         .index("by_active_expiry", ["actionable", "expiresAt"])
-        .index("by_global_work", ["actionable", "nextCheckAt"]),
+        .index("by_global_work", ["actionable", "nextCheckAt"])
+        .index("by_member_data", ["authorId", "serverId"]),
+    // Each author a bulk deletion record counts, so a member's own data request finds the records that name them
+    metadataLogAuthors: defineTable({
+        serverId: v.string(),
+        recordNo: v.number(),
+        userId: v.string(),
+        count: v.number(),
+    })
+        .index("by_record", ["serverId", "recordNo"])
+        .index("by_member_data", ["userId", "serverId"]),
     metadataLogAttempts: defineTable({
         serverId: v.string(),
         recordNo: v.number(),
@@ -707,7 +723,8 @@ export default defineSchema({
         updatedAt: v.number(),
         updatedBy: v.string(),
     }).index("by_server", ["serverId"]),
-    // Security alert switches, the bots and webhooks staff expect, and the invite list the bot last read for the dashboard, without invite codes
+    // Security alert switches, the action switches, which read as off while absent, the bots and webhooks staff expect,
+    // and the invite list the bot last read for the dashboard with each invite's code
     alertSettings: defineTable({
         serverId: v.string(),
         invites: v.boolean(),
@@ -715,6 +732,9 @@ export default defineSchema({
         webhooks: v.boolean(),
         privileges: v.boolean(),
         impersonation: v.boolean(),
+        kickBots: v.optional(v.boolean()),
+        deleteWebhooks: v.optional(v.boolean()),
+        removePermissions: v.optional(v.boolean()),
         expectedBotIds: v.array(v.string()),
         expectedWebhookIds: v.array(v.string()),
         updatedAt: v.number(),
@@ -722,10 +742,12 @@ export default defineSchema({
         inviteList: v.optional(
             v.object({
                 readAt: v.number(),
+                offset: v.optional(v.number()),
                 more: v.boolean(),
                 invites: v.array(
                     v.object({
                         ref: v.string(),
+                        code: v.optional(v.string()),
                         channelId: v.string(),
                         inviterId: v.union(v.string(), v.null()),
                         uses: v.number(),
@@ -738,6 +760,21 @@ export default defineSchema({
             }),
         ),
     }).index("by_server", ["serverId"]),
+    // Native actions the bot claimed on an alert. key is the alert's cause, so a redelivered event claims nothing. A row
+    // starts pending and takes its outcome once. Rows expire after 24 hours, since the posted record keeps the result
+    alertActions: defineTable({
+        serverId: v.string(),
+        key: v.string(),
+        action: v.union(v.literal("kickBots"), v.literal("deleteWebhooks"), v.literal("removePermissions")),
+        targetId: v.string(),
+        permissions: v.optional(v.array(v.string())),
+        outcome: v.union(v.literal("pending"), v.literal("succeeded"), v.literal("failed"), v.literal("uncertain")),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_server_key", ["serverId", "key"])
+        .index("by_server_outcome", ["serverId", "outcome"])
+        .index("by_expiry", ["expiresAt"]),
     // Help desk settings. guardDueAt is the next thread budget pass while the guard is on, and warnedAt the last cap warning
     helpDeskSettings: defineTable({
         serverId: v.string(),

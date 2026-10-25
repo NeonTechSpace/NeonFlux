@@ -14,6 +14,9 @@ export const defaultAlertSettings = (): AlertSettings => ({
     webhooks: false,
     privileges: false,
     impersonation: false,
+    kickBots: false,
+    deleteWebhooks: false,
+    removePermissions: false,
     expectedBotIds: [],
     expectedWebhookIds: [],
 })
@@ -21,7 +24,7 @@ export const defaultAlertSettings = (): AlertSettings => ({
 // Invite reads and revocations run natively in the bot, so only dashboard jobs carry them
 export const alertsOperation = (value: unknown): AlertsDashboardOperation => decode(AlertsDashboardOperation, value)
 
-/** The invite list the bot read for a dashboard job. It holds no invite codes */
+/** The invite list the bot read for a dashboard job, with each invite's code */
 export const alertInviteList = (value: unknown, readAt: number): AlertInviteList => ({
     readAt,
     ...decode(AlertsDashboardContext, value),

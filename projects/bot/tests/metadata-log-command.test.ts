@@ -36,6 +36,26 @@ test("metadata grammar leaves existing moderation log commands unchanged and tak
         type: "manage",
         operation: { type: "channels", messageChannelIds: [f.ids.channel], excludedChannelIds: [] },
     })
+    // A route without an owner is the sender's, and channels all logs every channel except the excluded ones
+    assert.deepEqual(parseMetadataLogCommand(["metadata", "route", "messages", f.ids.channel, "off"]), {
+        type: "manage",
+        operation: { type: "route", category: "messages", channelId: f.ids.channel, enabled: false },
+    })
+    assert.deepEqual(parseMetadataLogCommand(["metadata", "channels", "all", f.ids.channel]), {
+        type: "manage",
+        operation: { type: "channels", allChannels: true, messageChannelIds: [], excludedChannelIds: [f.ids.channel] },
+    })
+    assert.deepEqual(parseMetadataLogCommand(["metadata", "channels", "all", "none"]), {
+        type: "manage",
+        operation: { type: "channels", allChannels: true, messageChannelIds: [], excludedChannelIds: [] },
+    })
+    // Each list takes up to 500 channels
+    const many = (count: number) => Array.from({ length: count }, (_, i) => String(1000 + i))
+    const listed = parseMetadataLogCommand(["metadata", "channels", many(500).join(","), many(500).join(",")])
+    assert(!("error" in listed) && listed.type === "manage" && listed.operation.type === "channels")
+    assert.equal(listed.operation.messageChannelIds.length, 500)
+    assert("error" in parseMetadataLogCommand(["metadata", "channels", "all", many(501).join(",")]))
+    assert("error" in parseMetadataLogCommand(["metadata", "channels", many(501).join(","), "none"]))
     assert.deepEqual(parseMetadataLogCommand(["counters"]), { type: "query", operation: { type: "counters" } })
     assert.deepEqual(parseMetadataLogCommand(["events", "list"]), { type: "query", operation: { type: "list" } })
     assert.deepEqual(parseMetadataLogCommand(["events", "list", "next"]), {
@@ -52,6 +72,8 @@ test("metadata grammar leaves existing moderation log commands unchanged and tak
         ["metadata", "route", "membership", "1", f.ids.channel, f.ids.user, "on"],
         ["metadata", "clear", "audit", "2"],
         ["metadata", "channels", "1", f.ids.channel, "none"],
+        ["metadata", "route", "membership", f.ids.channel, "maybe"],
+        ["metadata", "route", "membership", f.ids.channel, "not-a-user", "on"],
     ])
         assert("error" in parseMetadataLogCommand(args), JSON.stringify(args))
 })
@@ -201,17 +223,51 @@ test("Event overrides take an event's plain name in any case, spread over severa
             },
         },
     )
-    // Unknown names, a missing owner and a channel or owner inside the name are refused
+    // Without an owner the sender owns the route, which the management fills in
+    assert.deepEqual(parseMetadataLogCommand(["metadata", "event", "Member", "joined", channel, "on"]), {
+        type: "manage",
+        operation: { type: "event-route", eventType: "member-add", enabled: true, channelId: f.ids.channel },
+    })
+    // Unknown names and a channel or owner inside the name are refused
     for (const args of [
         ["metadata", "inherit", "Member", "arrived"],
         ["metadata", "event", "Member", "off"],
         ["metadata", "inherit"],
         ["metadata", "event", "off"],
-        ["metadata", "event", "Member", "joined", channel, "on"],
+        ["metadata", "event", channel, "on"],
         ["metadata", "event", "Member", channel, "joined", owner, "on"],
         ["metadata", "event", "Member", "joined", channel, "off"],
         ["metadata", "event", "Member", "joined", channel, owner, "maybe"],
         ["metadata", "inherit", "Member", "joined", owner],
     ])
         assert("error" in parseMetadataLogCommand(args), JSON.stringify(args))
+})
+
+test("Channels added to or removed from a list may be split by commas, spaces or both", () => {
+    const edit = (text: string) => parseMetadataLogCommand(text.split(" "))
+    const expected = {
+        type: "manage",
+        operation: { type: "channel-list", list: "excluded", add: true, channelIds: ["901", "902", "903"] },
+    }
+    assert.deepEqual(edit("metadata exclude add <#901> <#902> <#903>"), expected)
+    assert.deepEqual(edit("metadata exclude add 901,902 903"), expected)
+    assert.deepEqual(edit("metadata exclude add 901, 902, 903"), expected)
+    assert.deepEqual(edit("metadata channels remove 901 902"), {
+        type: "manage",
+        operation: { type: "channel-list", list: "listed", add: false, channelIds: ["901", "902"] },
+    })
+    // channels all takes its excluded channels the same way, or none at all
+    const all = (channelIds: string[]) => ({
+        type: "manage",
+        operation: { type: "channels", allChannels: true, messageChannelIds: [], excludedChannelIds: channelIds },
+    })
+    assert.deepEqual(edit("metadata channels all <#901> <#902> <#903>"), all(["901", "902", "903"]))
+    assert.deepEqual(edit("metadata channels all 901, 902,903"), all(["901", "902", "903"]))
+    assert.deepEqual(edit("metadata channels all"), all([]))
+    assert.deepEqual(edit("metadata channels all none"), all([]))
+    assert.ok("error" in edit("metadata channels all 901 901"))
+    assert.ok("error" in edit("metadata channels all none 901"))
+    // A repeated or unreadable channel is still refused
+    assert.ok("error" in edit("metadata exclude add 901 901"))
+    assert.ok("error" in edit("metadata exclude add 901 general"))
 })

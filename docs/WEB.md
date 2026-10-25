@@ -176,13 +176,13 @@ The Events section has **Discussion threads**, the same switch as `!event thread
 
 ### Channel logs
 
-Choose a destination and a responsible Owner or Administrator for each category. Events can use the category route, use their own channel and owner, or be turned off. Message events need explicit channel opt-in. Logs contain IDs, field names and counts, never message text or private ticket content. The Security alerts group carries the alerts the next section turns on
+Choose a destination and a responsible Owner or Administrator for each category. Events can use the category route, use their own channel and owner, or be turned off. Message events come from every channel except the excluded ones, or from only the listed channels, up to 500 in each list. Logs show message text, earlier values and audit reasons, never private ticket content. The Security alerts group carries the alerts the next section turns on
 
 ### Security alerts
 
-The Security alerts section under Moderation has one switch for each alert: Invite logs, unexpected bots, unexpected webhooks, privilege changes and impersonation, all off at first, with the same rules as `!alerts`. Alerts reach staff only through the Security alerts group in Channel logs. Mark a bot or webhook as expected by its ID, and open the expected list to make one alert again
+The Security alerts section under Moderation has one switch for each alert: Invite logs, unexpected bots, unexpected webhooks, privilege changes and impersonation, all off at first, with the same rules as `!alerts`. Under the bots, webhooks and privileges alerts, a second switch turns on their action: kick unexpected bots, delete unexpected webhooks or remove gained permissions. Turning an action on needs the server owner or an Administrator, which the bot checks when it applies the change, and other managers see that note. Any manager can turn one off. Alerts reach staff only through the Security alerts group in Channel logs, which belongs in a channel only staff can read, since invite logs show invite codes. Mark a bot or webhook as expected by its ID, and open the expected list to make one alert again
 
-**Refresh invite list** has the bot read the server's invites with its own permissions, which needs Manage community, and shows up to 100, newest first, with channel, creator ID, uses, expiry and flags for invites that never expire or have unlimited uses. Each invite has a reference instead of its code, which is never shown or stored. Tick the confirmation and choose **Revoke invite** to have the bot read the current invites and delete that one. A revoked invite cannot be restored. See [security alerts and invites](BOT.md#security-alerts-and-invites)
+**Refresh invite list** has the bot read the server's invites with its own permissions, which needs Manage community, and shows the newest 100 with code, channel, creator ID, uses, expiry and flags for invites that never expire or have unlimited uses. **Show older invites** and **Show newer invites** have the bot read the next or the previous 100. Tick the confirmation and choose **Revoke invite** to have the bot read the current invites and delete that one, and the list stays on its page. A revoked invite cannot be restored. See [security alerts and invites](BOT.md#security-alerts-and-invites)
 
 ### Analytics
 

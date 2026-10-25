@@ -157,10 +157,9 @@ async function settingsPage(
         }
     }
     if (family === "logs") {
-        const { enabled, routes, eventRoutes, messageChannelIds, excludedChannelIds } = publicMetadataSettings(
-            await readMetadataSettings(ctx, serverId),
-        )
-        return { data: { enabled, routes, eventRoutes, messageChannelIds, excludedChannelIds } }
+        const { enabled, routes, eventRoutes, allChannels, messageChannelIds, excludedChannelIds } =
+            publicMetadataSettings(await readMetadataSettings(ctx, serverId))
+        return { data: { enabled, routes, eventRoutes, allChannels, messageChannelIds, excludedChannelIds } }
     }
     const { data, nextCursors } = await configurationData(
         ctx,

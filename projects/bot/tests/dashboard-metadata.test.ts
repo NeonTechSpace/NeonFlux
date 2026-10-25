@@ -87,6 +87,7 @@ test("Dashboard metadata uses actual Manage community authority separately from 
                                         : {}),
                                 },
                             ],
+                            allChannels: false,
                             messageChannelIds: [],
                             excludedChannelIds: [],
                             retained: 0,

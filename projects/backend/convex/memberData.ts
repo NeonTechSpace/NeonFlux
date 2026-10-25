@@ -18,6 +18,7 @@ import { forgetSuggestion } from "./suggestionsCleanup.ts"
 import { terminalSuggestion } from "./suggestionsDomain.ts"
 import { dirtySuggestion, suggestionCount } from "./suggestionsStore.ts"
 import { removeShowcase } from "./showcases.ts"
+import { removeMetadataAuthor, removeMetadataRecord } from "./metadataLogsStore.ts"
 import { cancelMemberRequests } from "./memberContent.ts"
 import { PROFILE_FAMILY } from "./profilesDomain.ts"
 import { decode } from "./validation.ts"
@@ -432,6 +433,40 @@ export const MEMBER_DATA: readonly Entry[] = [
         },
     ),
     entry(
+        "metadataLogRecords",
+        "authorId",
+        "Message and member logs",
+        (row) => ({
+            recordNo: row.recordNo,
+            type: row.event.type,
+            channelId: row.event.channelId,
+            observedAt: row.event.observedAt,
+            text: row.event.details?.text,
+            before: row.event.details?.before,
+            attachments: row.event.details?.attachments?.map((attachment) => attachment.name),
+            // A member update's changed nickname, roles or timeout, and an audit entry's action and reason
+            changes: row.event.details?.changes,
+            auditAction: row.event.auditAction,
+            reason: row.event.details?.reason,
+        }),
+        {
+            remove: async (ctx, row) => {
+                // The log post already in the staff channel stays, as with other messages NeonFlux sent
+                if (row.delivery?.state === "reserved") return IN_PROGRESS
+                await removeMetadataRecord(ctx, row)
+                return 1
+            },
+        },
+    ),
+    // A bulk deletion record names each author with a count, so a deletion removes only this member from it
+    entry(
+        "metadataLogAuthors",
+        "userId",
+        "Bulk deletion logs",
+        (row) => ({ recordNo: row.recordNo, type: "message-bulk-delete", messages: row.count }),
+        { remove: async (ctx, row) => ((await removeMetadataAuthor(ctx, row)) ? 1 : IN_PROGRESS) },
+    ),
+    entry(
         "profiles",
         "userId",
         "Profile",
@@ -472,6 +507,7 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     dashboardStructureJobs: STAFF,
     // Its invite list names each invite's creator as Fluxer shows it to staff, and the next refresh replaces it
     alertSettings: "Server security settings and the invite list staff last read from Fluxer",
+    alertActions: SECURITY,
 }
 
 type Range = { eq(field: string, value: unknown): Range; gt(field: string, value: unknown): Range }

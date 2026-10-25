@@ -20,6 +20,7 @@ const NEONFLUX_BOT_PERMISSIONS =
     bit(24n) | // Move members
     bit(26n) | // Change own nickname
     bit(28n) | // Manage roles
+    bit(29n) | // Manage webhooks
     bit(34n) | // Manage threads
     bit(35n) | // Create public threads
     bit(36n) | // Create private threads
