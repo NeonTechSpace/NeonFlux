@@ -48,6 +48,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 ## Backend package
 
 - `convex/` holds the Convex functions. [schema.ts](../projects/backend/convex/schema.ts) owns every table, [botService.ts](../projects/backend/convex/botService.ts) owns the bot's key-checked public entry points, [serviceKey.ts](../projects/backend/convex/serviceKey.ts) checks the key, [crons.ts](../projects/backend/convex/crons.ts) starts scheduled jobs and [retention.ts](../projects/backend/convex/retention.ts) runs every feature's bounded retention cleanup as one chain
+- [valueDiff.ts](../projects/backend/convex/valueDiff.ts) lists the values that differ between two reads of a setting, which backup restore checks and audit log details share
 - [protection.ts](../projects/backend/convex/protection.ts) evaluates messages and joins for automod and security and checks text that NeonFlux posts for members against the content rules, and [moderationLinks.ts](../projects/backend/convex/moderationLinks.ts) judges deceptive links from the message text alone
 - `convex/_generated/` is created by the Convex CLI and kept in version control
 - [dashboard-contracts.d.ts](../projects/backend/dashboard-contracts.d.ts) and [verification-contracts.d.ts](../projects/backend/verification-contracts.d.ts) are types-only exports of the website's own contracts. They re-export the shared types the website also uses and the generated types of the public functions it calls, and contain no runtime code or credentials
@@ -66,7 +67,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 
 ## Web package
 
-- `src/routes/` holds TanStack Router file routes for the dashboard, verification page, session and verification APIs and Fluxer OAuth sign-in and sign-out
+- `src/routes/` holds TanStack Router file routes for the dashboard, verification page, the session API, which also signs out, the verification API and Fluxer OAuth sign-in
 - `src/server/` holds OAuth, session and verification server handlers that run only on the web server
 - [dashboard.tsx](../projects/web/src/dashboard.tsx) owns sign-in state and the section layout, and [server-picker.tsx](../projects/web/src/server-picker.tsx) holds the server picker. [dashboard-sections.tsx](../projects/web/src/dashboard-sections.tsx) lists the sections and loads each one's code on first use, and every section subscribes to its own live data. [drafts.ts](../projects/web/src/drafts.ts) keeps unsaved drafts in session storage, and [catalog.tsx](../projects/web/src/catalog.tsx) loads and refreshes a server's channels and roles
 - Other `src/` files hold dashboard settings sections, the [overview](../projects/web/src/overview.tsx), the [audit
@@ -77,6 +78,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
   page](../projects/web/src/verification-page.tsx), the [motion canvas](../projects/web/src/motion-canvas.tsx) and the
   [Turnstile widget](../projects/web/src/turnstile.tsx)
 - [onboarding-checklist.tsx](../projects/web/src/onboarding-checklist.tsx) holds the newcomer checklist section
+- [change-table.tsx](../projects/web/src/change-table.tsx) shows changed settings with their before and after values, for the backup restore check and the audit log's Details
 - [server-export.tsx](../projects/web/src/server-export.tsx) holds the owner's server export download, and [dashboard-tour.tsx](../projects/web/src/dashboard-tour.tsx) holds the first-visit dashboard tour
 - [showcase-settings.tsx](../projects/web/src/showcase-settings.tsx) holds the showcase and profile sections, and [showcase-member.tsx](../projects/web/src/showcase-member.tsx) and [profile-member.tsx](../projects/web/src/profile-member.tsx) hold their member pages
 - [structure-editor.tsx](../projects/web/src/structure-editor.tsx) holds the server structure editor, whose live diff [structure-diff.ts](../projects/web/src/structure-diff.ts) builds from the change functions in the [structure contracts](../projects/contracts/src/structure.ts) that the backend's [structureDomain.ts](../projects/backend/convex/structureDomain.ts) merge also uses

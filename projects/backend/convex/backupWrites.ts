@@ -5,6 +5,7 @@ import type { ConfigurationIdentity } from "./validation.ts"
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { recordAudit } from "./auditLog.ts"
 import { canonicalBackupJson } from "./backupDomain.ts"
+import type { ValueChange } from "./valueDiff.ts"
 import type { DashboardConfigurationFamily } from "../dashboard-contracts.js"
 import { applyModerationConfiguration } from "./moderation.ts"
 import { applyResponseManagement } from "./responses.ts"
@@ -38,6 +39,8 @@ type BackupWriter = {
     ownerId: string
     /** Names the plan item, so every feature operation of one restore step has its own receipt */
     key: string
+    /** The item's before and after values from the restore check, which the audit entry keeps */
+    changes?: readonly ValueChange[]
     roles: RolesRoleSnapshot[]
     now: number
 }
@@ -373,6 +376,7 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
             feature: family ?? (item.family === "metadata" ? "logs" : "roles"),
             setting: `restore ${item.family}`,
             summary: `Restored ${item.sourceId} from a backup`,
+            ...(w.changes ? { changes: w.changes } : {}),
         },
     )
 }

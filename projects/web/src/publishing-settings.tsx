@@ -107,7 +107,8 @@ export function PublishingSettings(props: ConfigSectionProps<"publishing">) {
                                 {...card}
                                 title={`Delete ${draft.kind}: ${draft.name}`}
                                 description="Delete this saved definition. Existing copied template consumers retain their own snapshots"
-                                snapshot={{ revision, values: { confirm: false }, context: draft.revision }}
+                                submitUnchanged
+                                snapshot={{ revision, values: {}, context: draft.revision }}
                                 submitLabel="Delete saved definition"
                                 operation={() => ({
                                     type: "draft-delete",
@@ -115,17 +116,7 @@ export function PublishingSettings(props: ConfigSectionProps<"publishing">) {
                                     name: draft.name,
                                     expectedRevision: draft.revision,
                                 })}
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Confirm saved definition deletion
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         </div>
                     </details>

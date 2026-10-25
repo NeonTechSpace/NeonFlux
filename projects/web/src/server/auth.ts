@@ -1,4 +1,12 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
+import {
+    createCipheriv,
+    createDecipheriv,
+    createHash,
+    createHmac,
+    hkdfSync,
+    randomBytes,
+    timingSafeEqual,
+} from "node:crypto"
 import type { DashboardSession } from "@neonflux/backend/dashboard-contracts"
 import { ConvexError } from "convex/values"
 import { inviteUrl } from "./invite.ts"
@@ -16,11 +24,17 @@ export interface AuthDependencies {
     now: () => number
     admit: (accessToken: string) => Promise<DashboardSession>
     refresh: (sessionToken: string) => Promise<DashboardSession>
+    rotate: (sessionToken: string, accessToken: string) => Promise<unknown>
     logout: (sessionToken: string) => Promise<unknown>
 }
 const sessionCookie = "neonflux_session"
 const handshakeCookie = "neonflux_oauth"
+const refreshCookie = "neonflux_refresh"
 const maxHandshakeAge = 10 * 60 * 1000
+// The backend ends a session at the latest 90 days after sign-in, so neither cookie outlives it
+const sessionAge = 90 * 86400
+// The access token is renewed once less than this remains, so it never runs out while the dashboard is in use
+const refreshMargin = 3600 * 1000
 const privateHeaders = {
     "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer",
@@ -41,6 +55,67 @@ export function sameOrigin(request: Request, origin: string): boolean {
 function cookie(config: AuthConfig, name: string, value: string, maxAge: number): string {
     return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${config.origin.startsWith("https:") ? "; Secure" : ""}`
 }
+/**
+ * The Fluxer refresh token, the access token's end, the session it belongs to and that session's latest end. The web server
+ * encrypts it into a cookie that browser scripts cannot read and that the browser sends only to the session refresh
+ */
+interface RefreshState {
+    refreshToken: string
+    accessExpiresAt: number
+    session: string
+    until: number
+}
+const sessionHash = (sessionToken: string) => createHash("sha256").update(sessionToken).digest("hex")
+const refreshKey = (secret: string) => Buffer.from(hkdfSync("sha256", secret, "", "neonflux refresh cookie", 32))
+// Browsers keep a cookie only while its name and value together stay within 4096 bytes, so that is the only bound on a refresh
+// token: One whose encrypted state does not fit gets no cookie, and the session then ends when its access token does
+const maxRefreshValue = 4096 - `${refreshCookie}=`.length
+function refreshCookieHeader(config: AuthConfig, state: RefreshState | undefined, now: number): string {
+    let value = "",
+        maxAge = 0
+    if (state) {
+        const iv = randomBytes(12),
+            cipher = createCipheriv("aes-256-gcm", refreshKey(config.sessionSecret), iv)
+        const data = Buffer.concat([cipher.update(JSON.stringify(state), "utf8"), cipher.final()])
+        const sealed = Buffer.concat([iv, cipher.getAuthTag(), data]).toString("base64url")
+        // A rotated token that does not fit replaced the stored one at Fluxer, so the cookie is cleared rather than kept
+        if (sealed.length <= maxRefreshValue) {
+            value = sealed
+            maxAge = Math.max(0, Math.floor((state.until - now) / 1000))
+        }
+    }
+    return `${refreshCookie}=${value}; Path=/api/session; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${config.origin.startsWith("https:") ? "; Secure" : ""}`
+}
+function openRefreshCookie(raw: string | undefined, config: AuthConfig): RefreshState | undefined {
+    if (!raw || raw.length > maxRefreshValue || !/^[\w-]+$/.test(raw)) return
+    const bytes = Buffer.from(raw, "base64url")
+    if (bytes.length <= 28) return
+    try {
+        const decipher = createDecipheriv("aes-256-gcm", refreshKey(config.sessionSecret), bytes.subarray(0, 12))
+        decipher.setAuthTag(bytes.subarray(12, 28))
+        const state = JSON.parse(
+            Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString("utf8"),
+        ) as Partial<RefreshState>
+        return refreshToken(state.refreshToken) &&
+            Number.isSafeInteger(state.accessExpiresAt) &&
+            typeof state.session === "string" &&
+            Number.isSafeInteger(state.until)
+            ? (state as RefreshState)
+            : undefined
+    } catch {
+        return
+    }
+}
+const refreshToken = (value: unknown): value is string =>
+    typeof value === "string" && value.length > 0 && !/\s/.test(value)
+const expiresIn = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0
+/** Keep the cookie, store this state in it, or clear it */
+type RefreshOutcome = { keep: true } | { state: RefreshState } | { clear: true }
+// One refresh per refresh token in this process. Fluxer replaces the refresh token on use, so a second request with the
+// same cookie shares the first one's outcome, also when it arrives within a minute after the first finished
+const refreshes = new Map<string, { outcome: Promise<RefreshOutcome>; settledAt?: number }>()
+const sharedRefreshMs = 60 * 1000
+
 function signature(value: string, secret: string): string {
     return createHmac("sha256", secret).update(value).digest("base64url")
 }
@@ -96,15 +171,120 @@ export async function discoverProvider(fetcher: typeof fetch): Promise<string> {
         throw new Error("Provider discovery unavailable")
     return api.replace(/\/$/, "")
 }
+// The backend refused the session itself, so it has ended
+const ended = (error: unknown) =>
+    error instanceof ConvexError &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    "status" in error.data &&
+    (error.data.status === 401 || error.data.status === 403)
+function signedOut(config: AuthConfig): Headers {
+    const headers = new Headers()
+    headers.append("Set-Cookie", cookie(config, sessionCookie, "", 0))
+    headers.append("Set-Cookie", refreshCookieHeader(config, undefined, 0))
+    return headers
+}
 
 export function createAuthHandlers(deps: AuthDependencies) {
     const { config } = deps
-    const json = (data: unknown, status = 200, extra: Record<string, string> = {}) =>
-        Response.json(data, { status, headers: { ...privateHeaders, ...extra } })
+    const json = (data: unknown, status = 200, extra: HeadersInit = {}) => {
+        const headers = new Headers(privateHeaders)
+        new Headers(extra).forEach((value, name) => headers.append(name, value))
+        return Response.json(data, { status, headers })
+    }
     const redirect = (location: string, cookies: string[]) => {
         const headers = new Headers({ ...privateHeaders, Location: location })
         for (const value of cookies) headers.append("Set-Cookie", value)
         return new Response(null, { status: 303, headers })
+    }
+    // Asks Fluxer for a new access token and hands it to the backend. An outcome that is not known is never repeated
+    async function renewAccess(sessionToken: string, state: RefreshState): Promise<RefreshOutcome> {
+        let api: string
+        try {
+            api = await discoverProvider(deps.fetch)
+        } catch {
+            // Nothing was sent yet, so the refresh token is unspent and a later call tries again
+            return { keep: true }
+        }
+        let data: { access_token?: unknown; token_type?: unknown; refresh_token?: unknown; expires_in?: unknown }
+        try {
+            const response = await deps.fetch(`${api}/v1/oauth2/token`, {
+                method: "POST",
+                redirect: "error",
+                signal: AbortSignal.timeout(10000),
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({
+                    grant_type: "refresh_token",
+                    client_id: config.clientId,
+                    client_secret: config.clientSecret,
+                    refresh_token: state.refreshToken,
+                }),
+            })
+            if (response.status === 400) {
+                const body = (await response.json().catch(() => ({}))) as { error?: unknown }
+                // Fluxer no longer accepts this refresh token, so the session ends when its access token does
+                if (body.error === "invalid_grant") return { clear: true }
+            }
+            // A gateway error or timeout may come after Fluxer already replaced the token, so like a lost answer it is not sent again
+            if (response.status === 502 || response.status === 504) return { clear: true }
+            // Fluxer answered without issuing a token, so the refresh token is unspent
+            if (!response.ok) return { keep: true }
+            data = (await response.json()) as typeof data
+        } catch {
+            // Fluxer may have replaced the refresh token without the answer arriving. Sending the old one again would
+            // replay it, so the session ends when its access token does
+            return { clear: true }
+        }
+        if (
+            typeof data.access_token !== "string" ||
+            typeof data.token_type !== "string" ||
+            data.token_type.toLowerCase() !== "bearer" ||
+            !expiresIn(data.expires_in)
+        )
+            return { clear: true }
+        const next = refreshToken(data.refresh_token) ? data.refresh_token : state.refreshToken
+        try {
+            await deps.rotate(sessionToken, data.access_token)
+        } catch (error) {
+            if (ended(error)) return { clear: true }
+            // The backend still holds the old access token, so the next session call renews again with the new refresh token
+            return { state: { ...state, refreshToken: next } }
+        }
+        return {
+            state: { ...state, refreshToken: next, accessExpiresAt: deps.now() + data.expires_in * 1000 },
+        }
+    }
+    // Asks Fluxer to end the refresh token at sign-out. The session has already ended and the browser drops the cookie, so a
+    // failure leaves only a token no one holds
+    async function revoke(refreshToken: string): Promise<void> {
+        try {
+            const api = await discoverProvider(deps.fetch)
+            await deps.fetch(`${api}/v1/oauth2/token/revoke`, {
+                method: "POST",
+                redirect: "error",
+                signal: AbortSignal.timeout(5000),
+                headers: {
+                    Authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: new URLSearchParams({ token: refreshToken, token_type_hint: "refresh_token" }),
+            })
+        } catch {}
+    }
+    function sharedRenewal(sessionToken: string, state: RefreshState): Promise<RefreshOutcome> {
+        const now = deps.now()
+        for (const [key, entry] of refreshes)
+            if (entry.settledAt !== undefined && now - entry.settledAt > sharedRefreshMs) refreshes.delete(key)
+        const key = sessionHash(`${state.session} ${state.refreshToken}`),
+            found = refreshes.get(key)
+        if (found) return found.outcome
+        const entry: { outcome: Promise<RefreshOutcome>; settledAt?: number } = {
+            outcome: renewAccess(sessionToken, state).finally(() => {
+                entry.settledAt = deps.now()
+            }),
+        }
+        refreshes.set(key, entry)
+        return entry.outcome
     }
     return {
         async begin(request: Request): Promise<Response> {
@@ -181,6 +361,8 @@ export function createAuthHandlers(deps: AuthDependencies) {
                     access_token?: unknown
                     token_type?: unknown
                     scope?: unknown
+                    refresh_token?: unknown
+                    expires_in?: unknown
                 }
                 if (
                     typeof data.access_token !== "string" ||
@@ -192,10 +374,22 @@ export function createAuthHandlers(deps: AuthDependencies) {
                 const scopes = data.scope.split(/\s+/)
                 if (!["identify", "guilds"].every((scope) => scopes.includes(scope)))
                     throw new Error("Sign-in unavailable")
-                const session = await deps.admit(data.access_token)
+                const session = await deps.admit(data.access_token),
+                    now = deps.now()
+                // Without a refresh token the session ends when the access token stops working
+                const refresh =
+                    refreshToken(data.refresh_token) && expiresIn(data.expires_in)
+                        ? {
+                              refreshToken: data.refresh_token,
+                              accessExpiresAt: now + data.expires_in * 1000,
+                              session: sessionHash(session.sessionToken),
+                              until: now + sessionAge * 1000,
+                          }
+                        : undefined
                 return redirect(safeReturnTo(handshake.returnTo), [
                     clear,
-                    cookie(config, sessionCookie, session.sessionToken, 8 * 3600),
+                    cookie(config, sessionCookie, session.sessionToken, sessionAge),
+                    refreshCookieHeader(config, refresh, now),
                 ])
             } catch (error) {
                 // A client secret of another application than the deployment's FLUXER_CLIENT_ID is an operator problem, not a retryable outage
@@ -216,27 +410,39 @@ export function createAuthHandlers(deps: AuthDependencies) {
             if (!sameOrigin(request, config.origin)) return json({ error: "Invalid website origin" }, 403)
             const token = cookieValue(request)
             if (!token) return json({ user: null }, 401)
+            const headers = new Headers(),
+                state = openRefreshCookie(cookieValue(request, refreshCookie), config),
+                now = deps.now()
+            // A refresh cookie of another session or past its session's end is ignored
+            if (
+                state &&
+                state.session === sessionHash(token) &&
+                state.until > now &&
+                state.accessExpiresAt - now < refreshMargin
+            ) {
+                const outcome = await sharedRenewal(token, state)
+                if (!("keep" in outcome))
+                    headers.append(
+                        "Set-Cookie",
+                        refreshCookieHeader(config, "state" in outcome ? outcome.state : undefined, deps.now()),
+                    )
+            }
             try {
                 const session = await deps.refresh(token)
                 // Multi mode offers the bot invite. Single mode serves only its configured server
-                return json({
-                    ...session,
-                    sessionToken: token,
-                    convexUrl: config.convexUrl,
-                    ...(session.mode === "multi" ? { inviteUrl: inviteUrl(config.clientId) } : {}),
-                })
-            } catch (error) {
-                if (
-                    error instanceof ConvexError &&
-                    typeof error.data === "object" &&
-                    error.data !== null &&
-                    "status" in error.data &&
-                    (error.data.status === 401 || error.data.status === 403)
+                return json(
+                    {
+                        ...session,
+                        sessionToken: token,
+                        convexUrl: config.convexUrl,
+                        ...(session.mode === "multi" ? { inviteUrl: inviteUrl(config.clientId) } : {}),
+                    },
+                    200,
+                    headers,
                 )
-                    return json({ error: "Session expired. Sign in again" }, 401, {
-                        "Set-Cookie": cookie(config, sessionCookie, "", 0),
-                    })
-                return json({ error: "Session refresh unavailable. Try again" }, 503)
+            } catch (error) {
+                if (ended(error)) return json({ error: "Session expired. Sign in again" }, 401, signedOut(config))
+                return json({ error: "Session refresh unavailable. Try again" }, 503, headers)
             }
         },
         async logout(request: Request): Promise<Response> {
@@ -248,8 +454,10 @@ export function createAuthHandlers(deps: AuthDependencies) {
                 } catch {
                     return json({ error: "Sign-out failed. Try again" }, 503)
                 }
+                const state = openRefreshCookie(cookieValue(request, refreshCookie), config)
+                if (state && state.session === sessionHash(token)) await revoke(state.refreshToken)
             }
-            return json({ signedOut: true }, 200, { "Set-Cookie": cookie(config, sessionCookie, "", 0) })
+            return json({ signedOut: true }, 200, signedOut(config))
         },
     }
 }

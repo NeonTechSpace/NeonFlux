@@ -74,6 +74,15 @@ async function submit(form: ReturnType<typeof within>) {
         )
     })
 }
+// Clicks a form's button once and checks the form asks for no confirmation tick first
+async function clickOnce(form: ReturnType<typeof within>, name: string) {
+    assert.equal(form.queryAllByRole("checkbox", { hidden: true }).length, 0)
+    const button = form.getByRole("button", { name, hidden: true }) as HTMLButtonElement
+    assert.equal(button.disabled, false)
+    await act(async () => {
+        fireEvent.click(button)
+    })
+}
 function pick(form: ReturnType<typeof within>, channel: string) {
     const picker = form.getByRole("combobox", { name: "Alert channel", hidden: true })
     fireEvent.change(picker, { target: { value: channel } })
@@ -139,7 +148,7 @@ test("Saving the same alert channel turns a stopped subscription back on, while 
     assert.equal(running.calls.length, 0)
 })
 
-test("A followed channel shows its status and problem, moves its alerts and is removed only after confirmation", async () => {
+test("A followed channel shows its status and problem, moves its alerts and is removed on the first click", async () => {
     const { ui, calls } = setup({ configured: true, subscriptions: [followed] })
     const status = section(ui, `Status of Synthetic Channel (${UC})`)
     assert.ok(status.getByText(/Off: NeonFlux cannot post in its alert channel/))
@@ -163,9 +172,7 @@ test("A followed channel shows its status and problem, moves its alerts and is r
     pick(move, "news")
     await submit(move)
     const remove = section(ui, `Stop alerts for Synthetic Channel (${UC})`)
-    await submit(remove)
-    fireEvent.click(remove.getByLabelText("Confirm removing this YouTube channel"))
-    await submit(remove)
+    await clickOnce(remove, "Remove channel")
     assert.deepEqual(calls, [
         { type: "add", youtubeChannelId: UC, channelId: "124" },
         { type: "remove", youtubeChannelId: UC },
@@ -179,14 +186,13 @@ test("A followed channel shows its status and problem, moves its alerts and is r
     assert.match(add.getByRole("alert").textContent ?? "", /already follows that YouTube channel/)
 })
 
-test("A ticked removal waits for review when the subscription changes elsewhere", async () => {
+test("A removal after a change elsewhere removes the current subscription without a review", async () => {
     const { ui, calls, update } = setup({ configured: true, subscriptions: [followed] })
-    const remove = section(ui, `Stop alerts for Synthetic Channel (${UC})`)
-    fireEvent.click(remove.getByLabelText("Confirm removing this YouTube channel"))
     update({ configured: true, subscriptions: [{ ...followed, channelId: "124", enabled: true }] })
-    assert.ok(remove.getByText("Changed elsewhere"))
-    await submit(remove)
-    assert.deepEqual(calls, [])
+    const remove = section(ui, `Stop alerts for Synthetic Channel (${UC})`)
+    assert.equal(remove.queryByText("Changed elsewhere"), null)
+    await clickOnce(remove, "Remove channel")
+    assert.deepEqual(calls, [{ type: "remove", youtubeChannelId: UC }])
 })
 
 test("A full server or a deployment without YouTube alerts offers no add form", () => {

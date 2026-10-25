@@ -43,6 +43,7 @@ import { internal } from "./_generated/api.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { recordAudit } from "./auditLog.ts"
 import { dashboardSession } from "./dashboard.ts"
+import { overwriteText } from "@neonflux/contracts/permission-names"
 import { ringWork } from "./workSignal.ts"
 import {
     BACKUP_DISPATCH_MS,
@@ -791,9 +792,32 @@ async function nativeOutcome(
     await backupSetRetention(ctx, plan)
     return updated(ctx, plan, item)
 }
-/** A channel that a confirmed restore created, changed or deleted is written to the audit log */
-const auditChannel = (ctx: MutationCtx, plan: Doc<"backupPlans">, item: Doc<"backupItems">, verb: string) =>
-    recordAudit(
+/** The changes the preview showed for a restored item, as the audit log keeps them in the entry's Details */
+async function restoredChanges(ctx: MutationCtx, plan: Doc<"backupPlans">, item: Doc<"backupItems">) {
+    const stored = await ctx.db
+        .query("backupChanges")
+        .withIndex("by_number", (q) => q.eq("serverId", plan.serverId).eq("planId", plan._id).eq("itemNo", item.itemNo))
+        .unique()
+    // An overwrite of a role or member that is gone is not restored, so it is no change. One that is restored reads as the restore check
+    // shows it: the role or member it is for, and its permissions by name
+    return (stored?.changes ?? []).flatMap((x) =>
+        x.kind === "field"
+            ? [{ path: x.path, before: x.before, after: x.after }]
+            : x.dropped
+              ? []
+              : [
+                    {
+                        path: `permissions for ${x.type === "role" ? `<@&${x.id}>` : `<@${x.id}>`}`,
+                        before: overwriteText(x.before),
+                        after: overwriteText(x.after),
+                    },
+                ],
+    )
+}
+/** Records a restored channel in the audit log, with the changes the preview showed as its details, as a restored setting has */
+async function auditChannel(ctx: MutationCtx, plan: Doc<"backupPlans">, item: Doc<"backupItems">, verb: string) {
+    const changes = await restoredChanges(ctx, plan, item)
+    await recordAudit(
         ctx,
         plan.serverId,
         { userId: plan.ownerId, source: "command" },
@@ -802,8 +826,10 @@ const auditChannel = (ctx: MutationCtx, plan: Doc<"backupPlans">, item: Doc<"bac
             feature: "structure",
             setting: `restore channel ${item.name ?? item.sourceId}`,
             summary: `${verb} channel ${item.name ?? item.sourceId} from a backup`,
+            ...(changes.length ? { changes } : {}),
         },
     )
+}
 /**
  * Claims an update or delete straight from planned. The decision runs again on the fresh evidence: What has settled since needs no write, what
  * changed since the preview is a conflict, and a claim hands the bot the channel as it is now, which it must still find before it writes
@@ -1122,7 +1148,18 @@ export const work = serviceMutation({
             }
             // The feature's own rules ran at the plan and again just above, so what is left to refuse is a race. It undoes the whole step
             if (write.category === "xp") await backupWriteXp(writer, write.object)
-            else await backupWriteConfig(writer, write.object)
+            else {
+                const stored = await ctx.db
+                    .query("backupChanges")
+                    .withIndex("by_number", (q) =>
+                        q.eq("serverId", serverId).eq("planId", plan._id).eq("itemNo", item.itemNo),
+                    )
+                    .unique()
+                await backupWriteConfig(
+                    { ...writer, changes: (stored?.changes ?? []).flatMap((x) => (x.kind === "field" ? [x] : [])) },
+                    write.object,
+                )
+            }
             await ctx.db.patch(item._id, {
                 state: item.disposition === "create" ? "created" : "updated",
                 finishedAt: now,

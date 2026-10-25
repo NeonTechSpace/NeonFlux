@@ -70,7 +70,7 @@ function DashboardSession({ location, navigate }: Navigation) {
                 userName={session.data?.user.name}
                 onSignOut={async () => {
                     try {
-                        const response = await fetch("/auth/logout", { method: "POST" })
+                        const response = await fetch("/api/session", { method: "DELETE" })
                         if (!response.ok) throw new Error()
                         clearAllDrafts()
                         window.location.assign("/")

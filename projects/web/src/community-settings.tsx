@@ -395,20 +395,11 @@ export function MilestoneSettings(props: ConfigSectionProps<"milestones">) {
                                         {...card}
                                         title={`Clear ${title.toLowerCase()} route`}
                                         description="Remove the configured route. Existing retained delivery outcomes stay with their owning lifecycle"
-                                        snapshot={{ revision, values: { confirm: false }, context: route.revision }}
+                                        submitUnchanged
+                                        snapshot={{ revision, values: {}, context: route.revision }}
                                         submitLabel="Clear milestone route"
                                         operation={() => ({ type: "clear", kind, expectedRevision: route.revision })}
-                                        fields={(values, edit, disabled) => (
-                                            <label>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={Boolean(values.confirm)}
-                                                    disabled={disabled}
-                                                    onChange={(event) => edit("confirm", event.target.checked)}
-                                                />
-                                                Confirm milestone route removal
-                                            </label>
-                                        )}
+                                        fields={() => null}
                                     />
                                 </>
                             )}

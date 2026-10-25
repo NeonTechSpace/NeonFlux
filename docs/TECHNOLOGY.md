@@ -81,7 +81,7 @@ See [the backend guide](BACKEND.md) for setup and the bot's function contract
 ## Website
 
 The website hosts the authenticated configuration dashboard and the web verification page.
-The OAuth client secret stays on the web server, while the Convex deployment owns the application ID and the website origin. Provider tokens stay private in Convex and the browser holds only an opaque, revocable session capability.
+The OAuth client secret stays on the web server, while the Convex deployment owns the application ID and the website origin. The Fluxer access token stays private in Convex, and the refresh token stays in a cookie that the web server encrypts and browser scripts cannot read. Otherwise the browser holds only an opaque, revocable session capability.
 Dashboard authorization belongs to the trusted server and backend, and bot credentials never reach the website or browser.
 Cloudflare Turnstile gates verification starts through server-side token validation in Convex, without another package dependency.
 The motion challenge is drawn on a browser canvas from backend-generated frames, as described in [the challenge evaluation guide](CAPTCHA.md).

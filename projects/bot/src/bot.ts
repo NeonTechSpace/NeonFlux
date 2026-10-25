@@ -358,13 +358,14 @@ const listGuilds = (client: Client) =>
         return { guildIds, complete: guildIds.length < GUILD_LIST_LIMIT }
     })
 // Single mode starts its server without asking Fluxer, so a wrong server ID or a bot that was never invited would
-// connect and answer nothing. Only a complete list proves the bot is missing, and a failed read proves nothing
-const checkMembership = (client: Client, serverId: string) =>
+// connect and answer nothing. Only a complete list proves the bot is missing, and a failed read proves nothing. With a backend,
+// the server ID lives in the Convex deployment
+const checkMembership = (client: Client, serverId: string, backend: boolean) =>
     listGuilds(client).pipe(
         Effect.flatMap(({ guildIds, complete }) =>
             complete && !guildIds.includes(serverId)
                 ? Effect.logWarning(
-                      `NeonFlux is not in server ${serverId}. Invite the bot to that server or set NEONFLUX_SERVER_ID to the right server`,
+                      `NeonFlux is not in server ${serverId}. Invite the bot to that server or set NEONFLUX_SERVER_ID${backend ? " in the Convex deployment" : ""} to the right server`,
                   )
                 : Effect.void,
         ),
@@ -1074,7 +1075,9 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                 // Answers how many servers the bot serves at startup
                 if (scope.mode === "single") {
                     const serverId = scope.serverIds[0]!
-                    yield* checkMembership(client, serverId).pipe(Effect.forkIn(rootScope, { startImmediately: true }))
+                    yield* checkMembership(client, serverId, root.backend !== undefined).pipe(
+                        Effect.forkIn(rootScope, { startImmediately: true }),
+                    )
                     yield* start(register(serverId))
                     return 1
                 }

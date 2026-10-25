@@ -554,6 +554,20 @@ test("A server follows at most ten channels, managers only, and only once the de
     assert.equal((await f.call("/youtube/query", { serverId: "10" })).configured, false)
 })
 
+test("Audit details of following and stopping a channel never hold its hub secret or callback token", async () => {
+    const f = await fixture()
+    await f.manage({ type: "add", youtubeChannelId: UC, channelId: "50" })
+    await f.settle()
+    const { secret, callbackToken } = (await f.source())!
+    await f.manage({ type: "remove", youtubeChannelId: UC })
+    const details = await f.t.run((ctx) => ctx.db.query("auditLogChanges").collect())
+    assert.equal(details.length, 2)
+    assert.ok(details[0]!.changes.some((change) => change.after === UC))
+    const stored = JSON.stringify(details)
+    for (const value of [secret!, callbackToken!, '"secret"', '"callbackToken"', ".secret", ".callbackToken"])
+        assert.ok(!stored.includes(value), value)
+})
+
 test("The callback origin comes from the deployment's own site URL, and an override must be an origin without a path", () => {
     const prior = process.env.CONVEX_SITE_URL
     try {

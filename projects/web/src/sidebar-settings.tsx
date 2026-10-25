@@ -90,29 +90,18 @@ export function SidebarSettings(props: ConfigSectionProps<"sidebar">) {
                     title="Add dashboard link"
                     description="NeonFlux creates one link channel, at the top level or in the category you choose"
                     submitLabel="Add link"
-                    snapshot={{ revision, values: { name: "NeonFlux dashboard", categoryId: "", confirm: false } }}
-                    operation={(values) => {
-                        if (!values.confirm) throw new FormInputError("Confirm creating the link channel")
-                        return {
-                            type: "add",
-                            name: linkName(values.name),
-                            categoryId:
-                                typeof values.categoryId === "string" && values.categoryId
-                                    ? idValue(values.categoryId, "category")
-                                    : null,
-                        }
-                    }}
+                    submitUnchanged
+                    snapshot={{ revision, values: { name: "NeonFlux dashboard", categoryId: "" } }}
+                    operation={(values) => ({
+                        type: "add",
+                        name: linkName(values.name),
+                        categoryId:
+                            typeof values.categoryId === "string" && values.categoryId
+                                ? idValue(values.categoryId, "category")
+                                : null,
+                    })}
                     fields={(values, edit, disabled) => (
                         <>
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    checked={Boolean(values.confirm)}
-                                    disabled={disabled}
-                                    onChange={(event) => edit("confirm", event.target.checked)}
-                                />
-                                Create the dashboard link channel
-                            </label>
                             {nameField(values.name, edit, disabled)}
                             <SearchPicker
                                 catalog

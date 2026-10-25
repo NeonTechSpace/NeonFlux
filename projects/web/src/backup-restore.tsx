@@ -1,9 +1,4 @@
-import {
-    backupSettingName,
-    type BackupChange,
-    type BackupItemState,
-    type BackupPreviewFailure,
-} from "@neonflux/contracts/backup"
+import { type BackupChange, type BackupItemState, type BackupPreviewFailure } from "@neonflux/contracts/backup"
 import { permissionNames } from "@neonflux/contracts/permission-names"
 import type { DashboardBackupChangedItem } from "@neonflux/backend/dashboard-contracts"
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -13,6 +8,7 @@ import { useLiveQuery } from "./live-query"
 import { mentionText, type MentionNames } from "./mentions"
 import { dmCommand } from "./dm-command"
 import { localTime } from "./time"
+import { capital, FieldChanges } from "./change-table"
 
 /** Why a check failed. The commands are the owner's DM commands, which name the server when the bot serves several */
 const failures = (dm: (command: string) => string): Record<BackupPreviewFailure, string> => ({
@@ -46,7 +42,6 @@ const marks = {
     skip: "= Identical",
     blocked: "! Blocked",
 } as const
-const capital = (text: string) => text.replace(/^./, (letter) => letter.toUpperCase())
 const familyNames: Partial<Record<string, string>> = {
     ticketCategory: "Ticket category",
     milestoneRoute: "Milestone route",
@@ -68,64 +63,12 @@ const target = (
               : `${familyNames[item.family] ?? capital(item.family)} ${item.sourceId}`
 const listed = (bits: string) => permissionNames(bits).join(", ") || "none"
 const permissions = (p: { allow: string; deny: string }) => `Allow ${listed(p.allow)}. Deny ${listed(p.deny)}`
-/** A setting's value in words: no value is none, a switch is On or Off and a category is its name while the catalog knows it */
-const shown = (value: unknown, path: string, names?: MentionNames) =>
-    value === undefined || value === null
-        ? "none"
-        : typeof value === "boolean"
-          ? value
-              ? "On"
-              : "Off"
-          : typeof value === "string"
-            ? path === "parentId"
-                ? (names?.channels?.find((channel) => channel.id === value)?.name ?? value)
-                : mentionText(value, names)
-            : mentionText(JSON.stringify(value), names)
-/** A value in full: a long one starts collapsed behind its beginning, and is never cut */
-function Value({ value, path, names }: { value: unknown; path: string; names?: MentionNames | undefined }) {
-    const text = shown(value, path, names)
-    return text.length > 120 || text.includes("\n") ? (
-        <details>
-            <summary>{text.slice(0, 80).replaceAll("\n", " ")}…</summary>
-            <pre>{text}</pre>
-        </details>
-    ) : (
-        <>{text}</>
-    )
-}
 function Changes({ changes, names }: { changes: BackupChange[]; names?: MentionNames | undefined }) {
     const fields = changes.flatMap((x) => (x.kind === "field" ? [x] : [])),
         overwrites = changes.flatMap((x) => (x.kind === "overwrite" ? [x] : []))
     return (
         <>
-            {fields.length > 0 && (
-                <table className="restore-diff">
-                    <thead>
-                        <tr>
-                            <th>Change</th>
-                            <th>Setting</th>
-                            <th>Before</th>
-                            <th>After</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {fields.map((field) => (
-                            <tr key={field.path}>
-                                <td data-label="Change">
-                                    {!("before" in field) ? "+ Added" : !("after" in field) ? "- Removed" : "~ Changed"}
-                                </td>
-                                <td data-label="Setting">{capital(backupSettingName(field.path))}</td>
-                                <td data-label="Before">
-                                    <Value value={field.before} path={field.path} names={names} />
-                                </td>
-                                <td data-label="After">
-                                    <Value value={field.after} path={field.path} names={names} />
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            )}
+            {fields.length > 0 && <FieldChanges fields={fields} names={names} />}
             {overwrites.length > 0 && (
                 <ul className="restore-permissions">
                     {overwrites.map((x) => {

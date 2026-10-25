@@ -14,8 +14,8 @@ export type ServiceScope = typeof ServiceScope.Type
 export const ServiceInstallationsListRequest = Schema.Struct({ cursor: Schema.optionalKey(Schema.NullOr(Cursor)) })
 export type ServiceInstallationsListRequest = typeof ServiceInstallationsListRequest.Type
 /**
- * The scope in the Convex deployment's NEONFLUX_SERVER_MODE and NEONFLUX_SERVER_ID, which the bot also reads when its operator
- * sets them to check the backend's scope. A server ID in multi mode is ambiguous and refused. Errors name the variable to fix, never a value
+ * The scope in the Convex deployment's NEONFLUX_SERVER_MODE and NEONFLUX_SERVER_ID, which the bot reads from its own environment
+ * only when it runs without a backend. A server ID in multi mode is ambiguous and refused. Errors name the variable to fix, never a value
  */
 export function parseServerScope(env: Readonly<Record<string, string | undefined>>): ServiceScope {
     const mode = env.NEONFLUX_SERVER_MODE ?? "single",

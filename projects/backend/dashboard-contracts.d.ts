@@ -188,7 +188,21 @@ export interface DashboardAuditEntry {
     feature: DashboardAuditFeature
     setting: string
     summary: string
+    /** The entry has before and after values, which the auditLog entry query reads */
+    detail?: true
     createdAt: number
+}
+/** One changed value. A missing before was added and a missing after removed. cut is the full length of a value stored as its first 8,000 code units */
+export interface DashboardAuditChange {
+    path: string
+    before?: unknown
+    after?: unknown
+    cut?: number
+}
+/** An entry's changed values. more counts the changes that were too large to store */
+export interface DashboardAuditDetail {
+    changes: DashboardAuditChange[]
+    more: number
 }
 /** Newest first. nextCursor reads the next older page, or is null on the last page */
 export interface DashboardAuditPage {

@@ -391,20 +391,11 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
                                 {...card}
                                 title={`Delete rule: ${rule.name}`}
                                 description="Remove this rule from future automod evaluation"
-                                snapshot={{ revision, values: { confirm: false }, context: rule }}
+                                submitUnchanged
+                                snapshot={{ revision, values: {}, context: rule }}
                                 operation={() => ({ type: "rule-delete", name: rule.name })}
                                 submitLabel="Delete rule"
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Confirm rule deletion
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         </div>
                     </details>
@@ -476,20 +467,11 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
                                 {...card}
                                 title={`Remove watchlist user: ${entry.userId}`}
                                 description="Stop applying this entry to future observations"
-                                snapshot={{ revision, values: { confirm: false }, context: entry }}
+                                submitUnchanged
+                                snapshot={{ revision, values: {}, context: entry }}
                                 submitLabel="Remove watchlist entry"
                                 operation={() => ({ type: "watchlist-remove", userId: entry.userId })}
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Confirm watchlist removal
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         </div>
                     </details>

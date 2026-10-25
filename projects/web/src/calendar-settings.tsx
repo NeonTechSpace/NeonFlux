@@ -359,17 +359,25 @@ export function EventSettings(props: ConfigSectionProps<"events">) {
                                     })}
                                     fields={channelField}
                                 />
-                                {(["publish", "cancel", "forget"] as const).map((action) => (
+                                <ConfigForm<"events">
+                                    {...card}
+                                    title={`Publish event ${event.name}`}
+                                    description="Publish the configured draft and activate RSVP handling"
+                                    submitLabel="Publish event"
+                                    submitUnchanged
+                                    snapshot={{ revision, values: {}, context: event.revision }}
+                                    operation={() => ({ type: "publish", ...binding })}
+                                    fields={() => null}
+                                />
+                                {(["cancel", "forget"] as const).map((action) => (
                                     <ConfigForm<"events">
                                         {...card}
                                         key={action}
                                         title={`${action[0]!.toUpperCase() + action.slice(1)} event ${event.name}`}
                                         description={
-                                            action === "publish"
-                                                ? "Publish the configured draft and activate RSVP handling"
-                                                : action === "cancel"
-                                                  ? "Cancel future event participation and reminders"
-                                                  : "Forget this terminal event configuration and its eligible retained records. Unresolved work prevents removal, and a partial cleanup can need another request"
+                                            action === "cancel"
+                                                ? "Cancel future event participation and reminders"
+                                                : "Forget this terminal event configuration and its eligible retained records. Unresolved work prevents removal, and a partial cleanup can need another request"
                                         }
                                         snapshot={{ revision, values: { confirm: false }, context: event.revision }}
                                         submitLabel={`${action[0]!.toUpperCase() + action.slice(1)} event`}

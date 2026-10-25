@@ -145,6 +145,7 @@ export const PURGE_INDEXES = {
     ticketTranscriptPages: "by_page",
     levelingLevels: "by_level",
     auditLogEntries: "by_server",
+    auditLogChanges: "by_server",
     youtubeSubscriptions: "by_server",
     youtubeDeliveries: "by_video",
 } as const satisfies { [T in ServerTable]: ServerIndex<T> }

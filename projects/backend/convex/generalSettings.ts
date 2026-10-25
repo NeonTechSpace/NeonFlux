@@ -16,7 +16,7 @@ import {
 } from "@neonflux/contracts/general"
 import { configurationRevision } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
-import { describeChange, recordAudit } from "./auditLog.ts"
+import { auditChanges, describeChange, recordAudit } from "./auditLog.ts"
 import { decode, fail, fresh, type AuditActor } from "./validation.ts"
 
 export const readGeneral = (ctx: QueryCtx | MutationCtx, serverId: string) =>
@@ -58,17 +58,19 @@ export async function writeGeneral(
     else await ctx.db.insert("generalSettings", { serverId, ...next })
     const supplied = (["prefix", "replyStyle"] as const).filter((key) => change[key] !== undefined),
         changed = supplied.filter((key) => before[key] !== after[key])
-    // The audit log hides values under keys that look authored, such as reply, so the style is summarized as style
-    for (const key of changed.length ? changed : supplied.slice(0, 1))
+    // The reply style is summarized as style
+    for (const key of changed.length ? changed : supplied.slice(0, 1)) {
+        const label = key === "prefix" ? key : "style",
+            was = { [label]: before[key] },
+            now = { [label]: after[key] }
         await recordAudit(ctx, serverId, actor, {
             kind: "setting",
             feature: key === "prefix" ? "prefix" : "replies",
             setting: key,
-            summary: describeChange(
-                { [key === "prefix" ? key : "style"]: before[key] },
-                { [key === "prefix" ? key : "style"]: after[key] },
-            ),
+            summary: describeChange(was, now),
+            changes: auditChanges(was, now),
         })
+    }
     return { saved: true as const, revision: next.revision }
 }
 

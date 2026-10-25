@@ -122,19 +122,10 @@ export function AlertsSettings(props: ConfigSectionProps<"alerts">) {
                                 title={`${kind === "bot" ? "Bot" : "Webhook"} ${id}`}
                                 description="Alerts resume for it once it is no longer expected"
                                 submitLabel="No longer expected"
-                                snapshot={{ revision, values: { confirm: false } }}
+                                submitUnchanged
+                                snapshot={{ revision, values: {} }}
                                 operation={() => ({ type: "expect", kind, id, expected: false })}
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Alert about it again
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         ))}
                     </div>

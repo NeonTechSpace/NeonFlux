@@ -381,7 +381,7 @@ test("Managers add menus and set access lists through queued role picker saves",
     })
 })
 
-test("Saving the on switch elsewhere keeps an access draft without a false conflict, while a changed menu needs review before removal", async () => {
+test("Saving the on switch elsewhere keeps an access draft without a false conflict, and a menu removal follows a changed menu and removes it on the first click", async () => {
     const calls: Array<{ operation: DashboardConfigurationOperationMap["rolepicker"]; revision: number }> = []
     const queue = async (operation: DashboardConfigurationOperationMap["rolepicker"], revision: number) => {
         calls.push({ operation, revision })
@@ -413,7 +413,6 @@ test("Saving the on switch elsewhere keeps an access draft without a false confl
     fireEvent.change(blocked, { target: { value: "red" } })
     fireEvent.keyDown(blocked, { key: "Enter" })
     const removal = within(ui.getByRole("region", { name: "Remove menu games", hidden: true }))
-    fireEvent.click(removal.getByLabelText("Confirm removing menu games", { selector: "input" }))
     // Another manager turns the role picker on, which moves the shared revision
     ui.rerender(createElement(RolePickerSettings, { connected: true, queue, catalog, remote: remote(8, true, ["40"]) }))
     assert.ok(!access.queryByText("Changed elsewhere"), "the access draft is not flagged by an unrelated save")
@@ -425,13 +424,16 @@ test("Saving the on switch elsewhere keeps an access draft without a false confl
         operation: { type: "access-set", allowRoleIds: [], blockRoleIds: ["40"], allowUserIds: [], blockUserIds: [] },
         revision: 8,
     })
-    // A change to the menu itself is what the removal confirmed, so it needs review
+    // The removal asks for no tick, so a change to the menu itself leaves nothing to review and it removes the current menu
     ui.rerender(
         createElement(RolePickerSettings, { connected: true, queue, catalog, remote: remote(9, true, ["40", "41"]) }),
     )
-    assert.ok(removal.getByText("Changed elsewhere"))
-    assert.equal(
-        (removal.getByRole("button", { name: "Remove menu", hidden: true }) as HTMLButtonElement).disabled,
-        true,
-    )
+    assert.ok(!removal.queryByText("Changed elsewhere"))
+    assert.equal(removal.queryAllByRole("checkbox", { hidden: true }).length, 0)
+    const button = removal.getByRole("button", { name: "Remove menu", hidden: true }) as HTMLButtonElement
+    assert.equal(button.disabled, false)
+    await act(async () => {
+        fireEvent.click(button)
+    })
+    assert.deepEqual(calls.at(-1), { operation: { type: "menu-remove", name: "games" }, revision: 9 })
 })

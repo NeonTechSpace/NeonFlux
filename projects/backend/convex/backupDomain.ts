@@ -17,6 +17,7 @@ import { greetingTemplate } from "./greetingsDomain.ts"
 import { ticketQuestions } from "./ticketDomain.ts"
 import { milestoneCivil, validateMilestoneTemplate } from "./milestonesDomain.ts"
 import { decode, fail, text } from "./validation.ts"
+import { valueDiff } from "./valueDiff.ts"
 
 export {
     BACKUP_PLAN_MS,
@@ -99,36 +100,8 @@ export function backupConfig(value: unknown): BackupConfigObject {
     configRules(item)
     return item
 }
-/** The leaves of a value by path. Objects go by key, and arrays by the entries' names when each is an object with its own name, otherwise by index. An empty array or object is a leaf */
-function leaves(value: unknown, path: string, out: Map<string, unknown>) {
-    if (Array.isArray(value) && value.length) {
-        const names = value.map((x) => (x && typeof x === "object" ? (x as { name?: unknown }).name : undefined)),
-            byName = names.every((x) => typeof x === "string") && new Set(names).size === names.length
-        value.forEach((x, i) => leaves(x, `${path}[${byName ? names[i] : i}]`, out))
-    } else if (value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length) {
-        for (const [key, x] of Object.entries(value)) if (x !== undefined) leaves(x, path ? `${path}.${key}` : key, out)
-    } else out.set(path, value)
-}
-/** The differences between two values as leaf rows in path order. A missing before lists every leaf of after, so a new item shows what it brings */
-export function backupDiff(before: unknown, after: unknown) {
-    const was = new Map<string, unknown>(),
-        now = new Map<string, unknown>()
-    if (before !== undefined) leaves(before, "", was)
-    if (after !== undefined) leaves(after, "", now)
-    return [...new Set([...was.keys(), ...now.keys()])]
-        .sort()
-        .filter(
-            (path) =>
-                !was.has(path) ||
-                !now.has(path) ||
-                canonicalBackupJson(was.get(path)) !== canonicalBackupJson(now.get(path)),
-        )
-        .map((path) => ({
-            path,
-            ...(was.has(path) ? { before: was.get(path) } : {}),
-            ...(now.has(path) ? { after: now.get(path) } : {}),
-        }))
-}
+/** The differences between two values as leaf rows in path order, with list entries matched by name */
+export const backupDiff = (before: unknown, after: unknown) => valueDiff(before, after, ["name"])
 /** Whether a path ends in an on/off switch, such as enabled, customEnabled or routes[2].enabled */
 export const backupSwitchPath = (path: string) => /(^|\.)([a-z]\w*Enabled|enabled)$/.test(path)
 /**

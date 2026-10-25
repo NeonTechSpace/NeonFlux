@@ -30,12 +30,12 @@ The check verifies formatting, then typechecks, builds and tests the contracts, 
 | `FLUXER_BOT_TOKEN` | Private bot token |
 | `CONVEX_URL` | Convex deployment URL, such as `https://your-deployment.convex.cloud` |
 | `NEONFLUX_BOT_API_SECRET` | The backend's bot credential, the same text as in the Convex deployment, at least 32 characters and without surrounding spaces |
-| `NEONFLUX_SERVER_ID` | Optional. With a backend, the bot refuses to start when the backend serves another server or multi mode. Without a backend, the one server the bot serves |
-| `NEONFLUX_SERVER_MODE` | Optional. With a backend, the bot refuses to start when the backend serves another mode |
+| `NEONFLUX_SERVER_ID` | Only without a backend, the one server the bot serves. With a backend it lives in the Convex deployment, and the bot refuses to start while its own environment sets it |
+| `NEONFLUX_SERVER_MODE` | Only without a backend, where only `single` works. With a backend it lives in the Convex deployment, and the bot refuses to start while its own environment sets it |
 | `NEONFLUX_CUSTOM_STATUS` | Optional presence text of at most 128 UTF-16 code units, shown at DEFCON 3 in single mode and always in multi mode |
 | `NEONFLUX_BACKUP_KEY` | Optional backup recovery key, see [backup and restore](#selective-backup-and-restore) |
 
-The Convex deployment owns the server scope and the website origin. At startup the bot asks the backend for both and adopts them, so `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_ID` and `NEONFLUX_WEBSITE_URL` belong in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists them. The bot's own scope variables only check the backend's scope, which catches a bot pointed at another deployment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names. Commands that need no stored data still work, such as `!ping` and `!custom help`, while features that store data are unavailable
+The Convex deployment owns the server scope and the website origin. At startup the bot asks the backend for both and adopts them, so `NEONFLUX_SERVER_MODE`, `NEONFLUX_SERVER_ID` and `NEONFLUX_WEBSITE_URL` belong in the deployment, as [the backend guide](BACKEND.md#environment-variables) lists them. With a backend, the bot refuses to start while its environment sets the server mode or ID, with a message naming the variable to remove, and the bot never reads a website origin from its environment. Without a backend, the bot serves the one server `NEONFLUX_SERVER_ID` names. Commands that need no stored data still work, such as `!ping` and `!custom help`, while features that store data are unavailable
 
 `CONVEX_URL` must use HTTPS, except `localhost`, `127.0.0.1` or `::1` during development, and cannot contain credentials, a path, a query or a fragment. It is the deployment URL, not the HTTP Actions URL ending in `.convex.site`. Set both backend variables or neither
 
@@ -55,11 +55,11 @@ pnpm run start
 `pnpm run start` runs the last build in `bot/dist`, so build again after a change. During development, `pnpm run dev:bot` runs the bot from its source and restarts it when a file changes, without a build.
 Send `!ping` in the server and expect `Pong!`. Press Ctrl+C to stop. SIGINT and SIGTERM give running handlers the SDK's five-second drain window. Set the SDK's `FLUXERLY_DEBUG` variable for more diagnostics
 
-Before connecting, the bot adopts the backend's scope and website origin. A refused key, a backend that is not configured, an unreachable backend, an unknown answer and a scope that differs from the bot's own scope variables each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
+Before connecting, the bot adopts the backend's scope and website origin. Scope variables in the bot environment stop startup before any backend request. A refused key, a backend that is not configured, an unreachable backend and an unknown answer each stop startup with their own message. A backend that is not configured logs the variable to fix in the Convex deployment's logs. Update the backend before the bot
 
 Once its servers are starting, the bot logs one Info line, such as `NeonFlux started in single mode for server <id>, website origin set, backup key not set`. In multi mode it names how many servers Fluxer lists instead. The line says only whether the website origin and the backup key are set, never their values. With a backend, the first answer of the [bill guard](#optional-work-limits-and-the-bill-guard) adds `Backend budget: normal`, `warning`, `paused` or `not set`
 
-In single mode the bot also reads the list of servers Fluxer shows it, without delaying startup. When the full list lacks the configured server, it warns `NeonFlux is not in server <id>. Invite the bot to that server or set NEONFLUX_SERVER_ID to the right server`, because the bot would otherwise connect and answer nothing. Invite the bot to that server, or correct `NEONFLUX_SERVER_ID`, which with a backend lives in the Convex deployment, and restart. A list cut off at 100,000 servers or a failed read logs nothing
+In single mode the bot also reads the list of servers Fluxer shows it, without delaying startup. When the full list lacks the configured server, it warns `NeonFlux is not in server <id>. Invite the bot to that server or set NEONFLUX_SERVER_ID to the right server`, because the bot would otherwise connect and answer nothing. With a backend, the warning says `set NEONFLUX_SERVER_ID in the Convex deployment to the right server` instead. Invite the bot to that server, or correct `NEONFLUX_SERVER_ID` where the warning says, and restart. A list cut off at 100,000 servers or a failed read logs nothing
 
 Every ten minutes with activity, the bot logs one Info line with that interval's Fluxer requests, backend requests, handled events, rate-limit waits and dropped events, plus the three busiest Fluxer routes and backend paths. An interval without requests or events logs nothing
 
@@ -1536,7 +1536,7 @@ same command again. The server's managers see in the dashboard's audit log that 
 
 Single mode is the default. The Convex deployment sets `NEONFLUX_SERVER_ID` and leaves `NEONFLUX_SERVER_MODE` unset or `single`, and the bot serves only that server
 
-Multi mode runs NeonFlux as a public bot that serves every server it is in, with no server list or server limit. Remove `NEONFLUX_SERVER_ID` and set `NEONFLUX_SERVER_MODE=multi` in the [backend](BACKEND.md#multi-server-scope), then restart the bot, which adopts the mode. A bot environment that still names a server refuses to start until `NEONFLUX_SERVER_ID` is removed from it too
+Multi mode runs NeonFlux as a public bot that serves every server it is in, with no server list or server limit. Remove `NEONFLUX_SERVER_ID` and set `NEONFLUX_SERVER_MODE=multi` in the [backend](BACKEND.md#multi-server-scope), then restart the bot, which adopts the mode. The bot refuses to start while its own environment still sets either variable
 
 One bot token, process and backend serve every server. Each server has its own settings, queues and DEFCON level. Membership or permissions in one server grant nothing in another
 

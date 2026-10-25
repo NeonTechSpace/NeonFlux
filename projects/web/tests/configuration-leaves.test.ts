@@ -89,6 +89,15 @@ async function submit(form: ReturnType<typeof within>) {
         )
     })
 }
+// Clicks a form's button once and checks the form asks for no confirmation tick first
+async function clickOnce(form: ReturnType<typeof within>, name: string) {
+    assert.equal(form.queryAllByRole("checkbox", { hidden: true }).length, 0)
+    const button = form.getByRole("button", { name, hidden: true }) as HTMLButtonElement
+    assert.equal(button.disabled, false)
+    await act(async () => {
+        fireEvent.click(button)
+    })
+}
 // Event editors mount once their details open
 async function openEditors(ui: ReturnType<typeof render>) {
     for (const details of ui.container.querySelectorAll("details"))
@@ -841,7 +850,7 @@ test("Cleanup deletion enabling requires explicit confirmation and preserves exa
         confirm: true,
     })
 })
-test("Cleanup policy deletion is explicit and does not erase retained target evidence through forget", async () => {
+test("An inactive cleanup policy is deleted on the first click with the contract's confirmation, and an enabled one cannot be", async () => {
     const policy = {
         channelId: "123",
         revision: 4,
@@ -862,14 +871,25 @@ test("Cleanup policy deletion is explicit and does not erase retained target evi
         policies: [policy],
     })
     const form = section(ui, "Delete inactive policy 123")
-    fireEvent.click(form.getByLabelText("Confirm inactive policy deletion"))
-    await submit(form)
+    await clickOnce(form, "Delete inactive policy")
     assert.deepEqual(calls[0]?.operation, {
         type: "policy-delete",
         channelId: "123",
         expectedRevision: 4,
         confirm: true,
     })
+    cleanup()
+    const enabled = setup(CleanupSettings, "cleanup", {
+        settings: { enabled: true, revision: 2, policies: 1, receipts: 0 },
+        policies: [{ ...policy, enabled: true }],
+    })
+    const locked = section(enabled.ui, "Delete inactive policy 123")
+    assert.equal(
+        (locked.getByRole("button", { name: "Delete inactive policy", hidden: true }) as HTMLButtonElement).disabled,
+        true,
+    )
+    await submit(locked)
+    assert.equal(enabled.calls.length, 0)
 })
 test("Cleanup age choices preserve exact saved milliseconds when editing only the owner", async () => {
     const policy = {
@@ -902,4 +922,146 @@ test("Cleanup age choices preserve exact saved milliseconds when editing only th
         ageMs: 3600001,
         ownerId: "999",
     })
+})
+test("Automod rules and watchlist entries are removed on the first click", async () => {
+    const rule = {
+        name: "links",
+        type: "domains" as const,
+        enabled: true,
+        priority: 0,
+        action: "delete" as const,
+        threshold: 1,
+        windowSeconds: 10,
+        durationSeconds: 60,
+        patterns: ["example.com"],
+        domainMode: "block" as const,
+        channelIds: [],
+        exemptChannelIds: [],
+        exemptRoleIds: [],
+    }
+    const { ui, calls } = setup(SafetySettings, "moderation", {
+        ...moderation,
+        rules: [rule],
+        watchlist: [{ userId: "555", reason: "Old reason", createdAt: 1 }],
+    })
+    await clickOnce(section(ui, "Delete rule: links"), "Delete rule")
+    await clickOnce(section(ui, "Remove watchlist user: 555"), "Remove watchlist entry")
+    assert.deepEqual(
+        calls.map((call) => call.operation),
+        [
+            { type: "rule-delete", name: "links" },
+            { type: "watchlist-remove", userId: "555" },
+        ],
+    )
+})
+test("A response is deleted on the first click", async () => {
+    const { ui, calls } = setup(ResponseSettings, "responses", {
+        settings: { customEnabled: true, autoEnabled: true },
+        definitions: [
+            {
+                name: "hello",
+                kind: "custom",
+                reply: { type: "text", text: "Hi" },
+                enabled: true,
+                channelIds: [],
+                roleIds: [],
+                cooldownSeconds: 0,
+                priority: 0,
+                createdAt: 1,
+                updatedAt: 1,
+            },
+        ],
+    })
+    await clickOnce(section(ui, "Delete response: hello"), "Delete response")
+    assert.deepEqual(calls[0]?.operation, { kind: "custom", operation: { type: "delete", name: "hello" } })
+})
+test("A saved template is deleted on the first click", async () => {
+    const { ui, calls } = setup(PublishingSettings, "publishing", {
+        settings: { enabled: true },
+        drafts: [templates[0]!],
+    })
+    await clickOnce(section(ui, "Delete template: welcome"), "Delete saved definition")
+    assert.deepEqual(calls[0]?.operation, {
+        type: "draft-delete",
+        kind: "template",
+        name: "welcome",
+        expectedRevision: 9,
+    })
+})
+test("A greeting route is cleared on the first click", async () => {
+    const route = {
+        revision: 2,
+        enabled: true,
+        timing: "join" as const,
+        channelId: "123",
+        templateName: "welcome",
+        templateRevision: 2,
+    }
+    const { ui, calls } = setup(GreetingSettings, "greetings", {
+        settings: { claimsPerMinute: 10, retentionDays: 180, routes: { welcome: route, dm: route, goodbye: route } },
+    })
+    await clickOnce(section(ui, "Clear goodbye"), "Clear greeting route")
+    assert.deepEqual(calls[0]?.operation, { type: "clear", route: "goodbye" })
+})
+test("A ticket category is deleted on the first click", async () => {
+    const { ui, calls } = setup(TicketSettings, "tickets", {
+        settings: { enabled: true, retentionDays: 7 },
+        categories: [
+            {
+                name: "help",
+                revision: 3,
+                enabled: true,
+                visibility: "private",
+                description: "Help",
+                parentId: null,
+                supportRoleIds: [],
+                questions: [],
+                cannedReplies: [],
+            },
+        ],
+    })
+    await clickOnce(section(ui, "Delete ticket category: help"), "Delete ticket category")
+    assert.deepEqual(calls[0]?.operation, { type: "category-delete", name: "help", expectedRevision: 3 })
+})
+test("A milestone route is cleared on the first click", async () => {
+    const { ui, calls } = setup(MilestoneSettings, "milestones", {
+        settings: { enabled: true, revision: 2, activatedAt: 1 },
+        routes: [
+            {
+                kind: "birthday",
+                revision: 5,
+                intentRevision: 5,
+                audienceGeneration: 1,
+                createdBy: "99",
+                channelId: "123",
+                zone: "UTC",
+                time: "09:00",
+                fold: "reject",
+                template: { name: "welcome", revision: 9 },
+                content: { content: "Hello" },
+                canonicalContent: { content: "Hello" },
+                enabled: true,
+                activatedAt: 1,
+                createdAt: 1,
+                updatedAt: 2,
+            },
+        ],
+    })
+    await clickOnce(section(ui, "Clear birthday route"), "Clear milestone route")
+    assert.deepEqual(calls[0]?.operation, { type: "clear", kind: "birthday", expectedRevision: 5 })
+})
+test("An event is published on the first click, while cancelling and forgetting keep their confirmation", async () => {
+    const { ui, calls } = setup(EventSettings, "events", {
+        settings: { enabled: true, revision: 1, threads: false },
+        events: [event],
+    })
+    await openEditors(ui)
+    await clickOnce(section(ui, "Publish event meetup"), "Publish event")
+    assert.deepEqual(calls[0]?.operation, { type: "publish", eventNo: 4, expectedRevision: 3 })
+    for (const action of ["Cancel", "Forget"]) {
+        const form = section(ui, `${action} event meetup`)
+        assert.ok(form.getByLabelText(`Confirm ${action.toLowerCase()} event`))
+        await submit(form)
+    }
+    assert.equal(calls.length, 1)
 })

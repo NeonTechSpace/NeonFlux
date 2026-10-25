@@ -6,6 +6,8 @@ import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
 import { botCall } from "./bot-service.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
+import { cleanupDashboardSessions } from "../convex/dashboard.ts"
+import { RETENTION_PASSES } from "../convex/retention.ts"
 
 const modules = {
     "../convex/dashboard.ts": () => import("../convex/dashboard.ts"),
@@ -331,22 +333,163 @@ test("Prefix chat changes are shared immediately and stale browser saves preserv
     )
     await assert.rejects(t.query(api.dashboardViews.general, args))
 })
-test("Expired session cannot read or save even before scheduled invalidation runs", async () => {
-    const t = backend(),
-        admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
-    mock.method(Date, "now", () => admitted.expiresAt)
-    await assert.rejects(t.query(api.dashboardViews.general, { sessionToken: admitted.sessionToken, serverId: "10" }))
+const DAY = 86_400_000
+const status = (code: number) => (error: unknown) =>
+    error instanceof ConvexError && (error.data as { status?: number }).status === code
+const sessionRows = (t: ReturnType<typeof backend>) => t.run((ctx) => ctx.db.query("dashboardSessions").collect())
+// One pass of the retention chain's session cleanup
+const cleanup = (t: ReturnType<typeof backend>) => t.run((ctx) => cleanupDashboardSessions(ctx, Date.now()))
+// The clock the backend reads, which a test moves forward
+function sessionClock() {
+    const clock = { now: 1_800_000_000_000 }
+    mock.method(Date, "now", () => clock.now)
+    return Object.assign(clock, { start: clock.now })
+}
+test("A tab that returns after its read access ran out regains it with a Fluxer check", async () => {
+    const clock = sessionClock(),
+        t = backend(),
+        admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }),
+        args = { sessionToken: admitted.sessionToken, serverId: "10" }
+    // Cleanup keeps a session whose read access ran out until its idle end
+    clock.now = admitted.expiresAt
+    await assert.rejects(t.query(api.dashboardViews.general, args), status(401))
+    clock.now += 2 * DAY
+    assert.deepEqual(await cleanup(t), { more: false })
+    assert.equal((await sessionRows(t)).length, 1)
+    const renewed = await t.action(api.dashboard.refresh, { sessionToken: admitted.sessionToken })
+    assert.equal(renewed.expiresAt, clock.now + 300_000)
+    assert.equal((await sessionRows(t))[0]!.idleAt, clock.now + 30 * DAY)
+    assert.equal((await t.query(api.dashboardViews.general, args)).prefix, "!")
+    // A save checks Fluxer first, so it renews read access too
+    clock.now += DAY
+    assert.deepEqual(
+        await t.action(api.dashboard.save, { ...args, section: "general", expectedRevision: 0, prefix: "?" }),
+        { saved: true, revision: 1 },
+    )
+    assert.equal((await sessionRows(t))[0]!.expiresAt, clock.now + 300_000)
+})
+test("A session ends after 30 days without use", async () => {
+    const clock = sessionClock(),
+        t = backend(),
+        used = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }),
+        unused = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
+    clock.now = clock.start + 30 * DAY - 1
+    await t.action(api.dashboard.refresh, { sessionToken: unused.sessionToken })
+    await t.action(api.dashboard.refresh, { sessionToken: used.sessionToken })
+    clock.now += 30 * DAY - 1
+    await t.action(api.dashboard.refresh, { sessionToken: used.sessionToken })
+    clock.now += 2
+    await assert.rejects(t.action(api.dashboard.refresh, { sessionToken: unused.sessionToken }), status(401))
     await assert.rejects(
         t.action(api.dashboard.save, {
-            sessionToken: admitted.sessionToken,
+            sessionToken: unused.sessionToken,
             serverId: "10",
             section: "general",
             expectedRevision: 0,
             prefix: "?",
         }),
+        status(401),
     )
-    await t.finishAllScheduledFunctions(() => mock.timers.tick(300000))
-    assert.deepEqual(await t.run((ctx) => ctx.db.query("dashboardSessions").collect()), [])
+    // The retention chain deletes the idle session and keeps the used one
+    assert.ok(RETENTION_PASSES.some(([, pass]) => pass === cleanupDashboardSessions))
+    await cleanup(t)
+    const rows = await sessionRows(t)
+    assert.equal(rows.length, 1)
+    await t.action(api.dashboard.refresh, { sessionToken: used.sessionToken })
+})
+test("Daily use keeps a session for 90 days from sign-in and no longer", async () => {
+    const clock = sessionClock(),
+        t = backend(),
+        admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
+    for (let day = 1; day < 90; day++) {
+        clock.now = clock.start + day * DAY
+        await t.action(api.dashboard.refresh, { sessionToken: admitted.sessionToken })
+    }
+    const [row] = await sessionRows(t)
+    assert.equal(row!.idleAt, clock.start + 90 * DAY)
+    assert.equal(row!.lifetimeAt, clock.start + 90 * DAY)
+    clock.now = clock.start + 90 * DAY
+    await assert.rejects(t.action(api.dashboard.refresh, { sessionToken: admitted.sessionToken }), status(401))
+    await cleanup(t)
+    assert.deepEqual(await sessionRows(t), [])
+})
+test("A sixth sign-in signs out the least recently used session instead of refusing", async () => {
+    let now = 1_800_000_000_000
+    mock.method(Date, "now", () => now)
+    const t = backend(),
+        sessions = []
+    for (let index = 0; index < 5; index++) {
+        sessions.push(await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }))
+        now += 1_000
+    }
+    // The first session is used again, so the second is now the least recently used
+    now += 100_000
+    await t.action(api.dashboard.refresh, { sessionToken: sessions[0]!.sessionToken })
+    const sixth = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
+    assert.equal((await sessionRows(t)).length, 5)
+    await assert.rejects(
+        t.query(api.dashboardViews.general, { sessionToken: sessions[1]!.sessionToken, serverId: "10" }),
+        status(401),
+    )
+    for (const session of [sessions[0]!, ...sessions.slice(2), sixth])
+        assert.equal(
+            (await t.query(api.dashboardViews.general, { sessionToken: session.sessionToken, serverId: "10" })).prefix,
+            "!",
+        )
+})
+test("Rotation stores a refreshed access token of the same user and refuses another user's", async () => {
+    const owners: Record<string, string> = {
+        "synthetic-provider-token": "20",
+        "synthetic-rotated-token": "20",
+        "synthetic-foreign-token": "21",
+    }
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url === "https://fluxer.app/.well-known/fluxer")
+            return Response.json({ endpoints: { api_public: "https://api.fluxer.app" } })
+        const user = owners[new Headers(init?.headers).get("Authorization")!.replace("Bearer ", "")]
+        if (!user) return new Response(null, { status: 401 })
+        if (url.endsWith("/v1/oauth2/@me"))
+            return Response.json({
+                application: { id: clientId },
+                scopes: ["identify", "guilds"],
+                user: { id: user, username: "Test member", bot: false, system: false },
+            })
+        if (url.endsWith("/v1/users/@me/guilds?limit=100"))
+            return Response.json([{ id: "10", name: "Test server", icon: null, owner_id: "99", permissions: "32" }])
+        throw new Error("Unexpected synthetic provider route")
+    })
+    const t = backend(),
+        admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }),
+        token = async () => (await sessionRows(t))[0]!.accessToken
+    await assert.rejects(
+        t.action(api.dashboard.rotate, { sessionToken: admitted.sessionToken, accessToken: "synthetic-foreign-token" }),
+        status(403),
+    )
+    await assert.rejects(
+        t.action(api.dashboard.rotate, { sessionToken: admitted.sessionToken, accessToken: "synthetic-unknown-token" }),
+        status(403),
+    )
+    assert.equal(await token(), "synthetic-provider-token")
+    assert.equal(
+        await t.action(api.dashboard.rotate, {
+            sessionToken: admitted.sessionToken,
+            accessToken: "synthetic-rotated-token",
+        }),
+        null,
+    )
+    assert.equal(await token(), "synthetic-rotated-token")
+    // The old token no longer works, and the session goes on with the new one
+    delete owners["synthetic-provider-token"]
+    assert.deepEqual((await t.action(api.dashboard.refresh, { sessionToken: admitted.sessionToken })).user, {
+        id: "20",
+        name: "Test member",
+    })
+    await t.mutation(api.dashboard.logout, { sessionToken: admitted.sessionToken })
+    await assert.rejects(
+        t.action(api.dashboard.rotate, { sessionToken: admitted.sessionToken, accessToken: "synthetic-rotated-token" }),
+        status(401),
+    )
 })
 
 test("Dashboard reservations use queued native role safety, fresh manager grants and configuration revisions", async () => {
@@ -1049,7 +1192,7 @@ test("Renewals leave the session row alone until access changes or read access h
     now += 1_000
     const renewed = await t.action(api.dashboard.refresh, { sessionToken: admitted.sessionToken })
     assert.equal(renewed.expiresAt, now + 300_000)
-    assert.deepEqual(await row(), { ...before, expiresAt: now + 300_000 })
+    assert.deepEqual(await row(), { ...before, expiresAt: now + 300_000, idleAt: now + 30 * 86_400_000 })
     // A save renews inside its own enqueue mutation
     now += 60_000
     await t.action(api.dashboard.save, {

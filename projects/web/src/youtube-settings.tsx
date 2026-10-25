@@ -165,23 +165,14 @@ export function YoutubeSettings(props: ConfigSectionProps<"youtube">) {
                                 title={`Stop alerts for ${name(row)}`}
                                 description="NeonFlux stops posting this channel's uploads"
                                 submitLabel="Remove channel"
+                                submitUnchanged
                                 snapshot={{
                                     revision,
-                                    values: { confirm: false },
+                                    values: {},
                                     context: { channelId: row.channelId, enabled: row.enabled },
                                 }}
                                 operation={() => ({ type: "remove", youtubeChannelId: row.youtubeChannelId })}
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Confirm removing this YouTube channel
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         </div>
                     </details>

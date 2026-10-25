@@ -446,7 +446,8 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     roleAttempts: ROLE_LEDGER,
     roleReferences: ROLE_LEDGER,
     ticketEntries: "Part of a ticket, kept with it",
-    dashboardSessions: "A website sign-in, not server data. It ends at sign-out and after at most eight hours",
+    dashboardSessions:
+        "A website sign-in, not server data. It ends at sign-out, after 30 days without use and at most 90 days after sign-in",
     dashboardPrivateAccessJobs:
         "A website check of the member's own access to private cases. It is deleted within three minutes",
     backupPlans: STAFF,

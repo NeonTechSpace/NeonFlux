@@ -162,20 +162,11 @@ export function GreetingSettings(props: ConfigSectionProps<"greetings">) {
                                 {...common}
                                 title={`Clear ${title.toLowerCase()}`}
                                 description="Disable the route and remove its configured template snapshot"
-                                snapshot={{ revision, values: { confirm: false }, context: current }}
+                                submitUnchanged
+                                snapshot={{ revision, values: {}, context: current }}
                                 submitLabel="Clear greeting route"
                                 operation={() => ({ type: "clear", route })}
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Confirm greeting route removal
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         </div>
                     </details>

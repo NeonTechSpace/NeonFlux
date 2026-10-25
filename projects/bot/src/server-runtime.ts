@@ -61,19 +61,10 @@ const unavailable = (error: BackendRequestError) =>
                     ? "The backend could not be reached. Check CONVEX_URL and the connection, then restart"
                     : "The backend refused the startup request. Deploy the backend and the bot from the same version",
     })
-function mismatch(expected: DeploymentScope, actual: DeploymentScope) {
-    return new ServerScopeError({
-        message:
-            expected.mode !== actual.mode
-                ? `The backend serves ${actual.mode} mode, but the bot environment asks for ${expected.mode} mode. Remove NEONFLUX_SERVER_MODE and NEONFLUX_SERVER_ID from the bot to adopt the backend's scope`
-                : "The backend serves a different server than NEONFLUX_SERVER_ID in the bot environment. Check that CONVEX_URL names this server's deployment, or remove NEONFLUX_SERVER_ID",
-    })
-}
-// The backend owns the server scope and the website origin, and the bot adopts both before it builds any runtime. Scope variables
-// the operator also set in the bot must match, which catches a bot pointed at another deployment. Without a backend, the bot serves
-// the one server its environment names
+// The backend owns the server scope and the website origin, and the bot adopts both before it builds any runtime, discarding any
+// scope its configuration carried. Without a backend, the bot serves the one server its environment names
 export function adoptBackendScope(config: BotRootConfig): Effect.Effect<BotRootConfig, ServerScopeError> {
-    const { backend, serverId: _serverId, scope: expected, websiteUrl: _websiteUrl, ...root } = config
+    const { backend, serverId: _serverId, scope: _scope, websiteUrl: _websiteUrl, ...root } = config
     if (!backend) return Effect.succeed(config)
     return createBackendRequest(backend)("/service/scope", {}).pipe(
         Effect.mapError(unavailable),
@@ -89,19 +80,13 @@ export function adoptBackendScope(config: BotRootConfig): Effect.Effect<BotRootC
                 ),
             ),
         ),
-        Effect.flatMap(({ scope, websiteUrl }) =>
-            expected &&
-            (expected.mode !== scope.mode ||
-                (expected.mode === "single" && scope.mode === "single" && expected.serverIds[0] !== scope.serverIds[0]))
-                ? Effect.fail(mismatch(expected, scope))
-                : Effect.succeed({
-                      ...root,
-                      backend,
-                      scope,
-                      ...(scope.mode === "single" ? { serverId: scope.serverIds[0]! } : {}),
-                      ...(websiteUrl ? { websiteUrl } : {}),
-                  }),
-        ),
+        Effect.map(({ scope, websiteUrl }) => ({
+            ...root,
+            backend,
+            scope,
+            ...(scope.mode === "single" ? { serverId: scope.serverIds[0]! } : {}),
+            ...(websiteUrl ? { websiteUrl } : {}),
+        })),
     )
 }
 // The runtime's frozen backend already binds its server, so every store shares one transport

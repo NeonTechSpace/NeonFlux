@@ -145,7 +145,8 @@ export default defineSchema({
         revision: v.number(),
         lastDashboardAt: v.optional(v.number()),
     }).index("by_family", ["serverId", "family"]),
-    // The website audit log, newest first by creation time. Summaries name settings and short values, never authored bodies, see auditLog.ts
+    // The website audit log, newest first by creation time. Summaries name settings and short values, and auditLogChanges holds
+    // the full values, see auditLog.ts
     auditLogEntries: defineTable({
         serverId: v.string(),
         kind: v.union(
@@ -160,11 +161,32 @@ export default defineSchema({
         feature: v.string(),
         setting: v.string(),
         summary: v.string(),
+        // The entry has before and after values in auditLogChanges
+        detail: v.optional(v.literal(true)),
         createdAt: v.number(),
         expiresAt: v.number(),
     })
         .index("by_server", ["serverId"])
         .index("by_server_feature", ["serverId", "feature"])
+        .index("by_expiry", ["expiresAt"]),
+    // An audit entry's changed values, kept apart so the live log page reads only the short entries. A value over 8,000 code
+    // units keeps its start and its full length in cut, and more counts the changes past 512 KiB that were not stored
+    auditLogChanges: defineTable({
+        serverId: v.string(),
+        entryId: v.id("auditLogEntries"),
+        changes: v.array(
+            v.object({
+                path: v.string(),
+                before: v.optional(v.any()),
+                after: v.optional(v.any()),
+                cut: v.optional(v.number()),
+            }),
+        ),
+        more: v.optional(v.number()),
+        expiresAt: v.number(),
+    })
+        .index("by_entry", ["entryId"])
+        .index("by_server", ["serverId"])
         .index("by_expiry", ["expiresAt"]),
     // The member families hold website requests of the role picker, showcases and profiles beside configuration jobs, with the same expiry and one-day retention. attemptId is the publishing attempt of a showcase request
     dashboardConfigurationJobs: defineTable({
@@ -238,10 +260,12 @@ export default defineSchema({
         servers: v.array(v.object({ id: v.string(), name: v.string() })),
         memberServers: v.array(v.object({ id: v.string(), name: v.string() })),
         expiresAt: v.number(),
+        idleAt: v.optional(v.number()),
         lifetimeAt: v.number(),
     })
         .index("by_token", ["tokenHash"])
-        .index("by_user", ["userId"]),
+        .index("by_user", ["userId"])
+        .index("by_idle", ["idleAt"]),
     dashboardMessageJobs: defineTable({
         serverId: v.string(),
         actorId: v.string(),

@@ -94,6 +94,7 @@ export async function authRoute(
         now: Date.now,
         admit: (accessToken) => client.action(dashboardApi.admit, { accessToken }),
         refresh: (sessionToken) => client.action(dashboardApi.refresh, { sessionToken }),
+        rotate: (sessionToken, accessToken) => client.action(dashboardApi.rotate, { sessionToken, accessToken }),
         logout: (sessionToken) => client.mutation(dashboardApi.logout, { sessionToken }),
     })[handler](request)
 }

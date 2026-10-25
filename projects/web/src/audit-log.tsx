@@ -1,8 +1,11 @@
 import type { DashboardAuditEntry, DashboardAuditFeature } from "@neonflux/backend/dashboard-contracts"
-import { useState } from "react"
+import type { ConvexReactClient } from "convex/react"
+import { Fragment, useState } from "react"
+import { FieldChanges } from "./change-table"
 import { dashboardApi } from "./dashboard-api"
 import type { SectionProps } from "./dashboard-sections"
 import { useLiveQuery } from "./live-query"
+import type { MentionNames } from "./mentions"
 import { localTime } from "./time"
 
 /** Features the log can be filtered by, named as the dashboard names their sections */
@@ -49,10 +52,47 @@ const kinds: Record<Exclude<DashboardAuditEntry["kind"], "setting">, string> = {
     "server-exported": "Server exported",
 }
 
+/** One entry's before and after values, read when its Details open */
+function EntryDetail({
+    client,
+    sessionToken,
+    serverId,
+    entryId,
+    names,
+}: {
+    client: ConvexReactClient
+    sessionToken: string
+    serverId: string
+    entryId: string
+    names?: MentionNames | undefined
+}) {
+    const { data, error } = useLiveQuery(client, dashboardApi.auditEntry, { sessionToken, serverId, entryId })
+    if (error)
+        return (
+            <p className="notice error" role="alert">
+                The details are unavailable. Refresh your sign-in or check your server permission
+            </p>
+        )
+    if (data === undefined) return <p role="status">Loading the details…</p>
+    if (data === null) return <p className="muted">This entry has no stored details</p>
+    return (
+        <>
+            {data.changes.length > 0 && <FieldChanges fields={data.changes} names={names} />}
+            {data.more > 0 && (
+                <p className="muted">
+                    {data.more === 1 ? "1 more change was" : `${data.more.toLocaleString("en-US")} more changes were`}{" "}
+                    too large to store
+                </p>
+            )}
+        </>
+    )
+}
+
 /** Setting changes from the website and chat, members' deletions of their own data and views of private cases, newest first in pages of 25 */
-export function AuditLogSection({ client, sessionToken, serverId }: SectionProps) {
+export function AuditLogSection({ client, sessionToken, serverId, catalog }: SectionProps) {
     const [feature, setFeature] = useState(""),
-        [cursors, setCursors] = useState<string[]>([])
+        [cursors, setCursors] = useState<string[]>([]),
+        [open, setOpen] = useState<ReadonlySet<string>>(new Set())
     const cursor = cursors.at(-1) ?? null
     const { data, error, current } = useLiveQuery(client, dashboardApi.auditLog, {
         sessionToken,
@@ -85,7 +125,8 @@ export function AuditLogSection({ client, sessionToken, serverId }: SectionProps
             </div>
             <p className="muted">
                 Every setting change, from this website or a chat command, every member's deletion of their own data,
-                every view of private cases and every server export. Entries are kept for 180 days
+                every view of private cases and every server export. Details shows the values a setting change had
+                before and after. Entries are kept for 180 days
             </p>
             {error && (
                 <p className="notice error" role="alert">
@@ -110,20 +151,56 @@ export function AuditLogSection({ client, sessionToken, serverId }: SectionProps
                     </thead>
                     <tbody>
                         {data.entries.map((entry) => (
-                            <tr key={entry.id}>
-                                <td>{localTime(entry.createdAt)}</td>
-                                <td>{entry.actorName ? `${entry.actorName} (${entry.actorId})` : entry.actorId}</td>
-                                <td>{entry.source === "website" ? "Website" : "Command"}</td>
-                                <td>{auditFeatures[entry.feature]}</td>
-                                <td>
-                                    {entry.kind === "setting" ? entry.setting : <strong>{kinds[entry.kind]}</strong>}
-                                </td>
-                                <td>
-                                    {entry.kind === "private-data-viewed"
-                                        ? `${entry.setting}. ${entry.summary}`
-                                        : entry.summary}
-                                </td>
-                            </tr>
+                            <Fragment key={entry.id}>
+                                <tr>
+                                    <td>{localTime(entry.createdAt)}</td>
+                                    <td>{entry.actorName ? `${entry.actorName} (${entry.actorId})` : entry.actorId}</td>
+                                    <td>{entry.source === "website" ? "Website" : "Command"}</td>
+                                    <td>{auditFeatures[entry.feature]}</td>
+                                    <td>
+                                        {entry.kind === "setting" ? (
+                                            entry.setting
+                                        ) : (
+                                            <strong>{kinds[entry.kind]}</strong>
+                                        )}
+                                    </td>
+                                    <td>
+                                        {entry.kind === "private-data-viewed"
+                                            ? `${entry.setting}. ${entry.summary}`
+                                            : entry.summary}
+                                        {entry.detail && (
+                                            <>
+                                                {" "}
+                                                <button
+                                                    type="button"
+                                                    className="secondary"
+                                                    aria-expanded={open.has(entry.id)}
+                                                    onClick={() => {
+                                                        const next = new Set(open)
+                                                        if (!next.delete(entry.id)) next.add(entry.id)
+                                                        setOpen(next)
+                                                    }}
+                                                >
+                                                    Details
+                                                </button>
+                                            </>
+                                        )}
+                                    </td>
+                                </tr>
+                                {entry.detail && open.has(entry.id) && (
+                                    <tr className="audit-detail">
+                                        <td colSpan={6}>
+                                            <EntryDetail
+                                                client={client}
+                                                sessionToken={sessionToken}
+                                                serverId={serverId}
+                                                entryId={entry.id}
+                                                names={catalog}
+                                            />
+                                        </td>
+                                    </tr>
+                                )}
+                            </Fragment>
                         ))}
                     </tbody>
                 </table>

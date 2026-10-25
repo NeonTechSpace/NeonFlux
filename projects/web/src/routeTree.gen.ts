@@ -14,7 +14,6 @@ import { Route as VerifyRouteImport } from './routes/verify'
 import { Route as ApiSessionRouteImport } from './routes/api.session'
 import { Route as ApiVerificationRouteImport } from './routes/api.verification'
 import { Route as AuthFluxerRouteImport } from './routes/auth.fluxer'
-import { Route as AuthLogoutRouteImport } from './routes/auth.logout'
 import { Route as AuthFluxerCallbackRouteImport } from './routes/auth.fluxer.callback'
 
 const IndexRoute = IndexRouteImport.update({
@@ -42,11 +41,6 @@ const AuthFluxerRoute = AuthFluxerRouteImport.update({
   path: '/auth/fluxer',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthLogoutRoute = AuthLogoutRouteImport.update({
-  id: '/auth/logout',
-  path: '/auth/logout',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AuthFluxerCallbackRoute = AuthFluxerCallbackRouteImport.update({
   id: '/callback',
   path: '/callback',
@@ -59,7 +53,6 @@ export interface FileRoutesByFullPath {
   '/api/session': typeof ApiSessionRoute
   '/api/verification': typeof ApiVerificationRoute
   '/auth/fluxer': typeof AuthFluxerRouteWithChildren
-  '/auth/logout': typeof AuthLogoutRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
 }
 export interface FileRoutesByTo {
@@ -68,7 +61,6 @@ export interface FileRoutesByTo {
   '/api/session': typeof ApiSessionRoute
   '/api/verification': typeof ApiVerificationRoute
   '/auth/fluxer': typeof AuthFluxerRouteWithChildren
-  '/auth/logout': typeof AuthLogoutRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
 }
 export interface FileRoutesById {
@@ -78,7 +70,6 @@ export interface FileRoutesById {
   '/api/session': typeof ApiSessionRoute
   '/api/verification': typeof ApiVerificationRoute
   '/auth/fluxer': typeof AuthFluxerRouteWithChildren
-  '/auth/logout': typeof AuthLogoutRoute
   '/auth/fluxer/callback': typeof AuthFluxerCallbackRoute
 }
 export interface FileRouteTypes {
@@ -89,7 +80,6 @@ export interface FileRouteTypes {
     | '/api/session'
     | '/api/verification'
     | '/auth/fluxer'
-    | '/auth/logout'
     | '/auth/fluxer/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -98,7 +88,6 @@ export interface FileRouteTypes {
     | '/api/session'
     | '/api/verification'
     | '/auth/fluxer'
-    | '/auth/logout'
     | '/auth/fluxer/callback'
   id:
     | '__root__'
@@ -107,7 +96,6 @@ export interface FileRouteTypes {
     | '/api/session'
     | '/api/verification'
     | '/auth/fluxer'
-    | '/auth/logout'
     | '/auth/fluxer/callback'
   fileRoutesById: FileRoutesById
 }
@@ -117,7 +105,6 @@ export interface RootRouteChildren {
   ApiSessionRoute: typeof ApiSessionRoute
   ApiVerificationRoute: typeof ApiVerificationRoute
   AuthFluxerRoute: typeof AuthFluxerRouteWithChildren
-  AuthLogoutRoute: typeof AuthLogoutRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -157,13 +144,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthFluxerRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/auth/logout': {
-      id: '/auth/logout'
-      path: '/auth/logout'
-      fullPath: '/auth/logout'
-      preLoaderRoute: typeof AuthLogoutRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/auth/fluxer/callback': {
       id: '/auth/fluxer/callback'
       path: '/callback'
@@ -192,7 +172,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSessionRoute: ApiSessionRoute,
   ApiVerificationRoute: ApiVerificationRoute,
   AuthFluxerRoute: AuthFluxerRouteWithChildren,
-  AuthLogoutRoute: AuthLogoutRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

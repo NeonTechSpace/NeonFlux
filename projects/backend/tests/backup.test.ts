@@ -397,6 +397,23 @@ test("Config restore creates what is missing, updates what differs with its swit
         { count: updated.length, id: updated[0]!._id, text: (updated[0]!.reply as { text: string }).text },
         { count: 1, id: rows[0]!._id, text: "Different" },
     )
+    // The audit entry of the update keeps the restore check's before and after values
+    const audited = await f.db.run(async (ctx) => {
+        const entry = (await ctx.db.query("auditLogEntries").order("desc").first())!
+        return {
+            summary: entry.summary,
+            detail: entry.detail,
+            changes: (await ctx.db
+                .query("auditLogChanges")
+                .withIndex("by_entry", (q) => q.eq("entryId", entry._id))
+                .unique())!.changes,
+        }
+    })
+    assert.deepEqual(audited, {
+        summary: "Restored custom_synthetic from a backup",
+        detail: true,
+        changes: [{ path: "reply.text", before: "Hello", after: "Different" }],
+    })
     // A switch alone is a difference too, and one that turns on is marked
     const off = await f.plan(f.manifest([{ ...different, value: { ...different.value, enabled: false } }]))
     assert.deepEqual(

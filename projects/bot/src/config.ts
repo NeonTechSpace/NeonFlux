@@ -4,8 +4,9 @@ import { Data, Effect, Redacted } from "effect"
 import { parseBackupKey, type BackupKey } from "./backup-crypto.ts"
 
 /**
- * Process configuration. Single mode names its server here, while multi mode has no server until the bot joins one. The scope and
- * the website origin are the backend's, adopted at startup. Before that, scope holds the operator's own scope variables, if any
+ * Process configuration. Single mode names its server here, while multi mode has no server until the bot joins one. With a
+ * backend, the scope and the website origin are the backend's, adopted at startup. Only without one does the scope come from
+ * this environment
  */
 export interface BotRootConfig {
     readonly token: Redacted.Redacted<string>
@@ -69,22 +70,6 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             )
         }
 
-        // The backend owns the scope. Scope variables the operator sets here are only compared with it at startup, and a blank line counts as unset
-        const scopeNames = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID"] as const
-        const scopeEnvironment = Object.fromEntries(
-            scopeNames.flatMap((name) => (environment[name]?.trim() ? [[name, environment[name]]] : [])),
-        )
-        const scope =
-            Object.keys(scopeEnvironment).length === 0
-                ? undefined
-                : yield* Effect.try({
-                      try: () => parseServerScope(scopeEnvironment),
-                      catch: (error) =>
-                          new BotConfigError({
-                              message: error instanceof Error ? error.message : "Check server scope configuration",
-                          }),
-                  })
-
         const convexUrl = environment.CONVEX_URL?.trim()
         const customStatus = environment.NEONFLUX_CUSTOM_STATUS?.trim()
         if (customStatus && (customStatus.length > 128 || /[\u000c\u202e]/.test(customStatus))) {
@@ -116,6 +101,29 @@ export function readConfig(environment: Readonly<NodeJS.ProcessEnv>) {
             }
             backend = { url, secret: Redacted.make(backendSecret) }
         }
+
+        // The backend owns the scope, so with one the scope variables are refused unread. Without one they name the one server, and a
+        // blank line counts as unset
+        const scopeNames = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID"] as const
+        const scopeSet = scopeNames.filter((name) => environment[name]?.trim())
+        if (backend && scopeSet.length > 0) {
+            return yield* Effect.fail(
+                new BotConfigError({
+                    message: `Remove ${scopeSet.join(" and ")} from the bot environment. With a backend, the server mode and server ID are set only in the Convex deployment`,
+                }),
+            )
+        }
+        const scope =
+            scopeSet.length === 0
+                ? undefined
+                : yield* Effect.try({
+                      try: () =>
+                          parseServerScope(Object.fromEntries(scopeSet.map((name) => [name, environment[name]]))),
+                      catch: (error) =>
+                          new BotConfigError({
+                              message: error instanceof Error ? error.message : "Check server scope configuration",
+                          }),
+                  })
 
         if (!backend && scope?.mode !== "single") {
             return yield* Effect.fail(

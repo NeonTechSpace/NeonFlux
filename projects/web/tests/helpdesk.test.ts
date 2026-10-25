@@ -68,6 +68,15 @@ async function submit(form: ReturnType<typeof within>) {
         )
     })
 }
+// Clicks a form's button once and checks the form asks for no confirmation tick first
+async function clickOnce(form: ReturnType<typeof within>, name: string) {
+    assert.equal(form.queryAllByRole("checkbox", { hidden: true }).length, 0)
+    const button = form.getByRole("button", { name, hidden: true }) as HTMLButtonElement
+    assert.equal(button.disabled, false)
+    await act(async () => {
+        fireEvent.click(button)
+    })
+}
 
 test("Forums come from the forum and media channels, and settings turn the greeting and reminder off when left empty", async () => {
     const { ui, calls } = setup({ settings, answers: [] })
@@ -99,7 +108,7 @@ test("Forums come from the forum and media channels, and settings turn the greet
     ])
 })
 
-test("Saved answers are added with a valid unused name, changed and removed after confirmation", async () => {
+test("Saved answers are added with a valid unused name, changed and removed on the first click", async () => {
     const { ui, calls } = setup({ settings, answers: [answer] })
     const add = section(ui, "Add saved answer")
     fireEvent.change(add.getByLabelText("Name"), { target: { value: "logs" } })
@@ -110,31 +119,24 @@ test("Saved answers are added with a valid unused name, changed and removed afte
     fireEvent.change(add.getByLabelText("Name"), { target: { value: "crash" } })
     await submit(add)
     const remove = section(ui, "Remove answer logs")
-    await submit(remove)
-    fireEvent.click(remove.getByLabelText("Confirm removing this answer"))
-    await submit(remove)
+    await clickOnce(remove, "Remove answer")
     assert.deepEqual(calls, [
         { type: "answer-set", name: "crash", title: "Crash", content: "Reinstall" },
         { type: "answer-remove", name: "logs" },
     ])
 })
 
-test("A ticked answer removal waits for review when the answer changes elsewhere", async () => {
+test("An answer removal after a change elsewhere removes the current answer without a review", async () => {
     const { ui, calls, update } = setup({ settings, answers: [answer] })
-    const remove = section(ui, "Remove answer logs")
-    fireEvent.click(remove.getByLabelText("Confirm removing this answer"))
     update({ settings, answers: [{ ...answer, content: "Open the new settings", updatedAt: 2 }] })
-    assert.ok(remove.getByText("Changed elsewhere"))
-    await submit(remove)
-    assert.deepEqual(calls, [])
+    const remove = section(ui, "Remove answer logs")
+    assert.equal(remove.queryByText("Changed elsewhere"), null)
+    await clickOnce(remove, "Remove answer")
+    assert.deepEqual(calls, [{ type: "answer-remove", name: "logs" }])
 })
 
-test("A served forum is removed only after its confirmation is ticked", async () => {
+test("A served forum is removed on the first click", async () => {
     const { ui, calls } = setup({ settings, answers: [] })
-    const remove = section(ui, "Stop serving help")
-    await submit(remove)
-    assert.deepEqual(calls, [])
-    fireEvent.click(remove.getByLabelText("Confirm no longer serving this forum"))
-    await submit(remove)
+    await clickOnce(section(ui, "Stop serving help"), "Remove forum")
     assert.deepEqual(calls, [{ type: "forum-remove", channelId: "150" }])
 })

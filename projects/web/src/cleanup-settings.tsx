@@ -266,7 +266,8 @@ export function CleanupSettings(props: ConfigSectionProps<"cleanup">) {
                                 {...card}
                                 title={`Delete inactive policy ${policy.channelId}`}
                                 description="Disable the policy first. Pending or unresolved deletion evidence prevents removal and stays retained"
-                                snapshot={{ revision, values: { confirm: false }, context: policy.revision }}
+                                submitUnchanged={!policy.enabled}
+                                snapshot={{ revision, values: {}, context: policy.revision }}
                                 submitLabel="Delete inactive policy"
                                 operation={() => ({
                                     type: "policy-delete",
@@ -274,17 +275,7 @@ export function CleanupSettings(props: ConfigSectionProps<"cleanup">) {
                                     expectedRevision: policy.revision,
                                     confirm: true,
                                 })}
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled || policy.enabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Confirm inactive policy deletion
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         </div>
                     </details>

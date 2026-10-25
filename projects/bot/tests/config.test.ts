@@ -57,7 +57,6 @@ test("backend configuration reads the deployment URL and redacts the backend sec
         const config = await Effect.runPromise(
             readConfig({
                 FLUXER_BOT_TOKEN: token,
-                NEONFLUX_SERVER_ID: serverId,
                 ...environment,
                 NEONFLUX_BOT_API_SECRET: secret,
             }),
@@ -126,30 +125,46 @@ test("invalid server IDs fail without including supplied values", async () => {
 })
 
 test("multi mode requires the backend that registers its servers and refuses a server ID", async () => {
-    const backend = {
-        CONVEX_URL: "https://synthetic-test.convex.cloud",
-        NEONFLUX_BOT_API_SECRET: "synthetic-neonflux-backend-secret-for-tests",
-    }
-    const config = await Effect.runPromise(
-        readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi", ...backend }),
-    )
-    assert.deepEqual(config.scope, { mode: "multi" })
-    assert.equal(config.serverId, undefined)
     await assert.rejects(
         Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi" })),
         /Multi mode registers servers through the backend/,
     )
     await assert.rejects(
         Effect.runPromise(
-            readConfig({
-                FLUXER_BOT_TOKEN: token,
-                NEONFLUX_SERVER_MODE: "multi",
-                NEONFLUX_SERVER_ID: serverId,
-                ...backend,
-            }),
+            readConfig({ FLUXER_BOT_TOKEN: token, NEONFLUX_SERVER_MODE: "multi", NEONFLUX_SERVER_ID: serverId }),
         ),
         /Remove NEONFLUX_SERVER_ID in multi mode/,
     )
+})
+
+test("with a backend, scope variables in the bot environment are refused unread and their values never printed", async () => {
+    const backend = {
+        CONVEX_URL: "https://synthetic-test.convex.cloud",
+        NEONFLUX_BOT_API_SECRET: "synthetic-neonflux-backend-secret-for-tests",
+    }
+    const rule =
+        "from the bot environment. With a backend, the server mode and server ID are set only in the Convex deployment"
+    for (const [environment, names] of [
+        [{ NEONFLUX_SERVER_ID: serverId }, "NEONFLUX_SERVER_ID"],
+        [{ NEONFLUX_SERVER_MODE: "multi" }, "NEONFLUX_SERVER_MODE"],
+        [
+            { NEONFLUX_SERVER_MODE: "single", NEONFLUX_SERVER_ID: serverId },
+            "NEONFLUX_SERVER_MODE and NEONFLUX_SERVER_ID",
+        ],
+        // An invalid value gets the same refusal, not a hint to fix it
+        [{ NEONFLUX_SERVER_ID: "01" }, "NEONFLUX_SERVER_ID"],
+        [{ NEONFLUX_SERVER_MODE: "synthetic-mode" }, "NEONFLUX_SERVER_MODE"],
+    ] as const) {
+        await assert.rejects(
+            Effect.runPromise(readConfig({ FLUXER_BOT_TOKEN: token, ...environment, ...backend })),
+            (error: unknown) => {
+                assert.equal((error as { message?: unknown }).message, `Remove ${names} ${rule}`)
+                for (const value of [...Object.values(environment), backend.NEONFLUX_BOT_API_SECRET, token])
+                    assert.equal(String(error).includes(value), false)
+                return true
+            },
+        )
+    }
 })
 
 test("the server scope comes from the backend unless the bot runs without one, and blank scope lines count as unset", async () => {

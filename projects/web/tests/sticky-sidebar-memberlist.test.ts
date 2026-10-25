@@ -66,6 +66,15 @@ async function submit(form: ReturnType<typeof within>) {
         )
     })
 }
+// Clicks a form's button once and checks the form asks for no confirmation tick first
+async function clickOnce(form: ReturnType<typeof within>, name: string) {
+    assert.equal(form.queryAllByRole("checkbox", { hidden: true }).length, 0)
+    const button = form.getByRole("button", { name, hidden: true }) as HTMLButtonElement
+    assert.equal(button.disabled, false)
+    await act(async () => {
+        fireEvent.click(button)
+    })
+}
 const sticky = {
     channelId: "123",
     content: "Read the rules",
@@ -118,11 +127,10 @@ test("Changing and removing a sticky name its channel, and removal needs confirm
     )
 })
 
-test("The dashboard link section adds one link, then offers rename and removal", async () => {
+test("The dashboard link section adds one link on the first click, then offers rename and removal", async () => {
     const empty = setup(SidebarSettings, "sidebar", { link: null }),
         add = section(empty.ui, "Add dashboard link")
-    fireEvent.click(add.getByLabelText("Create the dashboard link channel"))
-    await submit(add)
+    await clickOnce(add, "Add link")
     assert.deepEqual(empty.calls[0]?.operation, { type: "add", name: "NeonFlux dashboard", categoryId: null })
     cleanup()
     const { ui, calls } = setup(SidebarSettings, "sidebar", { link: { channelId: "601", revision: 1, updatedAt: 1 } })

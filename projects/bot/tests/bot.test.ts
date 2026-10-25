@@ -288,10 +288,22 @@ const logCapture = () => {
     return { all, layer, next }
 }
 
-for (const listed of [true, false]) {
-    test(`single mode logs its startup and warns ${listed ? "nothing when Fluxer lists" : "when Fluxer's complete list lacks"} its server`, async () => {
+for (const [listed, backend] of [
+    [true, false],
+    [false, false],
+    [false, true],
+] as const) {
+    test(`single mode logs its startup and warns ${listed ? "nothing when Fluxer lists" : "when Fluxer's complete list lacks"} its server${backend ? ", naming the Convex deployment with a backend" : ""}`, async () => {
         const fixtures = createFixtures()
         const logs = logCapture()
+        // Setup must recover publishing and role attempts. Every other backend feature is unavailable, which the bot survives
+        const client = fakeClient((call) => {
+            if (call.path === "/publishing/observe" || call.path === "/roles/observe") return { uncertainAttempts: 0 }
+            if (call.path === "/roles/reaction-jobs") return { type: "jobs", jobs: [] }
+            if (call.path === "/service/work")
+                return { kinds: Object.fromEntries(workKinds.map((kind) => [kind, []])), cursor: null, nextDueIn: null }
+            return Response.json({ error: "Backend unavailable" }, { status: 503 })
+        }, quietSignal)
         await Effect.runPromise(
             Effect.scoped(
                 Effect.gen(function* () {
@@ -300,6 +312,15 @@ for (const listed of [true, false]) {
                             token,
                             serverId: fixtures.ids.guild,
                             websiteUrl: "https://synthetic-site.invalid",
+                            ...(backend
+                                ? {
+                                      backend: {
+                                          url: "https://synthetic.invalid",
+                                          secret: Redacted.make("synthetic-secret"),
+                                          client,
+                                      },
+                                  }
+                                : {}),
                         }),
                     )
                     const guilds = bot.rest.respond("GET /users/@me/guilds", {
@@ -324,7 +345,7 @@ for (const listed of [true, false]) {
                     if (!listed)
                         assert.equal(
                             yield* logs.next("NeonFlux is not in server").pipe(Effect.timeout("30 seconds")),
-                            `NeonFlux is not in server ${fixtures.ids.guild}. Invite the bot to that server or set NEONFLUX_SERVER_ID to the right server`,
+                            `NeonFlux is not in server ${fixtures.ids.guild}. Invite the bot to that server or set NEONFLUX_SERVER_ID${backend ? " in the Convex deployment" : ""} to the right server`,
                         )
                     yield* bot.idle()
                     assert.equal(logs.all.filter((message) => message.startsWith("NeonFlux started")).length, 1)

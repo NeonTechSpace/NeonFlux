@@ -62,6 +62,15 @@ async function submit(form: ReturnType<typeof within>) {
         )
     })
 }
+// Clicks a form's button once and checks the form asks for no confirmation tick first
+async function clickOnce(form: ReturnType<typeof within>, name: string) {
+    assert.equal(form.queryAllByRole("checkbox", { hidden: true }).length, 0)
+    const button = form.getByRole("button", { name, hidden: true }) as HTMLButtonElement
+    assert.equal(button.disabled, false)
+    await act(async () => {
+        fireEvent.click(button)
+    })
+}
 
 test("Adding a generator queues every room setting with the shared configuration revision", async () => {
     const { ui, calls } = setup({ generators: [], rooms: 0 })
@@ -150,17 +159,14 @@ test("Generator settings keep the exact revision and only rename when the name c
     })
 })
 
-test("Invalid templates and unconfirmed removal never reach the queue", async () => {
+test("Invalid templates never reach the queue, and a generator is removed on the first click", async () => {
     const { ui, calls } = setup({ generators: [generator], rooms: 0 })
     const settings = section(ui, "Generator Join to create")
     fireEvent.change(settings.getByLabelText("Room name template"), { target: { value: "{user} room" } })
     await submit(settings)
     assert.ok(settings.getByRole("alert").textContent?.includes("only the {owner} placeholder"))
-    const removal = section(ui, "Remove generator Join to create")
-    await submit(removal)
     assert.equal(calls.length, 0)
-    fireEvent.click(removal.getByLabelText("Confirm generator removal"))
-    await submit(removal)
+    await clickOnce(section(ui, "Remove generator Join to create"), "Remove generator")
     assert.deepEqual(calls[0]?.operation, { type: "generator-remove", channelId: "501", expectedRevision: 3 })
 })
 

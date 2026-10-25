@@ -212,24 +212,15 @@ export function TicketSettings(props: ConfigSectionProps<"tickets">) {
                                 {...card}
                                 title={`Delete ticket category: ${category.name}`}
                                 description="Remove this category from future intakes. Active ticket protections remain with their owning tickets"
-                                snapshot={{ revision, values: { confirm: false }, context: category.revision }}
+                                submitUnchanged
+                                snapshot={{ revision, values: {}, context: category.revision }}
                                 submitLabel="Delete ticket category"
                                 operation={() => ({
                                     type: "category-delete",
                                     name: category.name,
                                     expectedRevision: category.revision,
                                 })}
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Confirm ticket category deletion
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         </div>
                     </details>

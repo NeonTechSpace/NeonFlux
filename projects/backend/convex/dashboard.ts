@@ -30,7 +30,13 @@ const ADMISSION_MS = 300000
 // Every dashboard query reads its session row, so each write to it reruns all of that session's live queries.
 // Renewals therefore extend read access only once it has run down by at least this much
 const RENEW_STEP_MS = 60000
-const LIFETIME_MS = 28800000
+// A session ends once it goes this long without a renewal, and at the latest this long after sign-in
+const IDLE_MS = 30 * 86400000
+const LIFETIME_MS = 90 * 86400000
+const SESSIONS_PER_USER = 5
+// Rows stored before idle expiry existed end with their read access, as they did then
+const idleAt = (row: Doc<"dashboardSessions">) => row.idleAt ?? row.expiresAt
+const usable = (row: Doc<"dashboardSessions">, now: number) => idleAt(row) > now && row.lifetimeAt > now
 export async function verifiedDashboardIdentity(
     ctx: ActionCtx,
     sessionToken: string,
@@ -59,13 +65,19 @@ export async function tokenHash(token: string) {
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))
     return Array.from(new Uint8Array(hash), (value) => value.toString(16).padStart(2, "0")).join("")
 }
-export async function dashboardSession(ctx: QueryCtx | MutationCtx, token: string, serverId?: string) {
+// The signed-in session, whether or not its read access ran out. Only callers that check the user with Fluxer first may use it
+async function storedSession(ctx: QueryCtx | MutationCtx, token: string) {
     const hash = await tokenHash(token)
     const found = await ctx.db
         .query("dashboardSessions")
         .withIndex("by_token", (q) => q.eq("tokenHash", hash))
         .unique()
-    if (!found || found.expiresAt <= Date.now() || found.lifetimeAt <= Date.now()) fail(401, "Sign in again")
+    if (!found || !usable(found, Date.now())) fail(401, "Sign in again")
+    return found
+}
+export async function dashboardSession(ctx: QueryCtx | MutationCtx, token: string, serverId?: string) {
+    const found = await storedSession(ctx, token)
+    if (found.expiresAt <= Date.now()) fail(401, "Sign in again")
     // The session snapshot proves management, and the installation is rechecked on every request
     if (serverId && (!found.servers.some((server) => server.id === serverId) || !(await isServed(ctx, serverId))))
         fail(403, "Manage community permission required")
@@ -143,9 +155,10 @@ export async function privateSession(ctx: QueryCtx | MutationCtx, token: string,
         fail(403, "Private cases unavailable")
     return found
 }
+// Every caller checks the stored token with Fluxer before it uses the session, so a returning tab regains read access
 export const secret = internalQuery({
     args: { sessionToken: v.string() },
-    handler: (ctx, args) => dashboardSession(ctx, args.sessionToken),
+    handler: (ctx, args) => storedSession(ctx, args.sessionToken),
 })
 export const store = internalMutation({
     args: {
@@ -160,13 +173,19 @@ export const store = internalMutation({
             .query("dashboardSessions")
             .withIndex("by_user", (q) => q.eq("userId", args.user.id))
             .collect()
-        for (const old of previous.filter((old) => old.expiresAt <= Date.now())) await ctx.db.delete(old._id)
-        if (previous.filter((old) => old.expiresAt > Date.now()).length >= 5)
-            fail(429, "Too many active dashboard sessions")
-        const expiresAt = Date.now() + ADMISSION_MS,
+        const now = Date.now()
+        // A new sign-in signs out the least recently used sessions past the limit instead of locking the user out
+        const live = previous.filter((old) => usable(old, now)).sort((a, b) => a.expiresAt - b.expiresAt)
+        for (const old of [
+            ...previous.filter((old) => !usable(old, now)),
+            ...live.slice(0, Math.max(0, live.length - SESSIONS_PER_USER + 1)),
+        ])
+            await ctx.db.delete(old._id)
+        const expiresAt = now + ADMISSION_MS,
+            idle = now + IDLE_MS,
             servers = await installedServers(ctx, args.servers),
             memberServers = await memberFeatureServers(ctx, args.memberServers ?? [])
-        const id = await ctx.db.insert("dashboardSessions", {
+        await ctx.db.insert("dashboardSessions", {
             tokenHash: args.tokenHash,
             accessToken: args.accessToken,
             userId: args.user.id,
@@ -174,19 +193,21 @@ export const store = internalMutation({
             servers: storedServers(servers),
             memberServers: storedServers(memberServers),
             expiresAt,
-            lifetimeAt: Date.now() + LIFETIME_MS,
+            idleAt: idle,
+            lifetimeAt: now + LIFETIME_MS,
         })
-        await ctx.scheduler.runAt(expiresAt, internal.dashboard.expire, { id })
         return { expiresAt, servers, memberServers }
     },
 })
-export const expire = internalMutation({
-    args: { id: v.id("dashboardSessions") },
-    handler: async (ctx, { id }) => {
-        const row = await ctx.db.get(id)
-        if (row && row.expiresAt <= Date.now()) await ctx.db.delete(id)
-    },
-})
+// The retention chain deletes sessions past their idle end, which never lies past the absolute end, in batches
+export async function cleanupDashboardSessions(ctx: MutationCtx, now: number) {
+    const rows = await ctx.db
+        .query("dashboardSessions")
+        .withIndex("by_idle", (q) => q.lte("idleAt", now))
+        .take(256)
+    for (const row of rows) await ctx.db.delete(row._id)
+    return { more: rows.length === 256 }
+}
 // The public settings the web server adopts once at startup, so the deployment owns the website origin and the OAuth application
 export const webConfig = query({
     args: {},
@@ -231,10 +252,12 @@ type Renewal = {
 }
 // Callers that omit member servers keep the stored member list, so manager writes never change member access.
 // Saves renew inside their own enqueue mutation, so a save costs one mutation after the provider check
+// Every caller checked the user with Fluxer first, so a session whose read access ran out is renewed too
 export async function renewSession(ctx: MutationCtx, args: Renewal) {
-    const row = await dashboardSession(ctx, args.sessionToken)
+    const row = await storedSession(ctx, args.sessionToken)
     if (row.userId !== args.user.id) fail(403, "Identity changed")
-    const lease = Math.min(Date.now() + ADMISSION_MS, row.lifetimeAt),
+    const now = Date.now(),
+        lease = Math.min(now + ADMISSION_MS, row.lifetimeAt),
         servers = await installedServers(ctx, args.servers)
     const memberServers = args.memberServers ? await memberFeatureServers(ctx, args.memberServers) : undefined
     // Only changed fields are written, so routine saves and refreshes leave the live queries alone
@@ -246,10 +269,9 @@ export async function renewSession(ctx: MutationCtx, args: Renewal) {
             ? { memberServers: storedServers(memberServers) }
             : {}),
         ...(row.userName === args.user.name ? {} : { userName: args.user.name }),
-        ...(extend ? { expiresAt: lease } : {}),
+        ...(extend ? { expiresAt: lease, idleAt: Math.min(now + IDLE_MS, row.lifetimeAt) } : {}),
     }
     if (Object.keys(patch).length) await ctx.db.patch(row._id, patch)
-    if (extend) await ctx.scheduler.runAt(lease, internal.dashboard.expire, { id: row._id })
     return { expiresAt: extend ? lease : row.expiresAt, servers, ...(memberServers ? { memberServers } : {}) }
 }
 export const renew = internalMutation({
@@ -287,6 +309,26 @@ export const refresh = action({
             if (failedWith(error, 403)) await ctx.runMutation(internal.dashboard.revoke, { sessionToken })
             throw error
         }
+    },
+})
+// The web server refreshes the Fluxer access token before it runs out and stores the new one here. It must belong to the same user and application
+export const rotate = action({
+    args: { sessionToken: v.string(), accessToken: v.string() },
+    handler: async (ctx, { sessionToken, accessToken }): Promise<null> => {
+        const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
+        const identity = await verifyProvider(accessToken)
+        if (identity.user.id !== stored.userId) fail(403, "Identity changed")
+        await ctx.runMutation(internal.dashboard.replaceToken, { sessionToken, userId: stored.userId, accessToken })
+        return null
+    },
+})
+export const replaceToken = internalMutation({
+    args: { sessionToken: v.string(), userId: v.string(), accessToken: v.string() },
+    handler: async (ctx, { sessionToken, userId, accessToken }) => {
+        const row = await storedSession(ctx, sessionToken)
+        if (row.userId !== userId) fail(403, "Identity changed")
+        await ctx.db.patch(row._id, { accessToken })
+        return null
     },
 })
 async function deleteSession(ctx: MutationCtx, sessionToken: string) {

@@ -2,6 +2,7 @@ import { v } from "convex/values"
 import { query, type MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import type {
+    DashboardAuditDetail,
     DashboardAuditEntry,
     DashboardAuditFeature,
     DashboardAuditKind,
@@ -9,6 +10,7 @@ import type {
 } from "../dashboard-contracts.js"
 import { dashboardSession } from "./dashboard.ts"
 import { fail, type AuditActor } from "./validation.ts"
+import { valueDiff, type ValueChange } from "./valueDiff.ts"
 
 // The website audit log. Every setting change records one entry, whether it came from the website or a command, and so do
 // a member's deletions of their own data. Entries are kept as long as moderation cases and pruned by the retention chain
@@ -17,19 +19,59 @@ const AUDIT_PAGE_SIZE = 25
 const AUDIT_BATCH = 256,
     SUMMARY_LIMIT = 500,
     CHANGES_SHOWN = 8
+// A detail value is cut after this many UTF-16 code units, more than any single Fluxer text field holds, so only pasted bulk
+// text is shortened. One entry's detail stays under this many bytes of JSON, below Convex's 1 MiB document limit, and rows past
+// it are only counted
+const DETAIL_VALUE_LIMIT = 8000,
+    DETAIL_BYTES = 512 * 1024
 
 const clip = (value: string, limit: number) => (value.length > limit ? `${value.slice(0, limit - 1)}…` : value)
 const record = (value: unknown): Record<string, unknown> =>
     value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 
+const cut = (value: unknown) =>
+    typeof value === "string" && value.length > DETAIL_VALUE_LIMIT ? value.slice(0, DETAIL_VALUE_LIMIT) : value
+/** The stored rows of a detail within its limits, and how many rows did not fit */
+function detailRows(changes: readonly ValueChange[]) {
+    const rows: DashboardAuditDetail["changes"] = []
+    let bytes = 0
+    for (const change of changes) {
+        const long = [change.before, change.after].filter((x) => typeof x === "string" && x.length > DETAIL_VALUE_LIMIT)
+        const row = {
+            path: clip(change.path, 500),
+            ...("before" in change ? { before: cut(change.before) } : {}),
+            ...("after" in change ? { after: cut(change.after) } : {}),
+            ...(long.length ? { cut: Math.max(...long.map((x) => (x as string).length)) } : {}),
+        }
+        const size = new TextEncoder().encode(JSON.stringify(row)).length
+        if (bytes + size > DETAIL_BYTES) break
+        bytes += size
+        rows.push(row)
+    }
+    return { rows, more: changes.length - rows.length }
+}
+
+/**
+ * Records one entry. Changes are the before and after values of every changed leaf, taken from the same views the entry's
+ * readers already see, and are kept beside the entry for its Details
+ */
 export async function recordAudit(
     ctx: MutationCtx,
     serverId: string,
     actor: AuditActor,
-    entry: { kind: DashboardAuditKind; feature: DashboardAuditFeature; setting: string; summary: string },
+    entry: {
+        kind: DashboardAuditKind
+        feature: DashboardAuditFeature
+        setting: string
+        summary: string
+        changes?: readonly ValueChange[]
+    },
 ) {
-    const now = Date.now()
-    await ctx.db.insert("auditLogEntries", {
+    const now = Date.now(),
+        expiresAt = now + AUDIT_RETENTION_MS,
+        // Only setting changes keep values. A private data view, a member's deletion and an export never do
+        detail = entry.kind === "setting" && entry.changes?.length ? detailRows(entry.changes) : undefined
+    const entryId = await ctx.db.insert("auditLogEntries", {
         serverId,
         kind: entry.kind,
         source: actor.source,
@@ -38,12 +80,22 @@ export async function recordAudit(
         feature: entry.feature,
         setting: clip(entry.setting, 100),
         summary: clip(entry.summary, SUMMARY_LIMIT),
+        ...(detail ? { detail: true as const } : {}),
         createdAt: now,
-        expiresAt: now + AUDIT_RETENTION_MS,
+        expiresAt,
     })
+    if (detail)
+        await ctx.db.insert("auditLogChanges", {
+            serverId,
+            entryId,
+            changes: detail.rows,
+            ...(detail.more ? { more: detail.more } : {}),
+            expiresAt,
+        })
 }
 
-// Bookkeeping that changes with every save and says nothing about the setting itself
+// Bookkeeping that changes with every save and says nothing about the setting itself, and the fields of a stored document that
+// name it and its server
 const BOOKKEEPING = new Set([
     "revision",
     "configRevision",
@@ -55,10 +107,10 @@ const BOOKKEEPING = new Set([
     "observedAt",
     "result",
     "jobs",
+    "_id",
+    "_creationTime",
+    "serverId",
 ])
-// Authored text. A change to it is named, but its value never enters the log
-const AUTHORED =
-    /content|text|description|reason|body|title|message|answer|template|footer|author|embed|field|question|reply|trigger|pattern|greeting|note/i
 // The field that names an item of a list, such as a rule's name or a policy's channel
 const IDENTITY = [
     "youtubeChannelId",
@@ -74,11 +126,11 @@ const IDENTITY = [
     "scheduleNo",
 ]
 
-function shown(key: string, value: unknown): string | undefined {
+function shown(value: unknown): string | undefined {
     if (value === undefined || value === null) return "none"
     if (typeof value === "boolean") return value ? "on" : "off"
     if (typeof value === "number") return String(value)
-    if (typeof value === "string" && !AUTHORED.test(key) && value.length <= 40) return value || "empty"
+    if (typeof value === "string" && value.length <= 40) return value || "empty"
     return undefined
 }
 // An absent value, such as a nickname reset to none, leaves no entry, so it reads as none beside any value or nested settings
@@ -134,15 +186,31 @@ export function describeChange(before: unknown, after: unknown): string {
             changes.push(...listChanges(label, Array.isArray(a) ? a : [], Array.isArray(b) ? b : []))
             continue
         }
-        const key = path.split(".").at(-1)!,
-            from = shown(key, a),
-            to = shown(key, b)
+        const from = shown(a),
+            to = shown(b)
         changes.push(from !== undefined && to !== undefined ? `${label}: ${from} → ${to}` : `${label} changed`)
     }
     if (!changes.length) return "Saved"
     const listed = changes.slice(0, CHANGES_SHOWN).join("; ")
     return changes.length > CHANGES_SHOWN ? `${listed}; and ${changes.length - CHANGES_SHOWN} more` : listed
 }
+
+// A setting read without its bookkeeping, so only the setting itself is compared
+function settingOnly(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(settingOnly)
+    if (value === null || typeof value !== "object") return value
+    return Object.fromEntries(
+        Object.entries(value)
+            .filter(([key]) => !BOOKKEEPING.has(key))
+            .map(([key, child]) => [key, settingOnly(child)]),
+    )
+}
+/** Every changed value of two reads of the same settings, with list entries named like the summary names them */
+export const auditChanges = (before: unknown, after: unknown): ValueChange[] =>
+    valueDiff(settingOnly(before), settingOnly(after), IDENTITY).map((change) => ({
+        ...change,
+        path: change.path.replace(/^settings\./, ""),
+    }))
 
 /** The operation's type and the item it names, such as "rule-update spam" */
 export function operationLabel(operation: unknown): string {
@@ -179,13 +247,16 @@ export async function auditedChange<T>(
 ): Promise<T> {
     const before = await read(),
         result = await apply()
-    if (record(result).duplicate !== true)
+    if (record(result).duplicate !== true) {
+        const after = await read()
         await recordAudit(ctx, serverId, actor, {
             kind: "setting",
             feature,
             setting: operationLabel(operation),
-            summary: describeChange(before, await read()),
+            summary: describeChange(before, after),
+            changes: auditChanges(before, after),
         })
+    }
     return result
 }
 
@@ -199,6 +270,7 @@ function publicAuditEntry(row: Doc<"auditLogEntries">): DashboardAuditEntry {
         feature: row.feature as DashboardAuditFeature,
         setting: row.setting,
         summary: row.summary,
+        ...(row.detail ? { detail: true as const } : {}),
         createdAt: row.createdAt,
     }
 }
@@ -229,11 +301,32 @@ export const page = query({
     },
 })
 
+// The before and after values of one entry, for the managers who read the log
+export const entry = query({
+    args: { sessionToken: v.string(), serverId: v.string(), entryId: v.string() },
+    handler: async (ctx, { sessionToken, serverId, entryId }): Promise<DashboardAuditDetail | null> => {
+        await dashboardSession(ctx, sessionToken, serverId)
+        const id = ctx.db.normalizeId("auditLogEntries", entryId),
+            found = id ? await ctx.db.get(id) : null
+        if (!found || found.serverId !== serverId || !found.detail) return null
+        const detail = await ctx.db
+            .query("auditLogChanges")
+            .withIndex("by_entry", (q) => q.eq("entryId", found._id))
+            .unique()
+        return detail ? { changes: detail.changes, more: detail.more ?? 0 } : null
+    },
+})
+
 export async function cleanupAuditLog(ctx: MutationCtx, now: number) {
     const rows = await ctx.db
         .query("auditLogEntries")
         .withIndex("by_expiry", (q) => q.lte("expiresAt", now))
         .take(AUDIT_BATCH)
     for (const row of rows) await ctx.db.delete(row._id)
-    return { more: rows.length === AUDIT_BATCH }
+    const details = await ctx.db
+        .query("auditLogChanges")
+        .withIndex("by_expiry", (q) => q.lte("expiresAt", now))
+        .take(AUDIT_BATCH)
+    for (const row of details) await ctx.db.delete(row._id)
+    return { more: rows.length === AUDIT_BATCH || details.length === AUDIT_BATCH }
 }

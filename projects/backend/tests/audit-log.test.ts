@@ -5,7 +5,7 @@ import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
 import type { DashboardAuditPage } from "../dashboard-contracts.js"
-import { AUDIT_RETENTION_MS, describeChange, operationLabel, recordAudit } from "../convex/auditLog.ts"
+import { AUDIT_RETENTION_MS, auditChanges, describeChange, operationLabel, recordAudit } from "../convex/auditLog.ts"
 import { RETENTION_PASSES } from "../convex/retention.ts"
 import { backupWriteConfig } from "../convex/backupWrites.ts"
 import { botCall } from "./bot-service.ts"
@@ -67,11 +67,18 @@ async function fixture() {
     const args = { sessionToken: session.sessionToken, serverId: "10" }
     const page = (extra: { feature?: string; cursor?: string | null } = {}): Promise<DashboardAuditPage> =>
         t.query(api.auditLog.page, { ...args, cursor: null, ...extra })
-    return { t, args, page }
+    const detail = (entryId: string, serverId = "10") => t.query(api.auditLog.entry, { ...args, serverId, entryId })
+    return { t, args, page, detail }
+}
+// Credential fields of stored rows. None may ever appear in a stored detail
+const CREDENTIALS = ["accessToken", "tokenHash", "secret", "callbackToken", "claimToken", "leaseToken"]
+const credentialFree = async (t: Awaited<ReturnType<typeof fixture>>["t"]) => {
+    const stored = JSON.stringify(await t.run((ctx) => ctx.db.query("auditLogChanges").collect()))
+    for (const name of CREDENTIALS) assert.ok(!stored.includes(`"${name}"`) && !stored.includes(`.${name}`), name)
 }
 
-test("Website and command setting changes record who changed what, newest first, without authored text", async () => {
-    const { t, args, page } = await fixture()
+test("Website and command setting changes record who changed what, newest first, with every value in Details", async () => {
+    const { t, args, page, detail } = await fixture()
     const job = await t.action(api.dashboardConfiguration.queue, {
         ...args,
         family: "leveling",
@@ -172,7 +179,27 @@ test("Website and command setting changes record who changed what, newest first,
         (await page({ feature: "prefix" })).entries.map((entry) => entry.source),
         ["website", "command"],
     )
-    assert.ok(!JSON.stringify(entries).includes("Synthetic authored reply"))
+    // The page stays short and holds no values. Details show every changed value, authored text included
+    const listed = (await page()).entries
+    assert.ok(!JSON.stringify(listed).includes("Synthetic authored reply"))
+    assert.deepEqual(
+        listed.map((entry) => entry.detail),
+        [true, true, true, true, true],
+    )
+    const [analytics, website, , created, leveling] = await Promise.all(listed.map((entry) => detail(entry.id)))
+    assert.deepEqual(analytics, { changes: [{ path: "enabled", before: true, after: false }], more: 0 })
+    assert.deepEqual(website, { changes: [{ path: "prefix", before: "?", after: "$" }], more: 0 })
+    assert.deepEqual(leveling!.changes, [{ path: "xpPerMessage", before: 15, after: 25 }])
+    assert.ok(
+        created!.changes.some(
+            (change) =>
+                change.path === "definitions[rules].reply.text" &&
+                !("before" in change) &&
+                change.after === "Synthetic authored reply",
+        ),
+    )
+    assert.ok(!created!.changes.some((change) => /revision|updatedAt|_id|_creationTime/.test(change.path)))
+    await credentialFree(t)
 })
 
 test("Change summaries cover every custom command, which the website reads in one page", async () => {
@@ -308,7 +335,7 @@ test("The reply style changes from chat and the website at the prefix's revision
 })
 
 test("Logging, role settings and a backup restore record through their shared write paths", async () => {
-    const { t, page } = await fixture()
+    const { t, page, detail } = await fixture()
     const owner = {
         originServerId: "10",
         userId: "99",
@@ -396,6 +423,152 @@ test("Logging, role settings and a backup restore record through their shared wr
             { feature: "logs", setting: "module", summary: "enabled: off → on", actorId: "99" },
         ],
     )
+    const [, roles] = (await page()).entries
+    assert.deepEqual((await detail(roles!.id))!.changes, [{ path: "verificationEnabled", before: false, after: true }])
+    // Role panels are read as stored documents, whose system fields and server are no change
+    await t.mutation(internal.roles.manage, {
+        request: {
+            serverId: "10",
+            messageId: "102",
+            createdAt: now,
+            actor: owner,
+            operation: { type: "panel-create", name: "colors", kind: "reaction" },
+        },
+    })
+    const [panel] = (await page()).entries
+    const created = (await detail(panel!.id))!.changes
+    assert.ok(created.some((change) => change.path === "panels[colors].name" && change.after === "colors"))
+    assert.deepEqual(
+        created.filter((change) => /_id|_creationTime|serverId|revision/.test(change.path)),
+        [],
+    )
+    await credentialFree(t)
+})
+
+test("A confirmed restore item keeps the restore check's before and after values as its Details", async () => {
+    const { t, page, detail } = await fixture()
+    await t.run((ctx) =>
+        backupWriteConfig(
+            {
+                ctx,
+                serverId: "10",
+                ownerId: "99",
+                key: "backup:synthetic:2",
+                roles: [],
+                now,
+                changes: [
+                    { path: "reply.text", before: "Old reply", after: "Restored" },
+                    { path: "enabled", after: true },
+                ],
+            },
+            {
+                family: "response",
+                sourceId: "custom_restored",
+                value: {
+                    kind: "custom",
+                    name: "restored",
+                    reply: { type: "text", text: "Restored" },
+                    channelIds: [],
+                    roleIds: [],
+                    cooldownSeconds: 0,
+                    priority: 0,
+                    enabled: true,
+                },
+            },
+        ),
+    )
+    const [entry] = (await page()).entries
+    assert.deepEqual(await detail(entry!.id), {
+        changes: [
+            { path: "reply.text", before: "Old reply", after: "Restored" },
+            { path: "enabled", after: true },
+        ],
+        more: 0,
+    })
+})
+
+test("Details keep the first 8,000 code units of a long value and count what does not fit in 512 KiB", async () => {
+    const { t, page, detail } = await fixture()
+    const definitions = (text: string) =>
+        Array.from({ length: 1000 }, (_, index) => ({ name: `d${index}`, reply: { type: "text", text } }))
+    await t.run(async (ctx) => {
+        await recordAudit(
+            ctx,
+            "10",
+            { userId: "20", source: "command" },
+            {
+                kind: "setting",
+                feature: "responses",
+                setting: "long",
+                summary: "description changed",
+                changes: auditChanges({ description: "short" }, { description: "x".repeat(9000) }),
+            },
+        )
+        await recordAudit(
+            ctx,
+            "10",
+            { userId: "20", source: "command" },
+            {
+                kind: "setting",
+                feature: "responses",
+                setting: "bulk",
+                summary: "definitions changed",
+                changes: auditChanges(
+                    { definitions: definitions("a".repeat(7000)) },
+                    { definitions: definitions("b".repeat(7000)) },
+                ),
+            },
+        )
+    })
+    const [bulk, long] = (await page()).entries
+    assert.deepEqual(await detail(long!.id), {
+        changes: [{ path: "description", before: "short", after: "x".repeat(8000), cut: 9000 }],
+        more: 0,
+    })
+    const stored = (await detail(bulk!.id))!
+    assert.ok(stored.changes.length > 0 && stored.more > 0)
+    assert.equal(stored.changes.length + stored.more, 1000)
+    assert.equal(stored.changes[0]!.path, "definitions[d0].reply.text")
+    assert.ok(new TextEncoder().encode(JSON.stringify(stored.changes)).length <= 512 * 1024)
+})
+
+test("Details answer only managers of the entry's own server, and private data entries have none", async () => {
+    const { t, args, detail } = await fixture()
+    const ids = await t.run(async (ctx) => {
+        for (const [serverId, kind] of [
+            ["11", "setting"],
+            ["10", "private-data-viewed"],
+            ["10", "setting"],
+        ] as const)
+            await recordAudit(
+                ctx,
+                serverId,
+                { userId: "20", source: "website" },
+                {
+                    kind,
+                    feature: "moderation",
+                    setting: kind,
+                    summary: "Synthetic",
+                    changes: [{ path: "reason", before: "Synthetic private reason", after: "Synthetic" }],
+                },
+            )
+        return (await ctx.db.query("auditLogEntries").collect()).map((row) => ({
+            id: row._id as string,
+            serverId: row.serverId,
+            kind: row.kind,
+            detail: row.detail,
+        }))
+    })
+    const [foreign, viewed, own] = ids
+    assert.deepEqual([viewed!.detail, own!.detail], [undefined, true])
+    assert.equal((await t.run((ctx) => ctx.db.query("auditLogChanges").collect())).length, 2)
+    assert.equal(await detail(viewed!.id), null)
+    assert.equal(await detail(foreign!.id), null)
+    assert.equal(await detail("not-an-id"), null)
+    await assert.rejects(detail(foreign!.id, "11"))
+    assert.equal((await detail(own!.id))!.changes.length, 1)
+    await t.mutation(api.dashboard.logout, { sessionToken: args.sessionToken })
+    await assert.rejects(detail(own!.id))
 })
 
 test("Pages hold 25 entries and continue with a cursor, and only server managers read them", async () => {
@@ -426,7 +599,7 @@ test("Pages hold 25 entries and continue with a cursor, and only server managers
     await assert.rejects(t.query(api.auditLog.page, { ...args, serverId: "11", cursor: null }))
 })
 
-test("The retention chain removes entries after 180 days", async () => {
+test("The retention chain removes entries and their details after 180 days", async () => {
     const { t } = await fixture()
     assert.ok(RETENTION_PASSES.some(([name]) => name === "auditLog"))
     await t.run((ctx) =>
@@ -434,7 +607,13 @@ test("The retention chain removes entries after 180 days", async () => {
             ctx,
             "10",
             { userId: "20", source: "command" },
-            { kind: "setting", feature: "voice", setting: "old", summary: "Saved" },
+            {
+                kind: "setting",
+                feature: "voice",
+                setting: "old",
+                summary: "Saved",
+                changes: [{ path: "enabled", before: false, after: true }],
+            },
         ),
     )
     now += AUDIT_RETENTION_MS - 1
@@ -454,9 +633,10 @@ test("The retention chain removes entries after 180 days", async () => {
         (await t.run((ctx) => ctx.db.query("auditLogEntries").collect())).map((row) => row.setting),
         ["new"],
     )
+    assert.deepEqual(await t.run((ctx) => ctx.db.query("auditLogChanges").collect()), [])
 })
 
-test("Change summaries name settings and list items but never show authored text", () => {
+test("Change summaries show short values of any setting and name long ones and list items", () => {
     assert.equal(
         describeChange(
             { settings: { enabled: false, cooldown: 60, revision: 3 } },
@@ -466,16 +646,16 @@ test("Change summaries name settings and list items but never show authored text
     )
     assert.equal(
         describeChange(
-            { settings: { description: "Old private words" } },
-            { settings: { description: "New private words" } },
+            { settings: { description: "Old synthetic words" } },
+            { settings: { description: "New synthetic words" } },
         ),
-        "description changed",
+        "description: Old synthetic words → New synthetic words",
     )
     assert.equal(
-        describeChange({ settings: { greeting: "Hi there" } }, { settings: { greeting: "Welcome" } }),
+        describeChange({ settings: { greeting: "Hi there" } }, { settings: { greeting: "x".repeat(41) } }),
         "greeting changed",
     )
-    assert.equal(describeChange({ settings: { note: "Old" } }, { settings: { note: "New" } }), "note changed")
+    assert.equal(describeChange({ settings: { note: "Old" } }, { settings: { note: "New" } }), "note: Old → New")
     assert.equal(
         describeChange(
             { rules: [{ name: "spam", threshold: 3 }, { name: "links" }] },

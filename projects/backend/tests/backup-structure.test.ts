@@ -382,9 +382,66 @@ test("An update is claimed straight from planned, leaves no origin, and settles 
         (await tables(f).audit()).map((x) => [x.feature, x.summary]),
         [["structure", "Updated channel new-name from a backup"]],
     )
+    // Its Details show what the restore check compared, as a restored setting's do
+    const details = await f.db.run(async (ctx) => {
+        const entry = (await ctx.db.query("auditLogEntries").order("desc").first())!
+        return {
+            detail: entry.detail,
+            changes: (
+                await ctx.db
+                    .query("auditLogChanges")
+                    .withIndex("by_entry", (q) => q.eq("entryId", entry._id))
+                    .unique()
+            )?.changes,
+        }
+    })
+    assert.deepEqual(details, {
+        detail: true,
+        changes: [
+            { path: "name", before: "old-name", after: "new-name" },
+            { path: "topic", before: "old topic", after: "new topic" },
+        ],
+    })
     // The same answer again changes nothing, and a different one is refused
     assert.equal((await read(await f.outcome(item, "updated", archive))).item.state, "updated")
     await status(await f.outcome(item, "failed", null), 409)
+})
+
+test("A restored channel's Details name the role whose permissions changed with its permissions by name, and leave out one that is gone", async (t) => {
+    const f = await fixture(t),
+        archive: BackupStructureObject = {
+            ...f.channel("100"),
+            overwrites: [
+                { id: "5", type: "role", allow: "0", deny: VIEW_CHANNEL.toString() },
+                { id: "20", type: "member", allow: SEND_MESSAGES.toString(), deny: "0" },
+            ],
+        },
+        current = live(archive, { overwrites: [{ id: "5", type: "role", allow: VIEW_CHANNEL.toString(), deny: "0" }] }),
+        proof = f.proof([], [f.ref("5"), f.ref("20", "member", { exists: false })], [f.seen(current)])
+    const planned = await f.plan(f.manifest([], [], [archive]), proof),
+        item = onlyItem(planned)
+    assert.equal(item.disposition, "update")
+    await f.confirm(planned.plan)
+    await read(await f.claim(item, proof))
+    const restored = live(archive, { overwrites: [archive.overwrites[0]!] })
+    assert.equal((await read(await f.outcome(item, "updated", restored))).item.state, "updated")
+    const changes = await f.db.run(async (ctx) => {
+        const entry = (await ctx.db.query("auditLogEntries").order("desc").first())!
+        return (
+            await ctx.db
+                .query("auditLogChanges")
+                .withIndex("by_entry", (q) => q.eq("entryId", entry._id))
+                .unique()
+        )?.changes
+    })
+    // The member who left is not restored, so only the role's permissions are a change
+    assert.deepEqual(changes, [
+        {
+            path: "permissions for <@&5>",
+            before: "Allow View channel. Deny none",
+            after: "Allow none. Deny View channel",
+        },
+    ])
 })
 
 test("An update that the server did not take is failed with what applied, and one that was not confirmed is uncertain", async (t) => {

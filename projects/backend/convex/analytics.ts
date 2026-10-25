@@ -14,7 +14,7 @@ import {
 } from "@neonflux/contracts/analytics"
 import type { DashboardAnalyticsSnapshot, DashboardSaveResult } from "../dashboard-contracts.js"
 import { dashboardSession, renewSession, verifiedManager } from "./dashboard.ts"
-import { describeChange, recordAudit } from "./auditLog.ts"
+import { auditChanges, describeChange, recordAudit } from "./auditLog.ts"
 import { renewalIdentity } from "./dashboardProvider.ts"
 import { decode, fail, isId, type AuditActor } from "./validation.ts"
 import {
@@ -104,6 +104,7 @@ async function writeEnabled(
         feature: "analytics",
         setting: "switch",
         summary: describeChange({ enabled: !enabled }, { enabled }),
+        changes: auditChanges({ enabled: !enabled }, { enabled }),
     })
     return { saved: true, revision: next.revision }
 }

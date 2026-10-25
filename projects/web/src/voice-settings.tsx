@@ -223,23 +223,14 @@ export function VoiceSettings(props: ConfigSectionProps<"voice"> & { refreshCata
                                 title={`Remove generator ${name ?? generator.channelId}`}
                                 description="The channel stays as an ordinary voice channel. Existing rooms are still deleted once they are empty"
                                 submitLabel="Remove generator"
-                                snapshot={{ revision, values: { confirm: false }, context: generator.revision }}
+                                submitUnchanged
+                                snapshot={{ revision, values: {}, context: generator.revision }}
                                 operation={() => ({
                                     type: "generator-remove",
                                     channelId: generator.channelId,
                                     expectedRevision: generator.revision,
                                 })}
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Confirm generator removal
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         </div>
                     </details>

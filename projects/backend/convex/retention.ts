@@ -4,6 +4,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server.js"
 import { cleanupAuditLog } from "./auditLog.ts"
 import { cleanupBackups } from "./backupRetention.ts"
 import { cleanupCleanupMetadata } from "./cleanupRetention.ts"
+import { cleanupDashboardSessions } from "./dashboard.ts"
 import { cleanupEvents } from "./eventsCleanup.ts"
 import { cleanupGreetings } from "./greetingLifecycle.ts"
 import { cleanupLeveling } from "./levelingCleanup.ts"
@@ -48,6 +49,7 @@ export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["suggestions", cleanupSuggestions],
     ["youtube", cleanupYoutube],
     ["auditLog", cleanupAuditLog],
+    ["dashboardSessions", cleanupDashboardSessions],
 ]
 // Passes that only schedule other work run once when a chain starts, not in its continuations
 const RETENTION_START_PASSES: readonly RetentionPass[] = [scheduleTicketPurges]

@@ -24,8 +24,8 @@ The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.si
 | Variable | Where | Purpose |
 | --- | --- | --- |
 | `CONVEX_DEPLOY_KEY` | `projects/backend/.env.local` only | Lets the CLI deploy to the development deployment |
-| `NEONFLUX_SERVER_MODE` | Convex | `single` (default) or `multi`. The bot adopts it, and may set it too only as a check |
-| `NEONFLUX_SERVER_ID` | Convex | The one allowed server in single mode. Must be absent in multi mode. The bot adopts it, and may set it too only as a check |
+| `NEONFLUX_SERVER_MODE` | Convex | `single` (default) or `multi`. The bot adopts it at startup and refuses to start while its own environment sets it |
+| `NEONFLUX_SERVER_ID` | Convex | The one allowed server in single mode. Must be absent in multi mode. The bot adopts it at startup and refuses to start while its own environment sets it |
 | `NEONFLUX_BOT_API_SECRET` | Convex and bot | Shared bot service secret of at least 32 characters, without surrounding spaces. The bot sends only a key derived from it |
 | `NEONFLUX_WEBSITE_URL` | Convex | Optional website origin, such as `https://dashboard.example.com`, using HTTPS or loopback HTTP and without a path. The bot reads it for verification links, the install note and the dashboard link, and the web server reads it as its own origin. A loopback origin is used only when set explicitly |
 | `FLUXER_CLIENT_ID` | Convex | Fluxer OAuth application ID that dashboard sign-in tokens must belong to. The web server reads it from the deployment |
@@ -635,7 +635,7 @@ Checklist completions are added to the day row when a member finishes the [newco
 
 ## Multi-server scope
 
-A deployment runs in `single` mode, where it serves the server in `NEONFLUX_SERVER_ID`, or in `multi` mode, where it serves the servers the bot registers. Multi mode has no server list or server limit. The deployment owns the mode, so changing it means updating the deployment and restarting the bot, which adopts it. A bot environment that sets its own scope variables must match
+A deployment runs in `single` mode, where it serves the server in `NEONFLUX_SERVER_ID`, or in `multi` mode, where it serves the servers the bot registers. Multi mode has no server list or server limit. The deployment owns the mode, so changing it means updating the deployment and restarting the bot, which adopts it. The bot environment cannot set the mode or server ID while it uses this deployment
 
 `/service/scope` checks the key and returns `{ scope, websiteUrl }`. `scope` is `{ mode: "multi" }`, or `{ mode: "single", serverIds }` with exactly one server in single mode, and `websiteUrl` is the origin in `NEONFLUX_WEBSITE_URL` or `null`. The bot adopts both before starting any server runtime
 
@@ -703,7 +703,7 @@ The count leaves out calls the bot does not cause: the website's dashboard and v
 
 ## Dashboard and web verification
 
-The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that lasts at most eight hours. Sign-in lists the servers where the user is the owner or has Manage community or Administrator, limited to installed servers, and every dashboard request rechecks the installation. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` functions. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
+The dashboard uses separate public Convex functions with its own Fluxer OAuth sign-in, checked against `FLUXER_CLIENT_ID`, and a revocable session that ends after 30 days without use and at most 90 days after sign-in. Sign-in lists the servers where the user is the owner or has Manage community or Administrator, limited to installed servers, and every dashboard request rechecks the installation. Writes recheck provider permission and queue a short-lived job bound to the session and the family revision. The bot then executes it with fresh native evidence through the `/dashboard-configuration`, `/dashboard-messages`, `/dashboard-metadata` and `/dashboard-roles` functions. Browser input never supplies native permission proof, and bot credentials never reach browser code. See [the web guide](WEB.md)
 
 The bot claims each request whose native work comes before the backend records it, such as a dashboard link, voice
 generator, member list or invite revocation change, through `/dashboard-configuration/claim` before it touches Fluxer.
@@ -714,7 +714,9 @@ is applying a claimed request can still end it as a conflict
 
 Reads are live queries, one per dashboard view, so the website subscribes only to what the open section shows. `dashboardViews` holds the general view with the prefix and reply style, the role view with role settings, panels and recent role jobs, the recent message jobs, the overview and the template choices. The overview reports each feature as on, needing setup, such as a missing channel or first entry, or off. [setupCheck.ts](../projects/backend/convex/setupCheck.ts) computes these states for both the overview and the bot. Template choices carry each saved template's and draft's kind, name and revision, never its content, in pages ordered by kind and then name. Each page holds up to 100 drafts and templates together, or fewer once it has read 4 MiB, with a cursor for the next page. Configuration families, logging and analytics keep their own queries
 
-Every dashboard query reads the session row, so a write to it reruns all of that session's live queries. Read access lasts five minutes after it was last extended. A session refresh or a write extends it only once it has run down by at least a minute, and changed server lists and names are written at once, so routine saves and refreshes leave the session row and its queries alone
+Every dashboard query reads the session row, so a write to it reruns all of that session's live queries. Read access lasts five minutes after it was last extended, and each extension moves the session's idle end to 30 days later, never past 90 days after sign-in. A session refresh or a write extends it only once it has run down by at least a minute, and changed server lists and names are written at once, so routine saves and refreshes leave the session row and its queries alone
+
+Queries and mutations need live read access. A session refresh, the save actions and `dashboard:rotate` accept a session whose read access ran out, because each checks the stored access token with Fluxer first, so a tab that returns after a break regains read access with that check. A sign-in that would give a user a sixth live session deletes the one used least recently. The retention chain deletes sessions past their idle end, which never lies past the absolute end. The web server refreshes the Fluxer access token itself and stores the new one with `dashboard:rotate`, which refuses a token of another user or application
 
 Sign-in also stores member servers: Servers the user joined without managing them, where NeonFlux is installed and the role picker, showcases or profiles are on, or a private data role is named. The session answer lists the member features of each: `rolepicker`, `showcase`, `profile` and `private`. A session refresh recomputes them, and manager writes leave them unchanged. Member functions accept a managed or member server and recheck the installation and the switch or role on every request, while manager functions keep accepting managed servers only. See [role picker and member access](#role-picker-and-member-access), [showcases and profiles](#showcases-and-profiles) and [private cases on the website](#private-cases-on-the-website)
 
@@ -808,7 +810,7 @@ The merge decides each change against the current structure: `skip` when it is a
 
 ### Audit log
 
-`auditLogEntries` keeps one row per recorded change: The server, a kind, the source (`website` or `command`), the actor's user ID, the signed-in name for website changes, the feature, the setting or operation, a summary of at most 500 characters, and the creation and expiry times. The kinds are `setting`, `member-data-deleted` for a member's deletion of their own data, `private-data-viewed` for a website view of [private cases](#private-cases-on-the-website) and `server-exported` for the owner's [server export](#server-export)
+`auditLogEntries` keeps one row per recorded change: The server, a kind, the source (`website` or `command`), the actor's user ID, the signed-in name for website changes, the feature, the setting or operation, a summary of at most 500 characters, `detail` while the entry has stored values, and the creation and expiry times. The kinds are `setting`, `member-data-deleted` for a member's deletion of their own data, `private-data-viewed` for a website view of [private cases](#private-cases-on-the-website) and `server-exported` for the owner's [server export](#server-export)
 
 Setting changes are recorded where they are written, so chat commands and the website share one path:
 
@@ -820,11 +822,11 @@ Setting changes are recorded where they are written, so chat commands and the we
 - Each server export records who started it, from where and whether it continued after a new access check, never its content
 - Each change a [structure editor](#server-structure-editor) save applied, or may have applied, records the channel names with the manager who saved it
 
-A summary names each changed setting with short values, such as `enabled: off → on`, and lists items added, removed or changed by name, up to eight changes. Authored text, such as messages, descriptions, reasons and templates, is named but never shown, and no entry holds a message body or a secret. A redelivered command that changes nothing records nothing. Commands carry only the actor's ID, so their entries have no name
+A summary names each changed setting with values of up to 40 characters, such as `enabled: off → on`, and lists items added, removed or changed by name, up to eight changes. A longer value is named as changed. `auditLogChanges` keeps one row per setting entry with every changed leaf, its path and its before and after values, list entries keyed by the field that names them as in the summary, or by index. The values come only from the reads the change was compared with, which are the same dashboard views the log's readers see, without revisions, update times or document IDs, so no stored detail holds a session token, a YouTube hub secret or callback token, the backup key or a web secret. A restored item keeps the field changes of its restore check, and a restored channel keeps each changed permission overwrite of a role or member that still exists as `permissions for <@&id>` with the allowed and denied permissions by name, as the restore check shows them. A value over 8,000 UTF-16 code units, longer than any single Fluxer text field, keeps its first 8,000 and its full length in `cut`. A row holds at most 512 KiB of changes, below Convex's 1 MiB document limit, and counts the rest in `more`. Private data views, member data deletions and exports never get a detail, so no entry holds a case, an appeal or a member's deleted data. A redelivered command that changes nothing records nothing. Commands carry only the actor's ID, so their entries have no name
 
 These are not recorded: DEFCON changes that security detection makes on its own, which have no member actor and appear as cases, leveling XP corrections and resets, which keep their own correction audit, moderation actions and cases, and steps the bot takes on its own, such as role withdrawal pages and binding a panel the website just published
 
-The dashboard's `auditLog:page` query rechecks the session and the installation, then reads 25 entries newest first, optionally for one feature, and returns a cursor for the next older page. Entries are kept for 180 days and pruned by the retention chain in batches of 256. The purge of a removed server deletes them with its other data
+The dashboard's `auditLog:page` query rechecks the session and the installation, then reads 25 entries newest first, optionally for one feature, and returns a cursor for the next older page. `auditLog:entry` answers one entry's `{ changes, more }` after the same checks, and `null` for an entry of another server or one without a detail. Entries and their details are kept for 180 days and pruned by the retention chain in batches of 256. The purge of a removed server deletes both with its other data
 
 ### Member data rights
 
@@ -868,7 +870,7 @@ These tables hold a member's ID but are left out, and the member is told about s
 | `automodWindows`, `securityWatchlist`, `securityRecoveries`, `verificationLinks` | Security records with their own expiry. Showing them could defeat their purpose |
 | `roleAttempts`, `roleReferences` | Part of the role ledger kept with role ownership |
 | `ticketEntries` | Part of a ticket, kept with it |
-| `dashboardSessions` | A website sign-in, not server data, which ends at sign-out and after at most eight hours |
+| `dashboardSessions` | A website sign-in, not server data, which ends at sign-out, after 30 days without use and at most 90 days after sign-in |
 | `dashboardPrivateAccessJobs` | A website check of the member's own access to private cases, deleted within three minutes |
 | `backupPlans`, `cleanupPolicies`, `cleanupSweeps`, `cleanupTargets`, `dashboardStructureJobs`, `backupPreviewJobs` | Name the staff member who runs a server task, not data about them as a member |
 | `alertSettings` | Server security settings and the invite list staff last read from Fluxer, which names each invite's creator and is replaced at the next refresh |

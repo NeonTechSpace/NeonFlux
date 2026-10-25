@@ -426,8 +426,8 @@ test("A definition deleted elsewhere leaves the section at once unless one of it
     )
     fireEvent.click(ui.getByText("first: Enabled"))
     const remove = within(ui.getByRole("region", { name: "Delete response: first", hidden: true }))
-    fireEvent.click(remove.getByRole("checkbox", { name: "Confirm response deletion", hidden: true }))
-    assert.equal(dom.window.sessionStorage.length, 0, "a ticked removal box is not stored as a draft")
+    assert.equal(remove.queryAllByRole("checkbox", { hidden: true }).length, 0, "the removal asks for no tick")
+    assert.equal(dom.window.sessionStorage.length, 0, "the removal stores no draft")
     await act(async () => {
         current = {
             ...page("first", 2),

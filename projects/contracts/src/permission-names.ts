@@ -66,3 +66,8 @@ export function permissionNames(bits: string): string[] {
     }
     return unnamed ? [...names, "unnamed permissions"] : names
 }
+/** The titles of a bitfield's permissions as one list, or none */
+export const permissionList = (bits: string) => permissionNames(bits).join(", ") || "none"
+/** A channel's permissions for one role or member in words, as the restore check and the audit log's Details show them */
+export const overwriteText = (p: { allow: string; deny: string }) =>
+    `Allow ${permissionList(p.allow)}. Deny ${permissionList(p.deny)}`

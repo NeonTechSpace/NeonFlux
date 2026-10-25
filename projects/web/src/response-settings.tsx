@@ -128,9 +128,10 @@ export function ResponseSettings(props: ConfigSectionProps<"responses"> & { kind
                                             {...card}
                                             title={`Delete response: ${definition.name}`}
                                             description="Remove this stored definition from future evaluation"
+                                            submitUnchanged
                                             snapshot={{
                                                 revision,
-                                                values: { confirm: false },
+                                                values: {},
                                                 context: definition.updatedAt,
                                             }}
                                             submitLabel="Delete response"
@@ -138,17 +139,7 @@ export function ResponseSettings(props: ConfigSectionProps<"responses"> & { kind
                                                 kind,
                                                 operation: { type: "delete", name: definition.name },
                                             })}
-                                            fields={(draft, edit, disabled) => (
-                                                <label>
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={Boolean(draft.confirm)}
-                                                        disabled={disabled}
-                                                        onChange={(event) => edit("confirm", event.target.checked)}
-                                                    />
-                                                    Confirm response deletion
-                                                </label>
-                                            )}
+                                            fields={() => null}
                                         />
                                     </div>
                                 </details>

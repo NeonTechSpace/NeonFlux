@@ -60,8 +60,17 @@ async function submit(form: ReturnType<typeof within>) {
         )
     })
 }
+// Clicks a form's button once and checks the form asks for no confirmation tick first
+async function clickOnce(form: ReturnType<typeof within>, name: string) {
+    assert.equal(form.queryAllByRole("checkbox", { hidden: true }).length, 0)
+    const button = form.getByRole("button", { name, hidden: true }) as HTMLButtonElement
+    assert.equal(button.disabled, false)
+    await act(async () => {
+        fireEvent.click(button)
+    })
+}
 
-test("Each alert has its own switch, and expected bots and webhooks are added and removed by ID", async () => {
+test("Each alert has its own switch, and expected bots and webhooks are added by ID and removed on the first click", async () => {
     const { ui, calls } = setup({ settings, invites: null })
     const privileges = section(ui, "Privilege changes")
     fireEvent.click(privileges.getByLabelText("Privilege changes on"))
@@ -74,8 +83,7 @@ test("Each alert has its own switch, and expected bots and webhooks are added an
     fireEvent.change(expect.getByLabelText("ID"), { target: { value: "88" } })
     await submit(expect)
     const unexpect = section(ui, "Bot 77")
-    fireEvent.click(unexpect.getByLabelText("Alert about it again"))
-    await submit(unexpect)
+    await clickOnce(unexpect, "No longer expected")
     assert.deepEqual(calls, [
         { type: "set", alert: "privileges", enabled: true },
         { type: "expect", kind: "webhook", id: "88", expected: true },

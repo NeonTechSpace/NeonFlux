@@ -81,19 +81,10 @@ export function HelpDeskSettings(props: ConfigSectionProps<"helpdesk">) {
                     title={`Stop serving ${nameOf(id)}`}
                     description="Posts stay. New posts there are no longer greeted or reminded"
                     submitLabel="Remove forum"
-                    snapshot={{ revision, values: { confirm: false } }}
+                    submitUnchanged
+                    snapshot={{ revision, values: {} }}
                     operation={() => ({ type: "forum-remove", channelId: id })}
-                    fields={(values, edit, disabled) => (
-                        <label>
-                            <input
-                                type="checkbox"
-                                checked={Boolean(values.confirm)}
-                                disabled={disabled}
-                                onChange={(event) => edit("confirm", event.target.checked)}
-                            />
-                            Confirm no longer serving this forum
-                        </label>
-                    )}
+                    fields={() => null}
                 />
             ))}
             {settings.forumIds.length < HELPDESK_FORUM_LIMIT ? (
@@ -257,19 +248,10 @@ export function HelpDeskSettings(props: ConfigSectionProps<"helpdesk">) {
                                 title={`Remove answer ${answer.name}`}
                                 description="Staff can no longer post it"
                                 submitLabel="Remove answer"
-                                snapshot={{ revision, values: { confirm: false }, context: answer.updatedAt }}
+                                submitUnchanged
+                                snapshot={{ revision, values: {}, context: answer.updatedAt }}
                                 operation={() => ({ type: "answer-remove", name: answer.name })}
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Confirm removing this answer
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         </div>
                     </details>

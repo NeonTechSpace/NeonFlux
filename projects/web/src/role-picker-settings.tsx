@@ -124,19 +124,10 @@ export function RolePickerSettings(props: ConfigSectionProps<"rolepicker">) {
                                 title={`Remove menu ${menu.name}`}
                                 description="Members can no longer choose these roles here. Roles they already chose stay"
                                 submitLabel="Remove menu"
-                                snapshot={{ revision, values: { confirm: false }, context: menu }}
+                                submitUnchanged
+                                snapshot={{ revision, values: {}, context: menu }}
                                 operation={() => ({ type: "menu-remove", name: menu.name })}
-                                fields={(values, edit, disabled) => (
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={Boolean(values.confirm)}
-                                            disabled={disabled}
-                                            onChange={(event) => edit("confirm", event.target.checked)}
-                                        />
-                                        Confirm removing menu {menu.name}
-                                    </label>
-                                )}
+                                fields={() => null}
                             />
                         </div>
                     </details>
