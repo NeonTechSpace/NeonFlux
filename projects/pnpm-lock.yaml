@@ -213,8 +213,8 @@ importers:
         specifier: workspace:*
         version: link:../contracts
       '@neontechspace/fluxerly':
-        specifier: 1000.0.0-nightly.20261021.25
-        version: 1000.0.0-nightly.20261021.25(effect@4.0.0)
+        specifier: 1000.0.0-nightly.20261024.31
+        version: 1000.0.0-nightly.20261024.31(effect@4.0.0)
       convex:
         specifier: 'catalog:'
         version: 1.46.0(react@19.3.0)
@@ -803,8 +803,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@neontechspace/fluxerly@1000.0.0-nightly.20261021.25':
-    resolution: {integrity: sha512-yDW/xkFBzKaH5gSTnZl0NSVQbGQXxMm/Ij9OOVU8v6in8EJ0gAbkuNCe9IIX8Ps0VJiZ9Yg0lBsAbzlTQLwvgw==}
+  '@neontechspace/fluxerly@1000.0.0-nightly.20261024.31':
+    resolution: {integrity: sha512-4I9hLsy/stSWF9HlzAgaj4hp1br8MEYQDaMUHAtNXi+fvk80ikks5twdpDInR0TmGtYQRnnWks42QqALE4vKxQ==}
     engines: {node: '>=24.15.0'}
     hasBin: true
     peerDependencies:
@@ -2461,7 +2461,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@neontechspace/fluxerly@1000.0.0-nightly.20261021.25(effect@4.0.0)':
+  '@neontechspace/fluxerly@1000.0.0-nightly.20261024.31(effect@4.0.0)':
     dependencies:
       effect: 4.0.0
       neverthrow: 8.2.0
