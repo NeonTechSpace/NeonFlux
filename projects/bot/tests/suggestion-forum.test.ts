@@ -2,10 +2,11 @@ import type { SuggestionsCardGrant, SuggestionsWorkRow } from "@neonflux/contrac
 import assert from "node:assert/strict"
 import test from "node:test"
 import type { PublishingOutcomeRequest } from "@neonflux/contracts/publishing"
-import { createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Effect, Exit, type Scope } from "effect"
+import { createTestBot, type TestResponder } from "@neontechspace/fluxerly/effect/testing"
+import { Effect, Exit, Logger, References, type Scope } from "effect"
 import { TestClock } from "effect/testing"
 import { processSuggestionCard } from "../src/suggestions.ts"
+import { processSuggestionsPass } from "../src/suggestion-worker.ts"
 import { ensureSuggestionTags, isForum, SuggestionTagError } from "../src/suggestion-forum.ts"
 import type { SuggestionsStore } from "../src/suggestion-store.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
@@ -238,4 +239,109 @@ test("a forum without room for the status tags fails with the fix and adds nothi
             assert.equal(create.requests().length, 0)
         }),
     )
+})
+
+// A forum card whose status tag cannot be added, or whose post's tags cannot be changed, through the worker's pass, with every
+// warning and its annotations
+async function tagFailureWarnings(answer: TestResponder, failing: "create" | "edit" = "create") {
+    const logged: { message: unknown; annotations: Record<string, unknown> }[] = []
+    const deferred: number[] = []
+    await controlled(
+        Effect.gen(function* () {
+            yield* TestClock.adjust(`${now} millis`)
+            const bot = yield* createTestBot({ token: "synthetic-forum-token" }),
+                f = bot.fixtures
+            platform(bot)
+            const review = f.nextId()
+            const forum = f.forumChannel({ available_tags: failing === "edit" ? [tag(review, "Under review")] : [] })
+            const thread = f.thread({ parent_id: forum.id, owner_id: f.ids.bot, applied_tags: [] })
+            bot.rest.respond(`GET /channels/${forum.id}`, { body: forum })
+            bot.rest.respond(`GET /channels/${thread.id}`, { body: thread })
+            const refused = bot.rest.respond(
+                failing === "edit" ? `PATCH /channels/${thread.id}` : `POST /channels/${forum.id}/tags`,
+                answer,
+            )
+            const row = card(forum.id, failing === "edit" ? { threadId: thread.id } : {})
+            const store: SuggestionsStore = {
+                ...storeWith(grant(bot, row)),
+                work: (input) => {
+                    const op = input.operation
+                    if (op.type === "list") return Effect.succeed({ type: "cards", cards: [row], hasMore: false })
+                    if (op.type === "defer") {
+                        deferred.push(op.binding.suggestionNo)
+                        return Effect.succeed({ type: "progress", recorded: true })
+                    }
+                    return Effect.die("Unexpected work")
+                },
+            }
+            yield* processSuggestionsPass(store, publishingBoundary().store, f.ids.guild, bot.client)
+            assert.equal(refused.requests().length, 1)
+        }).pipe(
+            Effect.provide(
+                Logger.layer([
+                    Logger.make(({ message, fiber }) => {
+                        logged.push({
+                            message: Array.isArray(message) ? message[0] : message,
+                            annotations: { ...fiber.getRef(References.CurrentLogAnnotations) },
+                        })
+                    }),
+                ]),
+            ),
+        ),
+    )
+    assert.deepEqual(deferred, [1])
+    return logged
+}
+
+test("a status tag that cannot be added for a network failure logs the fix with the Fluxer failure's summary", async () => {
+    const logged = await tagFailureWarnings(() => {
+        throw new Error("Synthetic connection reset")
+    })
+    assert.equal(logged.length, 1, JSON.stringify(logged))
+    assert.match(
+        String(logged[0]!.message),
+        /^Suggestion 1 card waits: Grant Manage channels to the NeonFlux role and allow it in <#\d+>, or add the tags Under review to <#\d+> yourself$/,
+    )
+    assert.deepEqual(logged[0]!.annotations, {
+        "cause.error": "ChannelOperationError",
+        "cause.defect": false,
+        "cause.reason": "network",
+        "cause.outcome": "unknown",
+    })
+})
+
+test("a status tag that Fluxer refuses for a missing permission logs the fix with the refusal's summary", async () => {
+    const logged = await tagFailureWarnings(() => ({
+        status: 403,
+        body: { code: "MISSING_PERMISSIONS", message: "Missing permissions" },
+    }))
+    assert.equal(logged.length, 1, JSON.stringify(logged))
+    assert.match(
+        String(logged[0]!.message),
+        /^Suggestion 1 card waits: .+, or add the tags Under review to <#\d+> yourself$/,
+    )
+    assert.deepEqual(logged[0]!.annotations, {
+        "cause.error": "ChannelOperationError",
+        "cause.defect": false,
+        "cause.status": 403,
+        "cause.reason": "rejected",
+        "cause.outcome": "rejected",
+    })
+})
+
+test("a post whose status tag cannot be changed for a network failure logs the fix with the Fluxer failure's summary", async () => {
+    const logged = await tagFailureWarnings(() => {
+        throw new Error("Synthetic connection reset")
+    }, "edit")
+    assert.equal(logged.length, 1, JSON.stringify(logged))
+    assert.match(
+        String(logged[0]!.message),
+        /^Suggestion 1 card waits: Let NeonFlux change the tags of its posts in <#\d+>$/,
+    )
+    assert.deepEqual(logged[0]!.annotations, {
+        "cause.error": "ChannelOperationError",
+        "cause.defect": false,
+        "cause.reason": "network",
+        "cause.outcome": "unknown",
+    })
 })

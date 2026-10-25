@@ -1,7 +1,7 @@
 import type { StickyMessage } from "@neonflux/contracts/sticky"
 import { errors, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Context, Effect, Scope, Semaphore } from "effect"
-import { contained, forkContained } from "./contained.ts"
+import { contained, forkContained, warnFailure } from "./contained.ts"
 import type { StickyStore } from "./sticky-store.ts"
 import { readAuthenticatedBotId } from "./safety-permissions.ts"
 
@@ -60,7 +60,7 @@ export function createStickyRuntime(store: StickyStore, serverId: string, allowe
             Effect.catchCause((cause) =>
                 Cause.hasInterrupts(cause)
                     ? Effect.failCause(cause)
-                    : Effect.logWarning("A previous sticky copy could not be deleted").pipe(
+                    : warnFailure("A previous sticky copy could not be deleted", cause).pipe(
                           Effect.andThen(
                               Effect.sync(() => {
                                   const copies = (kept.get(channelId) ?? new Set<string>()).add(messageId)
@@ -103,8 +103,9 @@ export function createStickyRuntime(store: StickyStore, serverId: string, allowe
             Effect.catchCause((cause) =>
                 Cause.hasInterrupts(cause)
                     ? Effect.failCause(cause)
-                    : Effect.logWarning(
+                    : warnFailure(
                           "Unconfirmed sticky copies could not be checked. They are checked again before the next repost",
+                          cause,
                       ).pipe(Effect.as(new Set<string>())),
             ),
         )

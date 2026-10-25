@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto"
 import { Clock, Duration, Effect, Queue, Semaphore, type Types } from "effect"
 import { AnalyticsStoreError, type AnalyticsStore } from "./analytics-store.ts"
 import { readChannelParent } from "./channel-parents.ts"
+import { warnFailure } from "./contained.ts"
 
 /** Counts wait in memory for one window after the first new count, or until they fill one request, then leave in requests of at most 500 buckets */
 export const analyticsWindowMs = 300000
@@ -172,14 +173,15 @@ export function startAnalyticsWorker(store: AnalyticsStore, serverId: string, cl
                             .pipe(Effect.catch((error) => Effect.succeed(error)))
                         if (outcome instanceof AnalyticsStoreError) {
                             if (outcome.status === null || outcome.status === 429 || outcome.status >= 500) {
-                                yield* Effect.logWarning(
+                                yield* warnFailure(
                                     "Analytics counts could not be saved. They are sent again in the next window",
+                                    outcome,
                                 )
                                 return sent
                             }
                             // A refused batch would fail again
                             outbox.shift()
-                            yield* Effect.logWarning("Analytics counts were refused and dropped")
+                            yield* warnFailure("Analytics counts were refused and dropped", outcome)
                             continue
                         }
                         outbox.shift()

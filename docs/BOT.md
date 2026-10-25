@@ -63,6 +63,8 @@ In single mode the bot also reads the list of servers Fluxer shows it, without d
 
 Every ten minutes with activity, the bot logs one Info line with that interval's Fluxer requests, backend requests, handled events, rate-limit waits, dropped events and skipped optional jobs, plus the three busiest Fluxer routes and backend paths. An interval without requests or events logs nothing
 
+A warning about failed background work names its cause in log annotations. `cause.error` is the failure's error class, or `unknown` for a class NeonFlux does not list, and `cause.defect` says whether it was a bug rather than an expected failure. `cause.code`, `cause.stage`, `cause.operation`, `cause.route`, `cause.reason` and `cause.outcome` follow only when the value is one of the fixed names NeonFlux, its backend, the Fluxer SDK or Effect define for that field, and `cause.status` only as an HTTP status. Any other value, such as the sentence of a backend refusal or a raw path, is left out, so the annotations never hold message text, names, request or response bodies or secrets. A Fluxer SDK error carries no `cause.operation`
+
 ### Shared behavior
 
 - Replies suppress user, role, everyone and reply-author notifications. The one exception is the `!escalate` reply, which notifies the post's author

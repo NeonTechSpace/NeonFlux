@@ -80,7 +80,7 @@ import { parseSuggestionCommand, suggestionCritical, suggestionPublic } from "./
 import { handleSuggestionCommand } from "./suggestion-management.ts"
 import { startSuggestionsWorker } from "./suggestion-worker.ts"
 import { handleSuggestionReaction, handleSuggestionReactionsCleared } from "./suggestion-reactions.ts"
-import { contained } from "./contained.ts"
+import { contained, warnFailure } from "./contained.ts"
 import type { CleanupStore } from "./cleanup-store.ts"
 import { parseCleanupCommand } from "./cleanup-command.ts"
 import { handleCleanupCommand } from "./cleanup-management.ts"
@@ -869,7 +869,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
             if (Exit.isFailure(exit)) {
                 if (Cause.hasInterrupts(exit.cause) || scope.mode === "single")
                     return yield* Effect.failCause(exit.cause)
-                yield* Effect.logWarning(`Server ${entry.runtime.config.serverId} startup recovery paused`)
+                yield* warnFailure(`Server ${entry.runtime.config.serverId} startup recovery paused`, exit.cause)
             }
             yield* Deferred.succeed(entry.ready, undefined)
             if (entry.welcome && entry.runtime.active()) {
@@ -883,7 +883,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                     : Effect.succeed("!")
                 yield* prefix.pipe(
                     Effect.flatMap((value) => postInstallNote(client, serverId, value, root.websiteUrl)),
-                    Effect.catch(() => Effect.logWarning(`Server ${serverId} install note could not be posted`)),
+                    Effect.catch((error) => warnFailure(`Server ${serverId} install note could not be posted`, error)),
                     Effect.forkIn(runtimeScope),
                 )
             }
@@ -899,11 +899,12 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                     entry.welcome = welcome
                     return true
                 }),
-                Effect.catch(() =>
+                Effect.catch((error) =>
                     Effect.sync(() => retire(entry)).pipe(
                         Effect.andThen(
-                            Effect.logWarning(
+                            warnFailure(
                                 `Server ${serverId} could not be registered. Registration is retried when the server becomes available again`,
+                                error,
                             ),
                         ),
                         Effect.as(false),
@@ -920,9 +921,10 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                 yield* installations
                     .leave(serverId)
                     .pipe(
-                        Effect.catch(() =>
-                            Effect.logWarning(
+                        Effect.catch((error) =>
+                            warnFailure(
                                 `Server ${serverId} removal could not be recorded. The next startup records it`,
+                                error,
                             ),
                         ),
                     )
@@ -974,7 +976,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                             Effect.catchCause((cause) =>
                                 Cause.hasInterrupts(cause)
                                     ? Effect.failCause(cause)
-                                    : Effect.logWarning(`Server ${entry.runtime.config.serverId} could not start`),
+                                    : warnFailure(`Server ${entry.runtime.config.serverId} could not start`, cause),
                             ),
                         ),
                     { concurrency: RUNTIME_START_CONCURRENCY, discard: true },
@@ -1016,7 +1018,7 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
                 Effect.catchCause((cause) =>
                     Cause.hasInterrupts(cause)
                         ? Effect.failCause(cause)
-                        : Effect.logWarning(`Server ${serverId} ${kind} could not be applied`),
+                        : warnFailure(`Server ${serverId} ${kind} could not be applied`, cause),
                 ),
                 Effect.forkIn(lifetime.scope),
             ),
@@ -1054,8 +1056,9 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
             Effect.catchCause((cause) =>
                 Cause.hasInterrupts(cause)
                     ? Effect.failCause(cause)
-                    : Effect.logWarning(
+                    : warnFailure(
                           "Removed servers could not be checked after a new session. The next startup records them",
+                          cause,
                       ),
             ),
         )
@@ -1332,7 +1335,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                   Effect.catchCause((cause) =>
                       Cause.hasInterrupts(cause)
                           ? Effect.failCause(cause)
-                          : Effect.logWarning(warning).pipe(Effect.as(undefined)),
+                          : warnFailure(warning, cause).pipe(Effect.as(undefined)),
                   ),
               )
     const options = {
@@ -1585,7 +1588,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                     ? parseBackupCommand(command.args)
                                     : { error: `${syntaxProblem} Use !backup help privately` },
                                 context,
-                            ).pipe(Effect.catchCause(() => Effect.logWarning("Backup command stopped")))
+                            ).pipe(Effect.catchCause((cause) => warnFailure("Backup command stopped", cause)))
                             yield* backupScope
                                 ? backup.pipe(Effect.forkIn(backupScope))
                                 : backup.pipe(Effect.forkDetach)
@@ -1598,7 +1601,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                 config,
                                 command?.args ?? ["invalid quoting"],
                                 context,
-                            ).pipe(Effect.catchCause(() => Effect.logWarning("Export command stopped")))
+                            ).pipe(Effect.catchCause((cause) => warnFailure("Export command stopped", cause)))
                             yield* backupScope
                                 ? exporting.pipe(Effect.forkIn(backupScope))
                                 : exporting.pipe(Effect.forkDetach)
@@ -2320,8 +2323,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                     Effect.catchCause((cause) =>
                                                         Cause.hasInterrupts(cause)
                                                             ? Effect.failCause(cause)
-                                                            : Effect.logWarning(
+                                                            : warnFailure(
                                                                   "A verification review could not be recorded",
+                                                                  cause,
                                                               ).pipe(
                                                                   Effect.as(
                                                                       verificationReviewFailure(Cause.squash(cause)),
@@ -2367,8 +2371,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                                   Effect.catchCause((cause) =>
                                                                       Cause.hasInterrupts(cause)
                                                                           ? Effect.failCause(cause)
-                                                                          : Effect.logWarning(
+                                                                          : warnFailure(
                                                                                 "A verification link could not be delivered",
+                                                                                cause,
                                                                             ).pipe(
                                                                                 Effect.as(
                                                                                     verificationLinkFailure(
@@ -2425,7 +2430,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                     Effect.catchCause((cause) =>
                                                         Cause.hasInterrupts(cause)
                                                             ? Effect.failCause(cause)
-                                                            : Effect.logWarning("A role request could not be answered"),
+                                                            : warnFailure(
+                                                                  "A role request could not be answered",
+                                                                  cause,
+                                                              ),
                                                     ),
                                                 ),
                                                 reply({
@@ -2595,8 +2603,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                 Effect.catchCause((cause) =>
                                     Cause.hasInterrupts(cause)
                                         ? Effect.failCause(cause)
-                                        : Effect.logWarning(
+                                        : warnFailure(
                                               "Greeting admission could not be verified. Existing join protection and role handling remain independent",
+                                              cause,
                                           ),
                                 ),
                             )
@@ -2628,8 +2637,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                     Effect.catchCause((cause) =>
                                         Cause.hasInterrupts(cause)
                                             ? Effect.failCause(cause)
-                                            : Effect.logWarning(
+                                            : warnFailure(
                                                   "Temporary roles of a rejoined member could not be given back. !temprole reconcile gives them back",
+                                                  cause,
                                               ),
                                     ),
                                 )

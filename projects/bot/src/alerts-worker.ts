@@ -21,7 +21,7 @@ import {
 } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Exit, Schema } from "effect"
 import type { AlertsStore } from "./alerts-store.ts"
-import { contained } from "./contained.ts"
+import { contained, warnFailure } from "./contained.ts"
 import { namesLookAlike } from "./alerts-names.ts"
 import type { MetadataLogsStore } from "./metadata-log-store.ts"
 import { createMetadataObservationSession } from "./metadata-log-projector.ts"
@@ -170,7 +170,7 @@ export function createSecurityAlerts(
             Effect.catchCause((cause) =>
                 Cause.hasInterrupts(cause)
                     ? Effect.failCause(cause)
-                    : Effect.logWarning("A security alert could not be recorded").pipe(Effect.as(false)),
+                    : warnFailure("A security alert could not be recorded", cause).pipe(Effect.as(false)),
             ),
         )
     /**
@@ -355,8 +355,9 @@ export function createSecurityAlerts(
             Effect.catchCause((cause) =>
                 Cause.hasInterrupts(cause)
                     ? Effect.failCause(cause)
-                    : Effect.logWarning(
+                    : warnFailure(
                           "Staff names could not be read for the impersonation check. NeonFlux needs Manage community",
+                          cause,
                       ).pipe(Effect.map(() => staff?.list ?? [])),
             ),
         )
@@ -494,7 +495,7 @@ export function createSecurityAlerts(
                 Effect.catchCause((cause) =>
                     Cause.hasInterrupts(cause)
                         ? Effect.failCause(cause)
-                        : Effect.logWarning("A privilege change could not be checked"),
+                        : warnFailure("A privilege change could not be checked", cause),
                 ),
             ),
         /** Invite logs keep the invite's code, so the security category belongs in a staff-only channel */

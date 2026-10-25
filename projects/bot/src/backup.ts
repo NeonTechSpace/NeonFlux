@@ -75,6 +75,7 @@ import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts
 import { applyNativeNickname, createGeneralSettingsStore, serverReplyStyle } from "./general-settings.ts"
 import { reloadServerRuntime } from "./runtime-reload.ts"
 import { ago, at, code, notSetUp, renderCard, type Card, type RenderedReply } from "./reply-style.ts"
+import { warnFailure } from "./contained.ts"
 
 /** version is an archive of an older format and parts an archive whose parts are not all attached, of partCount parts */
 class BackupHandlingError extends Data.TaggedError("BackupHandlingError")<{
@@ -1015,7 +1016,7 @@ export function processBackupPlanPass(
                             Effect.catchCause((cause) =>
                                 Cause.hasInterrupts(cause)
                                     ? Effect.failCause(cause)
-                                    : Effect.logWarning(`Reactions of role panel ${panel.name} are not updated yet`),
+                                    : warnFailure(`Reactions of role panel ${panel.name} are not updated yet`, cause),
                             ),
                         )
                     }

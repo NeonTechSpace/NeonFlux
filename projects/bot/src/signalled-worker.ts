@@ -1,9 +1,10 @@
 import { Cause, Effect, Queue } from "effect"
+import { causeSummary } from "./contained.ts"
 
 /**
  * A background loop that runs `pass` once for each wake. Wakes that arrive during a pass collapse into one more pass,
- * and a failed pass runs `onFailure` and waits for the next wake. `after` sees the result of a finished pass and may wake
- * the loop again
+ * and a failed pass runs `onFailure`, whose logs carry the summary of the failure, and waits for the next wake. `after` sees
+ * the result of a finished pass and may wake the loop again
  */
 export function startSignalledWorker<A, E, R>(
     pass: Effect.Effect<A, E, R>,
@@ -19,7 +20,11 @@ export function startSignalledWorker<A, E, R>(
                 yield* Queue.take(queue)
                 yield* pass.pipe(
                     Effect.flatMap((result) => (after ? after(result, wake) : Effect.void)),
-                    Effect.catchCause((cause) => (Cause.hasInterrupts(cause) ? Effect.failCause(cause) : onFailure)),
+                    Effect.catchCause((cause) =>
+                        Cause.hasInterrupts(cause)
+                            ? Effect.failCause(cause)
+                            : onFailure.pipe(Effect.annotateLogs(causeSummary(cause))),
+                    ),
                 )
             }
         }).pipe(Effect.forkScoped({ startImmediately: true }))

@@ -7,6 +7,7 @@ import { readSuggestionCardContext } from "./suggestion-permissions.ts"
 import { performPublishingGrant } from "./publishing.ts"
 import { prepareSuggestionPost, SuggestionTagError } from "./suggestion-forum.ts"
 import { forgetSuggestionCards, seedSuggestionReactions } from "./suggestion-reactions.ts"
+import { warnFailure } from "./contained.ts"
 
 export class SuggestionsHandlingError extends Data.TaggedError("SuggestionsHandlingError")<{
     readonly stage: "response" | "grant" | "identity"
@@ -26,7 +27,7 @@ export function processSuggestionCard(
         const appliedTagIds = yield* prepareSuggestionPost(client, card).pipe(
             Effect.tapError((error) =>
                 error instanceof SuggestionTagError
-                    ? Effect.logWarning(`Suggestion ${card.suggestionNo} card waits: ${error.fix}`)
+                    ? warnFailure(`Suggestion ${card.suggestionNo} card waits: ${error.fix}`, error.cause ?? error)
                     : Effect.void,
             ),
         )

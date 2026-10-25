@@ -21,6 +21,7 @@ import { isDeepStrictEqual } from "node:util"
 import { processDashboardMessagesPass } from "./dashboard-messages.ts"
 import { processDashboardMetadataPass } from "./dashboard-metadata.ts"
 import { processDashboardConfigurationPass, readDashboardHumanIdentity } from "./dashboard-configuration.ts"
+import { warnFailure } from "./contained.ts"
 
 // The bot reads only the grant. A reserved attempt is never sent again
 const reserveResult = DashboardPublishingReserveResult.mapFields(Struct.pick(["grant"]))
@@ -41,7 +42,7 @@ const syncSaved = (sync: DashboardPanelSync, panel: RolesPanel) =>
         Effect.catchCause((cause) =>
             Cause.hasInterrupts(cause)
                 ? Effect.failCause(cause)
-                : Effect.logWarning(`Reactions of role panel ${panel.name} are not updated yet`),
+                : warnFailure(`Reactions of role panel ${panel.name} are not updated yet`, cause),
         ),
     )
 function processDashboardRolesPass(
@@ -255,7 +256,7 @@ export function startDashboardRolesWorker(
                     Effect.catchCause((cause) =>
                         Cause.hasInterrupts(cause)
                             ? Effect.failCause(cause)
-                            : Effect.logWarning("Dashboard configuration paused"),
+                            : warnFailure("Dashboard configuration paused", cause),
                     ),
                 )
                 // A failing manager pass never holds back member requests
@@ -264,7 +265,7 @@ export function startDashboardRolesWorker(
                         Effect.catchCause((cause) =>
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
-                                : Effect.logWarning("Role picker requests paused"),
+                                : warnFailure("Role picker requests paused", cause),
                         ),
                     )
                 if (setupChecks && has("setup"))
@@ -272,7 +273,7 @@ export function startDashboardRolesWorker(
                         Effect.catchCause((cause) =>
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
-                                : Effect.logWarning("Dashboard permission check paused"),
+                                : warnFailure("Dashboard permission check paused", cause),
                         ),
                     )
                 if (privateChecks && has("private"))
@@ -280,7 +281,7 @@ export function startDashboardRolesWorker(
                         Effect.catchCause((cause) =>
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
-                                : Effect.logWarning("Private case access checks paused"),
+                                : warnFailure("Private case access checks paused", cause),
                         ),
                     )
                 if (backupJobs && has("preview"))
@@ -288,7 +289,7 @@ export function startDashboardRolesWorker(
                         Effect.catchCause((cause) =>
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
-                                : Effect.logWarning("Backup refresh and restore paused"),
+                                : warnFailure("Backup refresh and restore paused", cause),
                         ),
                     )
                 if (showcaseRequests && has("showcase"))
@@ -296,7 +297,7 @@ export function startDashboardRolesWorker(
                         Effect.catchCause((cause) =>
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
-                                : Effect.logWarning("Showcase requests paused"),
+                                : warnFailure("Showcase requests paused", cause),
                         ),
                     )
                 if (profileRequests && has("profile"))
@@ -304,7 +305,7 @@ export function startDashboardRolesWorker(
                         Effect.catchCause((cause) =>
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
-                                : Effect.logWarning("Profile requests paused"),
+                                : warnFailure("Profile requests paused", cause),
                         ),
                     )
                 if (structureJobs && has("structure"))
@@ -312,7 +313,7 @@ export function startDashboardRolesWorker(
                         Effect.catchCause((cause) =>
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
-                                : Effect.logWarning("Server structure requests paused"),
+                                : warnFailure("Server structure requests paused", cause),
                         ),
                     )
                 if (analyticsReloads && has("analytics"))
@@ -320,7 +321,7 @@ export function startDashboardRolesWorker(
                         Effect.catchCause((cause) =>
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
-                                : Effect.logWarning("Analytics switch reload paused"),
+                                : warnFailure("Analytics switch reload paused", cause),
                         ),
                     )
             }

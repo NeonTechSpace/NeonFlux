@@ -42,6 +42,7 @@ import type { startRoleReactionWorker } from "./role-reconciliation.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { sentenceList } from "./permission-fix.ts"
+import { warnFailure } from "./contained.ts"
 
 // Printed with the server's prefix when the verification panel cannot be created because another panel has its name
 const rulesNameTaken =
@@ -892,7 +893,7 @@ export function handleRoleCommand(
                         Effect.catchCause((cause) =>
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
-                                : Effect.logWarning("A role removal could not be answered"),
+                                : warnFailure("A role removal could not be answered", cause),
                         ),
                     ),
                 )

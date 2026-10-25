@@ -25,6 +25,7 @@ import { EventsHandlingError } from "./event-management.ts"
 import { readNativeMember } from "./member-evidence.ts"
 import { memberTimeout, readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
 import { clip } from "./reply-style.ts"
+import { warnFailure } from "./contained.ts"
 
 // Automated reminders act as the bot itself with fresh bot permission in the destination
 export function readEventsAutomationContext(client: Client, serverId: string, channelId: string) {
@@ -209,8 +210,9 @@ export function processEventThread(store: EventsStore, serverId: string, client:
         Effect.catchCause((cause) =>
             Cause.hasInterrupts(cause)
                 ? Effect.failCause(cause)
-                : Effect.logWarning(
+                : warnFailure(
                       `Event ${work.eventNo} discussion thread waits. NeonFlux needs ${work.action === "open" ? "Create public threads and Read message history" : "access to the thread"} in ${format.channelMention(work.channelId)}`,
+                      cause,
                   ).pipe(
                       Effect.andThen(
                           store.delivery({

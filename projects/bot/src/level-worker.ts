@@ -7,6 +7,7 @@ import { roleMemberContext, performRoleGrant, withRoleMember } from "./roles.ts"
 import { LevelingHandlingError } from "./leveling.ts"
 import { readNativeMember } from "./member-evidence.ts"
 import { startSignalledWorker } from "./signalled-worker.ts"
+import { warnFailure } from "./contained.ts"
 
 // Applies one dirty account's mapped rewards through the role ownership ledger. Returns whether every target settled, and whether
 // the backend's refusal of a role evaluation is the only thing that left the account unsettled, which DEFCON can cause for additions
@@ -137,7 +138,7 @@ export function startLevelRoleWorker(store: LevelingStore, roles: RolesStore, se
                     Effect.catchCause((cause) =>
                         Cause.hasInterrupts(cause)
                             ? Effect.failCause(cause)
-                            : Effect.logWarning("Level reward reconciliation deferred. Inspect !level status"),
+                            : warnFailure("Level reward reconciliation deferred. Inspect !level status", cause),
                     ),
                 )
             }

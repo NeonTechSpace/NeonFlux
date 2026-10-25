@@ -11,7 +11,7 @@ import {
     type ThreadCreateEvent,
 } from "@neontechspace/fluxerly/effect"
 import { Clock, Context, Effect, Scope } from "effect"
-import { contained, forkContained } from "./contained.ts"
+import { contained, forkContained, warnFailure } from "./contained.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import type { HelpDeskStore } from "./helpdesk-store.ts"
 import { startSignalledWorker } from "./signalled-worker.ts"
@@ -157,21 +157,18 @@ function budgetPass(
                     .pipe(
                         Effect.as(undefined),
                         Effect.catch((error) =>
-                            Effect.succeed(
-                                (error as { status?: unknown }).status === 403
-                                    ? (errors.apiCode(error) ?? "refused")
-                                    : undefined,
-                            ),
+                            Effect.succeed((error as { status?: unknown }).status === 403 ? { error } : undefined),
                         ),
                     )
                 // A refusal repeats for every edit, so the edits stop, and the count and the cap warning still follow. Only a missing
                 // permission is cured by Manage threads, and another refusal, such as a bot that is timed out, must not be answered
                 // with that fix
                 if (refused) {
-                    yield* Effect.logWarning(
-                        refused === "missingPermissions"
+                    yield* warnFailure(
+                        errors.apiCode(refused.error) === "missingPermissions"
                             ? "Help desk auto-archive needs Manage threads"
                             : "Fluxer refused help desk auto-archive edits for a reason other than a missing permission",
+                        refused.error,
                     )
                     stopped = true
                     break

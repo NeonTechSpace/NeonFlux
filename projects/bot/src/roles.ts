@@ -22,6 +22,7 @@ import { RolesStoreError, type RolesStore } from "./roles-store.ts"
 import { readNativeMember } from "./member-evidence.ts"
 import { replyPrefix } from "./general-settings.ts"
 import { code } from "./reply-style.ts"
+import { warnFailure } from "./contained.ts"
 
 export class RoleHandlingError extends Data.TaggedError("RoleHandlingError")<{
     readonly stage: "identity" | "eligibility" | "snapshot" | "claim" | "panel"
@@ -125,7 +126,7 @@ export function backgroundRoleWork(client: Client, serverId: string, work: Effec
                         Effect.andThen(
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
-                                : Effect.logWarning("Role work did not start because the bot is stopping"),
+                                : warnFailure("Role work did not start because the bot is stopping", cause),
                         ),
                     ),
                 ),
@@ -168,7 +169,7 @@ export function memberRoleWork(
                             Effect.andThen(
                                 Cause.hasInterrupts(cause)
                                     ? Effect.failCause(cause)
-                                    : Effect.logWarning("A role request did not start because the bot is stopping"),
+                                    : warnFailure("A role request did not start because the bot is stopping", cause),
                             ),
                         ),
                     ),
@@ -571,8 +572,9 @@ export const joinRolesWork = (...args: Parameters<typeof giveJoinRoles>) =>
                                 (reason.error instanceof RolesStoreError && reason.error.code === "MEMBER_NOT_READY")),
                     )
                   ? Effect.void
-                  : Effect.logWarning(
+                  : warnFailure(
                         "A new member's autoroles could not all be given. !autorole history shows the ones given, and staff can add the rest",
+                        cause,
                     ),
         ),
     )
@@ -728,7 +730,7 @@ export function liveRoleReaction(
                 Effect.catchCause((cause) =>
                     Cause.hasInterrupts(cause)
                         ? Effect.failCause(cause)
-                        : Effect.logWarning("A reaction on a role panel could not be handled"),
+                        : warnFailure("A reaction on a role panel could not be handled", cause),
                 ),
             ),
         )
@@ -810,7 +812,7 @@ function roleReaction(
                     Effect.catchCause((cause) =>
                         Cause.hasInterrupts(cause)
                             ? Effect.failCause(cause)
-                            : Effect.logWarning(`Reactions of role panel ${panel.name} are not updated yet`),
+                            : warnFailure(`Reactions of role panel ${panel.name} are not updated yet`, cause),
                     ),
                 )
             if (!job && emoji && pending.some((x) => sameEmoji(x, emoji))) return true

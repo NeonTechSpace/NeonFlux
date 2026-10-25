@@ -9,7 +9,7 @@ import {
     type VoiceStateSnapshot,
 } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Context, Effect, Scope } from "effect"
-import { contained, forkContained } from "./contained.ts"
+import { contained, forkContained, warnFailure } from "./contained.ts"
 import { VoiceStoreError, type VoiceStore } from "./voice-store.ts"
 import { clip, duration } from "./reply-style.ts"
 import { readAuthenticatedBotId } from "./safety-permissions.ts"
@@ -186,16 +186,20 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
                 // A join can arrive while the read is in flight, so emptiness and sync are checked again right before deleting
                 if (!current(channelId, token)) return
                 timers.delete(channelId)
-                const deleted = yield* native.channels
+                // A room that is already gone counts as deleted
+                const failed = yield* native.channels
                     .delete(channelId, { auditReason: "Temporary voice room was empty" })
                     .pipe(
-                        Effect.as(true),
-                        Effect.catch((error) => Effect.succeed(errors.isNotFound(error, "channel"))),
+                        Effect.as(undefined),
+                        Effect.catch((error) =>
+                            Effect.succeed(errors.isNotFound(error, "channel") ? undefined : { error }),
+                        ),
                     )
-                if (deleted) yield* forget(channelId)
+                if (!failed) yield* forget(channelId)
                 else
-                    yield* Effect.logWarning(
+                    yield* warnFailure(
                         "A temporary voice room could not be deleted. It is checked again when its occupancy changes",
+                        failed.error,
                     )
                 return
             }
@@ -236,7 +240,7 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
                 Effect.catchCause((cause) =>
                     Cause.hasInterrupts(cause)
                         ? Effect.failCause(cause)
-                        : Effect.logWarning("A member could not be moved into their temporary voice room").pipe(
+                        : warnFailure("A member could not be moved into their temporary voice room", cause).pipe(
                               Effect.as(false),
                           ),
                 ),

@@ -6,6 +6,7 @@ import { serverLabel, serverOption } from "./server-scope.ts"
 import type { TicketStore } from "./ticket-store.ts"
 import { readTicketAuthority } from "./ticket-permissions.ts"
 import { memberDm, openDmIntake, TICKET_PANEL_EMOJI, ticketRefusalText } from "./ticket-management.ts"
+import { warnFailure } from "./contained.ts"
 
 export type TicketPanelIndex = ReturnType<typeof createTicketPanelIndex>
 /** Each running server's panel index, so a category the dashboard deletes takes its panel out of it */
@@ -37,7 +38,7 @@ export function createTicketPanelIndex(store: TicketStore, serverId: string) {
     const load = readTicketPanels(store, serverId).pipe(
         Effect.map((found) => (panels = new Map(found.map((panel) => [panel.messageId, panel] as const)))),
         // A failed read leaves the index unread, so the next reaction tries again
-        Effect.catch(() => Effect.logWarning("Ticket panels could not be read").pipe(Effect.as(undefined))),
+        Effect.catch((error) => warnFailure("Ticket panels could not be read", error).pipe(Effect.as(undefined))),
     )
     return {
         /** The panel a message is, or undefined */

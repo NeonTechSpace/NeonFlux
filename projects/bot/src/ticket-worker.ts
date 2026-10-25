@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import type { TicketStore } from "./ticket-store.ts"
 import { saveTicketTranscript } from "./ticket-transcripts.ts"
 import { startSignalledWorker } from "./signalled-worker.ts"
+import { warnFailure } from "./contained.ts"
 
 // The backend lists at most this many due tickets per pass, so a full list runs another pass
 const duePage = 10
@@ -14,9 +15,10 @@ export function processTicketPass(store: TicketStore, serverId: string, client: 
         if (work.type !== "due") return { more: false }
         for (const due of work.tickets) {
             const outcome = yield* saveTicketTranscript(store, client, serverId, due).pipe(
-                Effect.catch(() =>
-                    Effect.logWarning(
+                Effect.catch((error) =>
+                    warnFailure(
                         "A ticket transcript could not be saved. NeonFlux tries again every 10 minutes, at most six times in all",
+                        error,
                     ).pipe(Effect.as("failed" as const)),
                 ),
             )

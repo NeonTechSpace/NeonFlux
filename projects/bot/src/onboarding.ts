@@ -4,6 +4,7 @@ import { Cause, Clock, Effect } from "effect"
 import type { OnboardingStore } from "./onboarding-store.ts"
 import { memberRoleWork, performRoleGrant, roleMemberContext } from "./roles.ts"
 import { RolesStoreError, type RolesStore } from "./roles-store.ts"
+import { warnFailure } from "./contained.ts"
 
 /** The checklist is read again after ten minutes, or after a minute while it could not be read */
 const VIEW_MS = 600000,
@@ -94,7 +95,7 @@ export function createOnboardingRuntime(store: OnboardingStore, roles: RolesStor
     const unchecked = Effect.catchCause((cause: Cause.Cause<unknown>) =>
         Cause.hasInterrupts(cause)
             ? Effect.failCause(cause)
-            : Effect.logWarning("Newcomer checklist progress could not be checked. The member can run !onboarding"),
+            : warnFailure("Newcomer checklist progress could not be checked. The member can run !onboarding", cause),
     )
     return {
         current,

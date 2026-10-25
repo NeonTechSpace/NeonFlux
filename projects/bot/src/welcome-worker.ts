@@ -2,6 +2,7 @@ import type { Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Effect, Exit, Fiber, Queue } from "effect"
 import type { GreetingsStore } from "./welcome-store.ts"
 import { greetingsBinding, processGreetingsCandidate } from "./welcome.ts"
+import { warnFailure } from "./contained.ts"
 
 export const greetingsCandidateBudget = 20
 /** Pages of waiting rows one pass reads at most, so pages without due candidates cannot extend a pass */
@@ -51,8 +52,9 @@ export function processGreetingsPass(store: GreetingsStore, serverId: string, cl
                             Effect.catchCause((cause) =>
                                 Cause.hasInterrupts(cause)
                                     ? Effect.failCause(cause)
-                                    : Effect.logWarning(
+                                    : warnFailure(
                                           "Greeting eligibility deferred. Inspect delivery status for claimed uncertainty",
+                                          cause,
                                       ),
                             ),
                         )
@@ -146,8 +148,9 @@ export function startGreetingsWorker(store: GreetingsStore, serverId: string, cl
                                   }
                               }).pipe(
                                   Effect.andThen(
-                                      Effect.logWarning(
+                                      warnFailure(
                                           "Greeting worker paused. Retained delivery status remains available",
+                                          cause,
                                       ),
                                   ),
                                   Effect.andThen(Clock.currentTimeMillis),

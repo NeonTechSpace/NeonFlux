@@ -5,6 +5,7 @@ import { replyPrefix } from "./general-settings.ts"
 import type { LfgStore } from "./lfg-store.ts"
 import { at, code } from "./reply-style.ts"
 import { startSignalledWorker } from "./signalled-worker.ts"
+import { warnFailure } from "./contained.ts"
 
 type LfgCardState =
     { readonly state: "open" | "cancelled" | "expired" } | { readonly state: "started"; readonly roomId: string }
@@ -42,7 +43,7 @@ export function updateLfgCard(client: Client, serverId: string, group: LfgGroup,
             Effect.catchCause((cause) =>
                 Cause.hasInterrupts(cause)
                     ? Effect.failCause(cause)
-                    : Effect.logWarning("A group card could not be updated"),
+                    : warnFailure("A group card could not be updated", cause),
             ),
         )
 }

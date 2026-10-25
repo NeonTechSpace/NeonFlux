@@ -22,6 +22,7 @@ import { fixSentence, nativeFix } from "./permission-fix.ts"
 import { sourceTimestamp } from "./responses.ts"
 import { channelPermissionInput, readAuthenticatedBotId, SafetyPermissionError } from "./safety-permissions.ts"
 import { createRoomChannel, groupRoomGraceMs, voiceRoomLimit, type VoiceRuntime } from "./voice-worker.ts"
+import { warnFailure } from "./contained.ts"
 
 const access = ["ViewChannel", "Connect"] as const
 const posting = Permissions.ViewChannel | Permissions.SendMessages
@@ -459,7 +460,7 @@ export function handleLfgCommand(
             )
             .pipe(
                 Effect.asVoid,
-                Effect.catch(() => Effect.logWarning("A group could not be called to its room")),
+                Effect.catch((error) => warnFailure("A group could not be called to its room", error)),
             )
         yield* updateLfgCard(client, serverId, result.group, { state: "started", roomId })
         yield* reply(

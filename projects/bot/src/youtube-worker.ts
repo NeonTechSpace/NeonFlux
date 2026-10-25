@@ -13,6 +13,7 @@ import type { PublishingStore } from "./publishing-store.ts"
 import { readAuthenticatedBotId, readSafetyAuthority, SafetyPermissionError } from "./safety-permissions.ts"
 import type { YoutubeStore } from "./youtube-store.ts"
 import { startSignalledWorker } from "./signalled-worker.ts"
+import { warnFailure } from "./contained.ts"
 
 export class YoutubeHandlingError extends Data.TaggedError("YoutubeHandlingError")<{
     readonly stage: "destination" | "response" | "grant"
@@ -108,7 +109,7 @@ export function processYoutubeDelivery(
                     Effect.catchCause((cause) =>
                         Cause.hasInterrupts(cause)
                             ? Effect.failCause(cause)
-                            : Effect.logWarning("A note about stopped YouTube alerts could not be posted"),
+                            : warnFailure("A note about stopped YouTube alerts could not be posted", cause),
                     ),
                 )
             return

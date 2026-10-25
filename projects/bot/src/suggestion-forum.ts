@@ -19,8 +19,11 @@ const statusNames = Object.values(suggestionStateNames)
 const FORUM_TAGS = 20,
     POST_TAGS = 5
 
-/** The bot cannot add or apply a status tag. fix is the sentence that says what to change */
-export class SuggestionTagError extends Data.TaggedError("SuggestionTagError")<{ readonly fix: string }> {}
+/** The bot cannot add or apply a status tag. fix is the sentence that says what to change, and cause the Fluxer failure behind it */
+export class SuggestionTagError extends Data.TaggedError("SuggestionTagError")<{
+    readonly fix: string
+    readonly cause?: unknown
+}> {}
 
 type Forum = GuildForumChannel | GuildMediaChannel
 export const isForum = (channel: GuildChannel | undefined): channel is Forum => !!channel && forumType(channel.type)
@@ -46,6 +49,7 @@ export function ensureSuggestionTags(client: Client, forum: Forum, names: readon
                     (error) =>
                         new SuggestionTagError({
                             fix: `${nativeFix(error, forum.id) ?? `Grant Manage channels to the NeonFlux role and allow it in ${format.channelMention(forum.id)}`}, ${yourself}`,
+                            cause: error,
                         }),
                 ),
             )
@@ -118,6 +122,7 @@ export function prepareSuggestionPost(client: Client, card: SuggestionsWorkRow) 
                                 fix:
                                     nativeFix(error, forum.id) ??
                                     `Let NeonFlux change the tags of its posts in ${format.channelMention(forum.id)}`,
+                                cause: error,
                             }),
                     ),
                 )

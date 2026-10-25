@@ -3,6 +3,7 @@ import { Duration, Effect, Schema } from "effect"
 import { BackendRequestError, createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { readCosts } from "./costs.ts"
+import { warnFailure } from "./contained.ts"
 
 /** The bot reports its billed calls this often, so the bill guard costs one call every five minutes */
 export const usageReportMs = 300000
@@ -56,7 +57,7 @@ export function startUsageReporter(backend: BackendConfig, guard: UsageGuard) {
                 Effect.succeed(
                     error instanceof BackendRequestError && error.code === "USAGE_BUDGET_INVALID"
                         ? ("misconfigured" as const)
-                        : undefined,
+                        : { failed: error },
                 ),
             ),
         )
@@ -65,13 +66,16 @@ export function startUsageReporter(backend: BackendConfig, guard: UsageGuard) {
             yield* guard.misconfigured()
             return
         }
-        const usage = answer
-        if (!usage) {
+        if ("failed" in answer) {
             if (!failing)
-                yield* Effect.logWarning("Backend usage could not be reported. The next report includes these calls")
+                yield* warnFailure(
+                    "Backend usage could not be reported. The next report includes these calls",
+                    answer.failed,
+                )
             failing = true
             return
         }
+        const usage = answer
         failing = false
         reported = counted
         yield* guard.apply(usage)

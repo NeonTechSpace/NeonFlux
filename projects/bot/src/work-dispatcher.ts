@@ -11,6 +11,7 @@ import { createBackendRequest, deriveServiceKey } from "./backend-http.ts"
 import { backendFunction } from "./backend-routes.ts"
 import { convexBackendClient } from "./convex-client.ts"
 import { countBackendRequest } from "./costs.ts"
+import { warnFailure } from "./contained.ts"
 
 /** Every worker kind, in the contract's order, so a reported kind is never skipped */
 export const workKinds = ServiceWorkKind.literals
@@ -62,6 +63,8 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
             dueAt: number | undefined,
             version: number | undefined,
             pushFailed = false,
+            // The failure of the subscription, when it failed rather than sent a signal NeonFlux cannot read
+            pushFailure: unknown,
             // Set while the next pass only continues the pages of a pass that woke servers
             resume = false
         const poke = () => {
@@ -75,6 +78,7 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
                     countBackendRequest("/service/work-signal")
                     const next = signalVersion(value)
                     pushFailed = next === undefined
+                    pushFailure = undefined
                     if (next !== undefined && next !== version) {
                         version = next
                         pending = true
@@ -82,17 +86,19 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
                     }
                     poke()
                 },
-                () => {
+                (error) => {
                     pushFailed = true
+                    pushFailure = error
                     poke()
                 },
             ),
         )
         yield* Effect.acquireRelease(
             subscribe.pipe(
-                Effect.catch(() =>
+                Effect.catch((error) =>
                     Effect.sync(() => {
                         pushFailed = true
+                        pushFailure = error
                         return () => {}
                     }),
                 ),
@@ -122,10 +128,12 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
                 const now = yield* Clock.currentTimeMillis
                 if (pushFailed !== warned) {
                     warned = pushFailed
+                    const unavailable =
+                        "Background work push is unavailable. Work still runs at its due times and at least every two minutes"
                     if (pushFailed)
-                        yield* Effect.logWarning(
-                            "Background work push is unavailable. Work still runs at its due times and at least every two minutes",
-                        )
+                        yield* pushFailure === undefined
+                            ? Effect.logWarning(unavailable)
+                            : warnFailure(unavailable, pushFailure)
                 }
                 // During a backoff a changed work signal gets one early probe per interval, so new work, such as a dashboard job that
                 // expires after two minutes, does not wait out a five-minute backoff when the backend is back
@@ -157,6 +165,7 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
                 resume = false
                 dueAt = undefined
                 let work: ServiceWork | undefined,
+                    failure: unknown,
                     pages = 0,
                     woke = false
                 do {
@@ -168,7 +177,12 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
                         requestedAt,
                     } satisfies ServiceWorkRequest).pipe(
                         Effect.flatMap(Schema.decodeUnknownEffect(ServiceWork)),
-                        Effect.catch(() => Effect.succeed(undefined)),
+                        Effect.catch((error) =>
+                            Effect.sync(() => {
+                                failure = error
+                                return undefined
+                            }),
+                        ),
                     )
                     if (!work) break
                     cursor = work.cursor
@@ -185,8 +199,9 @@ export function startWorkDispatcher(backend: BackendConfig, wake: WorkWake, noti
                     failures++
                     // A rejected cursor must not repeat, so the next pass starts over
                     cursor = null
-                    yield* Effect.logWarning(
+                    yield* warnFailure(
                         `Background work dispatch is unavailable. Retrying in ${workDelay(failures) / 1000} seconds`,
+                        failure,
                     )
                     continue
                 }

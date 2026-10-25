@@ -4,6 +4,7 @@ import { Cause, Clock, Effect, Exit, Queue } from "effect"
 import { randomUUID } from "node:crypto"
 import { handleRoleReaction, RoleHandlingError } from "./roles.ts"
 import { RolesStoreError, type RolesStore } from "./roles-store.ts"
+import { warnFailure } from "./contained.ts"
 
 export function processRoleReactionJob(store: RolesStore, serverId: string, client: Client, jobId: string) {
     return Effect.gen(function* () {
@@ -79,7 +80,10 @@ export function startRoleReactionWorker(store: RolesStore, serverId: string, cli
             Effect.catchCause((cause) =>
                 Cause.hasInterrupts(cause)
                     ? Effect.failCause(cause)
-                    : Effect.logWarning("Role reaction jobs could not be read at startup. They resume after a restart"),
+                    : warnFailure(
+                          "Role reaction jobs could not be read at startup. They resume after a restart",
+                          cause,
+                      ),
             ),
         )
         const worker = Effect.gen(function* () {
@@ -91,8 +95,9 @@ export function startRoleReactionWorker(store: RolesStore, serverId: string, cli
                     Effect.catchCause((cause) =>
                         Cause.hasInterrupts(cause)
                             ? Effect.failCause(cause)
-                            : Effect.logWarning(
+                            : warnFailure(
                                   "Role reaction reconciliation paused. Inspect the durable job before resuming",
+                                  cause,
                               ),
                     ),
                 )

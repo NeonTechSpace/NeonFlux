@@ -15,7 +15,7 @@ import type {
 } from "@neonflux/contracts/roles"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Clock, Deferred, Effect, Fiber, Logger, type Types } from "effect"
+import { Clock, Deferred, Effect, Fiber, Logger, References, type Types } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { parseRoleCommand } from "../src/role-command.ts"
@@ -4307,6 +4307,76 @@ test("a stalled earlier revision stops the deletion, and next withdraws the rest
                 assert.equal(last(), "Retired. The roles it gave are removed")
                 assert.equal(bot.failures().length, 0)
             }),
+        ),
+    )
+})
+
+test("a member's reaction that cannot be handled logs its warning with the failure's summary", async () => {
+    const f = createFixtures(),
+        remote = rolesBoundary(),
+        logged: { message: unknown; annotations: Record<string, unknown> }[] = []
+    // The backend refuses the evaluation with a sentence of its own, which the summary leaves out
+    remote.store.evaluate = () =>
+        Effect.fail(new RolesStoreError({ operation: "evaluate", status: 503, reason: "Synthetic backend sentence" }))
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions(
+                        { token, serverId: f.ids.guild },
+                        { moderation: boundary().store, roles: remote.store },
+                    ),
+                )
+                const p = nativeRoles(bot),
+                    panel = savedPanel(bot, p, remote)
+                remote.current.panelsEnabled = true
+                // Fluxer shows the member's reaction on the panel
+                bot.rest.respond(
+                    (r) => new URL(r.url).pathname.endsWith("/users"),
+                    () => ({
+                        body: {
+                            items: [{ id: p.targetId, username: "Synthetic reactor" }],
+                            has_more: false,
+                            next_after: null,
+                        },
+                    }),
+                )
+                yield* bot.ready()
+                yield* bot.idle()
+                yield* bot.emit("MESSAGE_REACTION_ADD", {
+                    guild_id: f.ids.guild,
+                    channel_id: f.ids.channel,
+                    message_id: panel.published!.messageId,
+                    user_id: p.targetId,
+                    emoji: { name: "✅" },
+                })
+                yield* bot.idle()
+                assert.deepEqual(
+                    logged.filter((entry) => entry.message === "A reaction on a role panel could not be handled"),
+                    [
+                        {
+                            message: "A reaction on a role panel could not be handled",
+                            annotations: {
+                                "cause.error": "RolesStoreError",
+                                "cause.defect": false,
+                                "cause.status": 503,
+                                "cause.operation": "evaluate",
+                            },
+                        },
+                    ],
+                )
+            }),
+        ).pipe(
+            Effect.provide(
+                Logger.layer([
+                    Logger.make(({ message, fiber }) => {
+                        logged.push({
+                            message: Array.isArray(message) ? message[0] : message,
+                            annotations: { ...fiber.getRef(References.CurrentLogAnnotations) },
+                        })
+                    }),
+                ]),
+            ),
         ),
     )
 })

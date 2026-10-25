@@ -14,6 +14,7 @@ import { readRoleAuthority, RolePermissionError, rolePermissionFix } from "./rol
 import { SafetyPermissionError } from "./safety-permissions.ts"
 import { moderationActor } from "./moderation.ts"
 import { startSignalledWorker } from "./signalled-worker.ts"
+import { warnFailure } from "./contained.ts"
 
 export class VerificationHandlingError extends Data.TaggedError("VerificationHandlingError")<{
     readonly stage: "configuration" | "panel" | "membership" | "delivery"
@@ -273,8 +274,9 @@ export function startVerificationWorker(
                 Effect.catchCause((cause) =>
                     Cause.hasInterrupts(cause)
                         ? Effect.failCause(cause)
-                        : Effect.logWarning(
+                        : warnFailure(
                               "Advanced verification access could not be confirmed yet. It is retried until the proof expires",
+                              cause,
                           ),
                 ),
             )

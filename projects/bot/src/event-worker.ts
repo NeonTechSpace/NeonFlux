@@ -9,6 +9,7 @@ import { readNativeMember } from "./member-evidence.ts"
 import { eventNoticeText } from "./event-render.ts"
 import { replyPrefix } from "./general-settings.ts"
 import { serverLabel } from "./server-scope.ts"
+import { warnFailure } from "./contained.ts"
 
 export const eventsPassBudget = 20
 function workerEvent(store: EventsStore, serverId: string, source: { eventNo: number; channelId: string }) {
@@ -210,8 +211,9 @@ export function startEventsWorker(store: EventsStore, publishing: PublishingStor
                     Effect.catchCause((cause) =>
                         Cause.hasInterrupts(cause)
                             ? Effect.failCause(cause)
-                            : Effect.logWarning(
+                            : warnFailure(
                                   "Event membership work paused. Recorded account fences remain available",
+                                  cause,
                               ),
                     ),
                     Effect.ensuring(
@@ -237,8 +239,9 @@ export function startEventsWorker(store: EventsStore, publishing: PublishingStor
                     Effect.catchCause((cause) =>
                         Cause.hasInterrupts(cause)
                             ? Effect.failCause(cause)
-                            : Effect.logWarning(
+                            : warnFailure(
                                   "Event work paused. Retained status and reconciliation remain available",
+                                  cause,
                               ),
                     ),
                 )

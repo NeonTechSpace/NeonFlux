@@ -19,6 +19,7 @@ import { BackendRequestError, createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
 import { sourceTimestamp } from "./responses.ts"
 import { code, notSetUp, replyCard } from "./reply-style.ts"
+import { warnFailure } from "./contained.ts"
 
 // The prefix reader and the nickname command each decode their own part of the general settings
 const settings = GeneralGetResult.mapFields(Struct.pick(["prefix", "replyStyle", "revision"])),
@@ -146,9 +147,10 @@ export function createPrefixReader(store: GeneralSettingsStore | undefined, serv
         const value = yield* store
             .get()
             .pipe(
-                Effect.catch(() =>
-                    Effect.logWarning(
+                Effect.catch((error) =>
+                    warnFailure(
                         "The configured prefix could not be read. Commands use the last known prefix or !",
+                        error,
                     ).pipe(Effect.as<General>(cached ?? { prefix: "!", replyStyle: "embed" })),
                 ),
             )
@@ -344,7 +346,7 @@ export function handleNicknameCommand(
         const result = yield* applyNativeNickname(context.client, serverId, value)
         yield* store
             .recordNickname(saved, value, result)
-            .pipe(Effect.catch(() => Effect.logWarning("The nickname result could not be recorded")))
+            .pipe(Effect.catch((error) => warnFailure("The nickname result could not be recorded", error)))
         yield* respond(
             result.state === "failed"
                 ? `The nickname was not applied. ${result.error}`

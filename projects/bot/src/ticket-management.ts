@@ -42,6 +42,7 @@ import type { PublishingStore } from "./publishing-store.ts"
 import { transcriptFileParts } from "./ticket-transcripts.ts"
 import { readTicketPanels, type TicketPanelIndex } from "./ticket-panels.ts"
 import { performTicketChain, TicketHandlingError } from "./tickets.ts"
+import { warnFailure } from "./contained.ts"
 
 /** Entries per page of a ticket list in chat */
 const TICKET_PAGE = 10
@@ -1299,7 +1300,9 @@ export function findTicketIntake(
         const open = (yield* store
             .openIntakes({ userId: message.author.id })
             .pipe(
-                Effect.catch(() => Effect.logWarning("Open ticket intakes could not be read").pipe(Effect.as([]))),
+                Effect.catch((error) =>
+                    warnFailure("Open ticket intakes could not be read", error).pipe(Effect.as([])),
+                ),
             )).filter((intake) => served(intake.serverId))
         if (open.length < 2) return open[0]
         // The list names servers, so it goes only to a one-to-one DM with this member

@@ -5,6 +5,7 @@ import type { MilestonesStore } from "./milestone-store.ts"
 import type { PublishingStore } from "./publishing-store.ts"
 import { processMilestoneDelivery, milestoneDeliveryBinding, MilestonesHandlingError } from "./milestones.ts"
 import { observeMilestoneDeparture } from "./milestone-events.ts"
+import { warnFailure } from "./contained.ts"
 
 const milestonesPassBudget = 20
 export function processMilestonesPass(
@@ -100,8 +101,9 @@ export function startMilestonesWorker(
                     Effect.catchCause((cause) =>
                         Cause.hasInterrupts(cause)
                             ? Effect.failCause(cause)
-                            : Effect.logWarning(
+                            : warnFailure(
                                   "Milestone work paused. Private status and exact-post reconciliation remain available",
+                                  cause,
                               ),
                     ),
                 )

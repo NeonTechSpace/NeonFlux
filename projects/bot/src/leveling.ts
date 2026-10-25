@@ -6,7 +6,7 @@ import type { LevelingStore } from "./level-store.ts"
 import { createLevelQueue, levelMaxAgeMs } from "./level-queue.ts"
 import { memberFacts, readNativeMember } from "./member-evidence.ts"
 import { readChannelParent } from "./channel-parents.ts"
-import { contained } from "./contained.ts"
+import { contained, warnFailure } from "./contained.ts"
 import { remember } from "./optional-work.ts"
 
 export class LevelingHandlingError extends Data.TaggedError("LevelingHandlingError")<{
@@ -165,7 +165,7 @@ export function startLevelCreditWorker(
                     Effect.catchCause((cause) =>
                         Cause.hasInterrupts(cause)
                             ? Effect.failCause(cause)
-                            : Effect.logWarning("Message XP candidate dropped after an unverified credit operation"),
+                            : warnFailure("Message XP candidate dropped after an unverified credit operation", cause),
                     ),
                 )
             }

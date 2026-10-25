@@ -27,6 +27,7 @@ import {
     readSafetyAuthority,
     type SafetyAuthority,
 } from "./safety-permissions.ts"
+import { warnFailure } from "./contained.ts"
 
 class ProtectionHandlingError extends Data.TaggedError("ProtectionHandlingError")<{
     readonly stage: "identity" | "timestamp" | "context"
@@ -35,8 +36,8 @@ class ProtectionHandlingError extends Data.TaggedError("ProtectionHandlingError"
 // Protection fails closed for itself: it takes no action on an event it could not verify, and the event's other handlers still run
 export function containProtection<A, E, R, B = A>(protection: Effect.Effect<A, E, R>, fallback: B) {
     return protection.pipe(
-        Effect.catch(() =>
-            Effect.logWarning("Protection could not verify an event and took no action").pipe(Effect.as(fallback)),
+        Effect.catch((error) =>
+            warnFailure("Protection could not verify an event and took no action", error).pipe(Effect.as(fallback)),
         ),
     )
 }
