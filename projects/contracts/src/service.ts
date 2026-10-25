@@ -101,7 +101,7 @@ export const ServiceWorkRequest = Schema.Struct({
     requestedAt: Schema.optionalKey(Millis),
 })
 export type ServiceWorkRequest = typeof ServiceWorkRequest.Type
-/** The passes of the bot's dashboard worker, one per kind of dashboard job, so a wake runs only the passes with work */
+/** The passes of the bot's dashboard worker, one per kind of dashboard job and one for an analytics switch the website changed, so a wake runs only the passes with work */
 export const ServiceDashboardWork = Schema.Literals([
     "roles",
     "metadata",
@@ -114,6 +114,7 @@ export const ServiceDashboardWork = Schema.Literals([
     "showcase",
     "profile",
     "structure",
+    "analytics",
 ])
 export type ServiceDashboardWork = typeof ServiceDashboardWork.Type
 const delay = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0))
@@ -291,14 +292,17 @@ export const BOT_FUNCTIONS = {
     analyticsSummary: "query",
     analyticsManage: "mutation",
     analyticsRecord: "mutation",
-    backupSnapshot: "query",
+    analyticsReloaded: "mutation",
+    backupSnapshotPage: "query",
     backupQuery: "query",
     backupManage: "mutation",
     backupWork: "mutation",
-    backupPreview: "mutation",
+    backupPreviewStart: "mutation",
+    backupPreviewSegment: "mutation",
     backupPreviewReady: "query",
     backupPreviewFailed: "mutation",
     backupRunStep: "mutation",
+    backupOutcomeClaim: "mutation",
     structureReady: "query",
     structureAnswer: "mutation",
     structureClaim: "mutation",

@@ -1,10 +1,10 @@
 import type { BackupCategory } from "@neonflux/contracts/backup"
 export const backupHelp = [
-    "!backup export config xp structure: Save the parts you name to an encrypted file",
-    "!backup inspect: Check an attached backup file",
-    "!backup preview [next|match]: With a file attached, check what a restore would change and make the plan you can run for 15 minutes. Match also deletes the channels and categories the backup does not hold",
+    "!backup export config xp structure: Save the parts you name to an encrypted file, in numbered parts when it is large",
+    "!backup inspect: Check an attached backup, with every part attached to one message",
+    "!backup preview [next|match]: With every part of a backup attached, check what a restore would change and make the plan you can confirm for a day. Match also deletes the channels and categories the backup does not hold",
     "!backup plan: The same as preview",
-    "!backup confirm: Run up to 20 steps of your latest plan. Send it again for the rest",
+    "!backup confirm: Run your latest plan to the end. NeonFlux posts the outcome here",
     "!backup status | items [next]: How your latest plan is going, and its steps",
     "!backup reconcile: Check steps that were not confirmed",
     "!backup forget: Drop your latest plan. What it created stays",

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { afterEach, beforeEach, type TestContext } from "node:test"
+import { afterEach, beforeEach, mock, type TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import type {
     BackupBinding,
@@ -14,21 +14,33 @@ import type {
 import schema from "../convex/schema.ts"
 import { cleanupBackups } from "../convex/backupRetention.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
-import { backupExclusions } from "@neonflux/contracts/backup"
+import {
+    backupExclusions,
+    backupManifestHeader,
+    backupOverwritesJson,
+    backupSegments,
+    type BackupChannelSummary,
+} from "@neonflux/contracts/backup"
 import { backupHash } from "../convex/backupDomain.ts"
+import { createHash } from "node:crypto"
 import { botCall } from "./bot-service.ts"
 
 export const secret = "synthetic-backup-test-secret-000000000000000000"
 const keys = ["NEONFLUX_SERVER_ID", "NEONFLUX_SERVER_MODE", "NEONFLUX_BOT_API_SECRET"] as const
 const prior = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
-/** Registers the environment of a backup test file, which every test of the file runs in: one server in single mode */
+/**
+ * Registers the environment of a backup test file, which every test of the file runs in: one server in single mode. Scheduled work, such
+ * as the end of a restore's lease, runs only when a test moves the timers, so no test waits on the real clock
+ */
 export function installBackupEnv() {
     beforeEach(() => {
         delete process.env.NEONFLUX_SERVER_MODE
         process.env.NEONFLUX_SERVER_ID = "1"
         process.env.NEONFLUX_BOT_API_SECRET = secret
+        mock.timers.enable({ apis: ["setTimeout"] })
     })
     afterEach(() => {
+        mock.timers.reset()
         for (const key of keys) {
             if (prior[key] === undefined) delete process.env[key]
             else process.env[key] = prior[key]
@@ -47,6 +59,14 @@ export const modules = {
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
 export const allPermissions = ((1n << 55n) - 1n).toString()
+/** A channel as the categories' segments carry it, as the bot sums it up */
+export const summarize = (channel: BackupStructureObject): BackupChannelSummary => ({
+    sourceId: channel.sourceId,
+    parentId: channel.parentId,
+    overwrites: createHash("sha256").update(backupOverwritesJson(channel.overwrites)).digest("hex"),
+    ...(channel.managed ? { managed: channel.managed } : {}),
+    ...(channel.position !== undefined ? { position: channel.position } : {}),
+})
 export const binding = (r: BackupBinding): BackupBinding => ({
     planId: r.planId,
     revision: r.revision,
@@ -91,15 +111,36 @@ export async function fixture(t: TestContext) {
     const query = (operation: unknown, extra = {}) =>
         http("/backup/query", { serverId: "1", context: context(), operation, ...extra })
     const work = (operation: unknown) => http("/backup/work", { serverId: "1", operation })
-    const snapshot = (selected = ["config", "xp"]) =>
-        http("/backup/snapshot", { serverId: "1", context: context(), selected })
+    const snapshotPage = (selected: string[], cursor?: string) =>
+        http("/backup/snapshot-page", { serverId: "1", context: context(), selected, ...(cursor ? { cursor } : {}) })
+    // Every page of a snapshot, as an export reads them, joined into one answer like one request's. A refused page is the answer
+    const snapshot = async (selected = ["config", "xp"]) => {
+        const config: unknown[] = [],
+            xp: unknown[] = []
+        let cursor: string | undefined
+        for (let page = 0; page < 1000; page++) {
+            const response = await snapshotPage(selected, cursor)
+            if (response.status !== 200) return response
+            const body = (await response.json()) as {
+                capturedAt: number
+                config: unknown[]
+                xp: unknown[]
+                cursor: string | null
+            }
+            config.push(...body.config)
+            xp.push(...body.xp)
+            if (body.cursor === null) return Response.json({ capturedAt: body.capturedAt, config, xp })
+            cursor = body.cursor
+        }
+        throw new Error("The snapshot did not end")
+    }
     const manifest = (
         config: BackupConfigObject[] = [],
         xp: BackupManifest["xp"] = [],
         structure: BackupStructureObject[] = [],
     ): BackupManifest => ({
-        version: 1,
-        backupId: `test_backup_${++sequence}`,
+        version: 2,
+        backupId: (++sequence).toString(16).padStart(32, "0"),
         provider,
         serverId: "1",
         selected: [
@@ -215,16 +256,41 @@ export async function fixture(t: TestContext) {
               ? { bitrate: 64000, userLimit: 0 }
               : {}),
     })
-    const preview = async (archive: BackupManifest, native: BackupNativeProof | null = null, match = false) =>
-        http("/backup/preview", {
+    // A check starts with the archive's header and the digests of its segments, and each segment follows with the same evidence. The answer
+    // is the first refusal or the last answer, as the bot sees them
+    const preview = async (
+        archive: BackupManifest,
+        native: BackupNativeProof | null = null,
+        match = false,
+        extra: Record<string, unknown> = {},
+    ) => {
+        const segments = backupSegments(archive, summarize)
+        const started = await http("/backup/preview-start", {
             serverId: "1",
             context: context(),
-            manifest: archive,
+            header: backupManifestHeader(archive),
+            segmentDigests: await Promise.all(segments.map((segment) => backupHash(segment))),
             archiveDigest: await backupHash(archive),
-            native,
             archive: { channelId: "90", messageId: String(++sequence) },
             match,
+            ...extra,
         })
+        if (started.status !== 200 || !segments.length) return started
+        const planId = ((await started.clone().json()) as { plan: BackupPlan }).plan.planId
+        let last = started
+        for (const [segmentNo, segment] of segments.entries()) {
+            last = await http("/backup/preview-segment", {
+                serverId: "1",
+                context: context(),
+                planId,
+                segmentNo,
+                segment,
+                native,
+            })
+            if (last.status !== 200) return last
+        }
+        return last
+    }
     // A preview is the plan a confirmation runs, so the plan comes with its items, twenty to a page
     const plan = async (archive: BackupManifest, native: BackupNativeProof | null = null, match = false) => {
         const made = (await read(await preview(archive, native, match))) as { plan: BackupPlan },
@@ -234,7 +300,22 @@ export async function fixture(t: TestContext) {
             }
         return { plan: made.plan, ...first }
     }
-    const confirm = async (plan: BackupPlan) => read(await manage({ type: "confirm", binding: binding(plan) }))
+    // A confirmation starts the plan's run in the background. These tests apply the items themselves, as the bot's passes would, so the
+    // run is stopped at once and a test can check an archive again
+    const confirm = async (plan: BackupPlan) => {
+        const confirmed = await read(await manage({ type: "confirm", binding: binding(plan) }))
+        const job = await db.run(async (ctx) => (await ctx.db.query("backupPreviewJobs").collect())[0])
+        if (job?.state === "running")
+            await read(
+                await http("/backup/run-step", {
+                    serverId: "1",
+                    requestedAt: job.createdAt,
+                    recorded: 0,
+                    stopped: "owner",
+                }),
+            )
+        return confirmed
+    }
     const apply = (item: BackupItem, native: BackupNativeProof | null = null) =>
         work({
             type: "apply",
@@ -277,6 +358,7 @@ export async function fixture(t: TestContext) {
         query,
         work,
         snapshot,
+        snapshotPage,
         manifest,
         proof,
         seen,

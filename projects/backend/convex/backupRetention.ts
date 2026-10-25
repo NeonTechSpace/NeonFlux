@@ -1,12 +1,12 @@
 import type { MutationCtx } from "./_generated/server.js"
 import { BACKUP_SETTLE_MS } from "./backupDomain.ts"
-import { backupPlanUnresolved, backupSetRetention } from "./backupStore.ts"
+import { backupPlanUnresolved, backupSetItem, backupSetRetention } from "./backupStore.ts"
 import type { Doc, Id } from "./_generated/dataModel.js"
 
 /** An item whose dispatch window and settle time have passed: a reservation fails, and a claim is not confirmed. No origin is left open */
 export async function backupAgeItem(ctx: MutationCtx, item: Doc<"backupItems">, now: number) {
     if (item.state === "reserved") {
-        await ctx.db.patch(item._id, {
+        await backupSetItem(ctx, item, {
             state: "failed",
             historicalOutcome: "failed",
             noDispatch: true,
@@ -20,7 +20,7 @@ export async function backupAgeItem(ctx: MutationCtx, item: Doc<"backupItems">, 
         }
     } else {
         const creates = item.disposition === "create"
-        await ctx.db.patch(item._id, {
+        await backupSetItem(ctx, item, {
             state: "uncertain",
             ...(creates ? { historicalOutcome: "uncertain" as const } : {}),
             finishedAt: now,
@@ -96,6 +96,7 @@ export async function cleanupBackups(ctx: MutationCtx, now: number) {
                     (job.state === "queued" || job.state === "running" || job.state === "waiting")
                 )
                     await ctx.db.patch(job._id, { state: "done" })
+                if (job?.planId === plan._id && job.outcomeDue) await ctx.db.patch(job._id, { outcomeDue: undefined })
                 await ctx.db.delete(plan._id)
                 removed++
             }

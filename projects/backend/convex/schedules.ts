@@ -1,6 +1,8 @@
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
+import type { BackupConfigValues } from "@neonflux/contracts/backup"
 import {
+    SchedulesCalendar,
     SchedulesManageOperation,
     SchedulesManageRequest,
     SchedulesQueryRequest,
@@ -11,7 +13,7 @@ import {
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { publishingName } from "./publishingDomain.ts"
+import { canonicalPublishingContent, publishingContent, publishingName } from "./publishingDomain.ts"
 import { reconcilePublishing, releaseConsumerPublication } from "./publishing.ts"
 import { composerAdmin, composerContext } from "./publishingContext.ts"
 import { advanceSchedule, validateScheduleCalendar, SCHEDULES_BATCH, SCHEDULES_PAGE } from "./schedulesDomain.ts"
@@ -279,6 +281,80 @@ export const query = serviceQuery({
     },
 })
 
+/**
+ * A backup restore's schedule, by name, made or changed in place with the archived content. It is on only while every date is ahead, which
+ * the feature's own calendar check decides, and a paused one keeps its dates for the owner to change. A cancelled schedule stays cancelled
+ */
+export async function restoreSchedule(
+    ctx: MutationCtx,
+    serverId: string,
+    actorId: string,
+    value: BackupConfigValues["schedule"],
+    now: number,
+) {
+    const name = publishingName(value.name),
+        calendar = value.enabled
+            ? validateScheduleCalendar(value.calendar, now)
+            : decode(SchedulesCalendar, value.calendar),
+        content = publishingContent(value.content, true),
+        existing = await ctx.db
+            .query("schedules")
+            .withIndex("by_name", (q) => q.eq("serverId", serverId).eq("name", name))
+            .unique()
+    const fields = {
+        channelId: value.channelId,
+        calendar,
+        source: value.source,
+        content,
+        canonicalContent: canonicalPublishingContent(content),
+        enabled: value.enabled,
+        updatedAt: now,
+    }
+    if (existing?.cancelled) fail(409, "A cancelled schedule stays cancelled")
+    if (existing) {
+        await closeFuture(ctx, existing, now)
+        // The archived calendar stores its first dates and counts again if the old one had run out
+        if (existing.released) await scheduleCount(ctx, serverId, "definitions", 1)
+        await ctx.db.patch(existing._id, {
+            ...fields,
+            revision: advanceSchedule(existing.revision),
+            planRevision: advanceSchedule(existing.planRevision),
+            nextIndex: undefined,
+            lastSkipped: undefined,
+            released: undefined,
+            ...(value.enabled && !existing.enabled ? { activatedAt: now } : {}),
+        })
+        await restorePlan(ctx, (await ctx.db.get(existing._id))!, now)
+        return
+    }
+    await scheduleCount(ctx, serverId, "definitions", 1)
+    const current = await scheduleState(ctx, serverId),
+        scheduleNo = current.nextScheduleNo
+    await ctx.db.patch(current._id, { nextScheduleNo: advanceSchedule(scheduleNo) })
+    const id = await ctx.db.insert("schedules", {
+        serverId,
+        scheduleNo,
+        name,
+        revision: 1,
+        planRevision: 1,
+        createdBy: actorId,
+        ...fields,
+        cancelled: false,
+        activatedAt: value.enabled ? now : 0,
+        createdAt: now,
+    })
+    await restorePlan(ctx, (await ctx.db.get(id))!, now)
+}
+/** A restored schedule's stored dates that are still ahead, then the rest of its repeat */
+async function restorePlan(ctx: MutationCtx, row: Doc<"schedules">, now: number) {
+    await addSchedulePlan(
+        ctx,
+        row,
+        row.calendar.dates.filter((date) => date.dueAt > now),
+        now,
+    )
+    await extendSchedule(ctx, row, now)
+}
 // Dashboard jobs pass their stored operation, so it is decoded here as well
 export async function applySchedulesManagement(
     ctx: MutationCtx,

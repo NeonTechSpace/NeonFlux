@@ -1,9 +1,11 @@
-import { BACKUP_RESTORE_LIMITS, backupGain } from "@neonflux/contracts/backup"
+import { backupGain } from "@neonflux/contracts/backup"
 import { permissionNames } from "@neonflux/contracts/permission-names"
 import type {
     BackupBinding,
+    BackupChannelSummary,
     BackupConfigObject,
     BackupContext,
+    BackupGrant,
     BackupItem,
     BackupItemBinding,
     BackupLiveChannel,
@@ -44,6 +46,48 @@ export async function backupPlanUnresolved(ctx: BackupRead, planId: Id<"backupPl
             .filter((q) => q.eq(q.field("disposition"), "create"))
             .first()),
     )
+}
+/** Identical items and items left alone sort last, and the website lists them only when asked */
+export const BACKUP_IDENTICAL_RANK = 5
+/** Whether an item needs the owner's attention: blocked, conflicting or failed, or a channel whose write was not confirmed */
+export const backupProblem = (item: Pick<Doc<"backupItems">, "disposition" | "state" | "resolution">) =>
+    item.disposition === "blocked" ||
+    ["conflict", "blocked", "failed"].includes(item.state) ||
+    (item.state === "uncertain" && item.resolution !== "match")
+/**
+ * Where an item sorts when problems come first: blocked items and items that ended as a problem, then deletes, gains, settings that turn on
+ * and items with a warning, updates, creates and identical items
+ */
+export const backupRank = (
+    item: Pick<Doc<"backupItems">, "disposition" | "gain" | "on" | "warning" | "state" | "resolution">,
+) =>
+    backupProblem(item)
+        ? 0
+        : item.disposition === "delete"
+          ? 1
+          : item.gain || item.on || item.warning
+            ? 2
+            : item.disposition === "update"
+              ? 3
+              : item.disposition === "create"
+                ? 4
+                : BACKUP_IDENTICAL_RANK
+/** Changes an item, keeps its rank and moves the plan's count of items by state, so a page and a progress line read no other item */
+export async function backupSetItem(
+    ctx: MutationCtx,
+    item: Doc<"backupItems">,
+    patch: { [K in keyof Omit<Doc<"backupItems">, "_id" | "_creationTime">]?: Doc<"backupItems">[K] | undefined },
+) {
+    // An undefined value removes its field, as in any patch
+    const rank = backupRank({ ...item, ...patch } as Doc<"backupItems">)
+    await ctx.db.patch(item._id, { ...patch, ...(rank !== item.rank ? { rank } : {}) } as Partial<Doc<"backupItems">>)
+    if (patch.state === undefined || patch.state === item.state) return
+    const plan = await ctx.db.get(item.planId)
+    if (!plan) return
+    const counts = { ...plan.stateCounts }
+    counts[item.state] = Math.max(0, (counts[item.state] ?? 0) - 1)
+    counts[patch.state] = (counts[patch.state] ?? 0) + 1
+    await ctx.db.patch(plan._id, { stateCounts: counts })
 }
 export async function backupSetRetention(ctx: MutationCtx, plan: Doc<"backupPlans">) {
     const unresolved = await backupPlanUnresolved(ctx, plan._id)
@@ -109,7 +153,11 @@ export function publicBackupPlan(row: Doc<"backupPlans">): BackupPlan {
         gain,
         match,
         forgotten,
+        state: row.state ?? "ready",
+        warned: row.warned ?? 0,
+        states: Object.fromEntries(Object.entries(row.stateCounts ?? {}).filter(([, n]) => n > 0)),
         ...(row.confirmedAt !== undefined ? { confirmedAt: row.confirmedAt } : {}),
+        ...(row.settledAt !== undefined ? { settledAt: row.settledAt } : {}),
     }
 }
 export function publicBackupItem(plan: Doc<"backupPlans">, item: Doc<"backupItems">): BackupItem {
@@ -150,6 +198,7 @@ export function publicBackupItem(plan: Doc<"backupPlans">, item: Doc<"backupItem
         ...(item.gain ? { gain: true as const } : {}),
         ...(item.on ? { on: true as const } : {}),
         ...(item.warning ? { warning: item.warning } : {}),
+        ...(item.order ? { order: true as const } : {}),
         ...(item.dispatchExpiresAt !== undefined ? { dispatchExpiresAt: item.dispatchExpiresAt } : {}),
         ...(item.claimedAt !== undefined ? { claimedAt: item.claimedAt } : {}),
         ...(item.finishedAt !== undefined ? { finishedAt: item.finishedAt } : {}),
@@ -204,11 +253,11 @@ export async function backupOwner(ctx: BackupRead, serverId: string, context: Ba
         if (recoveries.cases.some((c) => c?.action === "quarantine")) fail(403, "Backup participant quarantined")
     }
 }
+/** A confirmed plan runs until it is done or forgotten, since its run is not bounded by the time the check stays confirmable */
 export function backupPlanOwner(plan: Doc<"backupPlans">, context: BackupContext, execute = false) {
     if (plan.ownerId !== context.ownerId || plan.provider !== context.provider)
         fail(403, "Restore requires the same actual Owner and provider")
-    if (execute && (plan.forgotten || plan.confirmedAt === undefined || Date.now() >= plan.expiresAt))
-        fail(409, "Confirmed unexpired restore plan required")
+    if (execute && (plan.forgotten || plan.confirmedAt === undefined)) fail(409, "Confirmed restore plan required")
 }
 /** Where an archive channel went: the channel a restore created for it */
 export const backupOriginRow = (ctx: BackupRead, serverId: string, provider: string, sourceId: string) =>
@@ -225,18 +274,6 @@ export const backupOriginRow = (ctx: BackupRead, serverId: string, provider: str
         .unique()
 const backupReusableOrigin = (origin: Doc<"backupOrigins"> | null) =>
     origin?.state === "failed" && origin.noDispatch === true && origin.mappedId === null
-// Counts one origin about to be inserted against the origin mapping limit per server and provider. Origins stay until the server's purge, so the
-// count only grows
-export async function backupOriginCapacity(ctx: MutationCtx, serverId: string, provider: string) {
-    const row = await ctx.db
-        .query("backupOriginCounts")
-        .withIndex("by_provider", (q) => q.eq("serverId", serverId).eq("provider", provider))
-        .unique()
-    const count = row?.count ?? 0
-    if (count >= BACKUP_RESTORE_LIMITS.originMappings) fail(429, "Restore origin mapping capacity reached")
-    if (row) await ctx.db.patch(row._id, { count: count + 1 })
-    else await ctx.db.insert("backupOriginCounts", { serverId, provider, count: count + 1 })
-}
 const ADMINISTRATOR = 8n,
     MANAGE_CHANNELS = 16n,
     MANAGE_ROLES = 1n << 28n
@@ -386,7 +423,14 @@ export async function backupRewriteConfig(
     mapped: (id: string) => Promise<string>,
 ): Promise<BackupConfigObject> {
     const item = structuredClone(value) as BackupConfigObject
-    const channelKeys = new Set(["channelId", "parentId", "logChannelId"]),
+    const channelKeys = new Set([
+            "channelId",
+            "parentId",
+            "logChannelId",
+            "categoryId",
+            "generatorChannelId",
+            "guardChannelId",
+        ]),
         arrays = new Set([
             "channelIds",
             "exemptChannelIds",
@@ -394,6 +438,7 @@ export async function backupRewriteConfig(
             "excludedChannelIds",
             "honeypotChannelIds",
             "messageChannelIds",
+            "forumIds",
         ])
     async function walk(value: unknown): Promise<void> {
         if (Array.isArray(value)) {
@@ -412,7 +457,10 @@ export async function backupRewriteConfig(
         }
     }
     await walk(item.value)
-    return item.family === "cleanupPolicy" ? { ...item, sourceId: item.value.channelId } : item
+    // A setting named by its channel takes the name of the channel it maps to
+    return item.family === "cleanupPolicy" || item.family === "voiceGenerator" || item.family === "sticky"
+        ? { ...item, sourceId: item.value.channelId }
+        : item
 }
 /**
  * A setting with each archive channel it names mapped to the channel an earlier restore made for it, or null while such a channel is not
@@ -471,25 +519,57 @@ export async function backupConfigMappingsCurrent(
     }
     return true
 }
+/** An archived channel as a summary, which is what the decisions about other channels read of it */
+export const backupSummary = async (object: BackupStructureObject): Promise<BackupChannelSummary> => ({
+    sourceId: object.sourceId,
+    parentId: object.parentId,
+    // The hash of backupOverwritesJson, the overwrites in ID order
+    overwrites: await backupHash([...object.overwrites].sort((a, b) => a.id.localeCompare(b.id))),
+    ...(object.managed ? { managed: object.managed } : {}),
+    ...(object.position !== undefined ? { position: object.position } : {}),
+})
 /** What the decisions about one archive's channels share: the categories the plan creates, the archive's channels by the ID they have on the server now, and the match mode */
 type BackupStructureView = {
     pending: Set<string>
-    live: ReadonlyMap<string, BackupStructureObject>
+    live: ReadonlyMap<string, BackupChannelSummary>
     match: boolean
 }
 export async function backupStructureView(
     ctx: BackupRead,
     plan: Pick<Doc<"backupPlans">, "serverId" | "provider">,
-    archive: readonly BackupStructureObject[],
+    archive: readonly (BackupStructureObject | BackupChannelSummary)[],
     match: boolean,
+    pending: Iterable<string> = [],
 ): Promise<BackupStructureView> {
-    const live = new Map<string, BackupStructureObject>()
+    const live = new Map<string, BackupChannelSummary>()
     for (const object of archive)
         live.set(
             (await backupOriginRow(ctx, plan.serverId, plan.provider, object.sourceId))?.mappedId ?? object.sourceId,
-            object,
+            "type" in object ? await backupSummary(object) : object,
         )
-    return { pending: new Set(), live, match }
+    return { pending: new Set(pending), live, match }
+}
+/**
+ * The archive's place of each archived channel the server has now, by the ID it has there, for the order item. A channel that tickets or voice
+ * rooms own, or made, keeps its place, as does one the archive saved without a place
+ */
+export async function backupOrderPositions(
+    ctx: BackupRead,
+    serverId: string,
+    proof: BackupNativeProof,
+    live: ReadonlyMap<string, BackupChannelSummary>,
+) {
+    const listed = new Set(proof.channels.map((c) => c.id)),
+        positions = new Map<string, number>()
+    for (const [id, object] of live)
+        if (
+            object.position !== undefined &&
+            !object.managed &&
+            listed.has(id) &&
+            !(await backupProtected(ctx, serverId, [object.sourceId, id]))
+        )
+            positions.set(id, object.position)
+    return positions
 }
 /** Why a role or member left out of a channel's permissions, such as "<@&5> and 2 more" */
 const droppedNote = (dropped: BackupStructureObject["overwrites"]) =>
@@ -527,12 +607,13 @@ async function backupCascade(
         away: string[] = [],
         follows: string[] = [],
         cascaded: string[] = [],
-        synced = proof.channels.filter((c) => c.parentId === liveId && c.synced)
+        synced = proof.channels.filter((c) => c.parentId === liveId && c.synced),
+        permissions = (await backupSummary(category)).overwrites
     for (const c of synced) {
         const archived = view.live.get(c.id)
         if (archived) {
             const owned = archived.managed || (await backupProtected(ctx, serverId, [archived.sourceId, c.id]))
-            if (!owned && overwriteJson(archived.overwrites) === overwriteJson(category.overwrites)) cascaded.push(c.id)
+            if (!owned && archived.overwrites === permissions) cascaded.push(c.id)
             // The plan moves it out itself, after the category, so there is nothing to do by hand
             else if (!owned && archived.parentId !== category.sourceId) away.push(c.name)
             else kept.push(c.name)
@@ -673,13 +754,8 @@ export async function backupExtraDecision(
           )
         : decide("delete", null)
 }
-export function backupGrant(plan: Doc<"backupPlans">, item: Doc<"backupItems">) {
-    if (!item.desiredChannel || !item.botId || item.dispatchExpiresAt === undefined)
-        fail(409, "Native item is not reserved")
-    const action: "create" | "update" | "delete" =
-        item.disposition === "update" || item.disposition === "delete" ? item.disposition : "create"
-    if (action !== "create" && !item.fromChannel) fail(409, "Native item is not claimed")
-    return {
+export function backupGrant(plan: Doc<"backupPlans">, item: Doc<"backupItems">): BackupGrant {
+    const binding = {
         planId: plan._id,
         revision: 1 as const,
         planHash: plan.planHash,
@@ -689,6 +765,26 @@ export function backupGrant(plan: Doc<"backupPlans">, item: Doc<"backupItems">) 
         provider: plan.provider,
         serverId: plan.serverId,
         ownerId: plan.ownerId,
+    }
+    if (item.order) {
+        if (!item.orderMoves || !item.botId || item.dispatchExpiresAt === undefined)
+            fail(409, "Native item is not claimed")
+        return {
+            ...binding,
+            botId: item.botId,
+            action: "order",
+            moves: item.orderMoves,
+            dispatchExpiresAt: item.dispatchExpiresAt,
+            nativeDeadlineMs: 5000,
+        }
+    }
+    if (!item.desiredChannel || !item.botId || item.dispatchExpiresAt === undefined)
+        fail(409, "Native item is not reserved")
+    const action: "create" | "update" | "delete" =
+        item.disposition === "update" || item.disposition === "delete" ? item.disposition : "create"
+    if (action !== "create" && !item.fromChannel) fail(409, "Native item is not claimed")
+    return {
+        ...binding,
         botId: item.botId,
         sourceId: item.sourceId,
         action,

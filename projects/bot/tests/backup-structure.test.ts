@@ -11,11 +11,13 @@ import {
     type BackupStructureObject,
     type BackupWorkRequest,
 } from "@neonflux/contracts/backup"
+import type { RolesPanel } from "@neonflux/contracts/roles"
 import { createBotOptions } from "../src/bot.ts"
 import { backupBinding, backupItemBinding, type BackupStore } from "../src/backup-store.ts"
-import { nativeBackupEdit, processBackupPlanPass, reconcileBackupPlan } from "../src/backup.ts"
+import { nativeBackupEdit, processBackupPlanPass } from "../src/backup.ts"
 import { readBackupEvidence, readBackupNativeProof, snapshotBackupChannel } from "../src/backup-permissions.ts"
 import { parseBackupCommand } from "../src/backup-command.ts"
+import { answerMemberRequests } from "./member-chunks-fixture.ts"
 import { platform, token } from "./moderation-fixture.ts"
 import { ownerChanges, syntheticPlan, withClock } from "./backup-fixture.ts"
 
@@ -133,6 +135,8 @@ const writePass = (
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
             p = platform(bot)
         yield* bot.ready()
+        // Fluxer leaves every member out of the gateway reads, so each is read by its ID as the test answers it
+        yield* answerMemberRequests(bot)
         behaviour.setup?.(bot)
         let server: Wire | undefined = current(bot)
         const wire = server
@@ -228,7 +232,13 @@ const writePass = (
                 Effect.sync(() => {
                     const op = input.operation
                     if (op.type === "plan") return { type: "plan", plan }
-                    if (op.type === "items") return { type: "items", items: [item] }
+                    if (op.type === "open" || op.type === "unconfirmed")
+                        return {
+                            type: op.type,
+                            items: [item].filter((row) =>
+                                op.type === "open" ? row.state === "planned" : row.state === "uncertain",
+                            ),
+                        }
                     if (op.type === "origins") return { type: "origins", origins: [] }
                     if (op.type === "item")
                         // A delete is planned from the server's listing, which holds no permissions
@@ -491,6 +501,10 @@ test("a thread a setting names is checked through its parent, and one whose pare
                     status: 404,
                     body: { code: "UNKNOWN_CHANNEL", message: "Unknown Channel" },
                 })
+                // The listing of the server's channels holds the thread's parent but no thread, so each thread is read by its ID
+                const listing = bot.rest.respond(`GET /guilds/${f.ids.guild}/channels`, {
+                    body: [bot.fixtures.channel({ permission_overwrites: [] })],
+                })
                 yield* bot.idle()
                 const evidence = yield* readBackupEvidence(bot.client, f.ids.guild, f.ids.user, p.dmId)
                 const leveling: BackupConfigObject = {
@@ -513,7 +527,8 @@ test("a thread a setting names is checked through its parent, and one whose pare
                         [orphan.id, "text", true, false, false],
                     ],
                 )
-                assert.equal(p.channel.requests().length, 1)
+                assert.equal(listing.requests().length, 1)
+                assert.equal(p.channel.requests().length, 0)
             }),
         ),
     )
@@ -607,62 +622,6 @@ test("an update and a delete whose channel read after the claim fails say Fluxer
             disposition,
         )
     }
-})
-
-test("a reconcile reads only the channels a restore created, never an update or a delete that was not confirmed", async () => {
-    await Effect.runPromise(
-        Effect.scoped(
-            Effect.gen(function* () {
-                const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
-                    p = platform(bot)
-                yield* bot.ready()
-                const plan = syntheticPlan({
-                    planId: "synthetic-reconcile-plan",
-                    createdAt: Date.now(),
-                    expiresAt: Date.now() + 900000,
-                    confirmedAt: Date.now(),
-                    itemCount: 2,
-                    counts: { create: 0, update: 1, delete: 1, skip: 0, blocked: 0 },
-                    match: true,
-                })
-                const unknown = (itemNo: number, disposition: "update" | "delete"): BackupItem => ({
-                    ...backupBinding(plan),
-                    itemNo,
-                    generation: 1,
-                    category: "structure",
-                    family: "structure",
-                    sourceId: bot.fixtures.nextId(),
-                    disposition,
-                    reason: null,
-                    state: "uncertain",
-                    expectedHash: "c".repeat(64),
-                    desiredHash: "d".repeat(64),
-                    dependencyItemNo: null,
-                    mappedId: bot.fixtures.nextId(),
-                })
-                const items = [unknown(1, "update"), unknown(2, "delete")]
-                const calls: string[] = []
-                const store = {
-                    query: (input: BackupQueryRequest) =>
-                        Effect.sync(() => {
-                            calls.push(input.operation.type)
-                            const op = input.operation
-                            if (op.type === "plan") return { type: "plan", plan }
-                            if (op.type === "items") return { type: "items", items }
-                            if (op.type === "origins") return { type: "origins", origins: [] }
-                            throw new Error(`Unexpected query ${op.type}`)
-                        }),
-                    work: () => Effect.sync(() => calls.push("work")),
-                } as unknown as BackupStore
-                yield* bot.idle()
-                const config = { serverId: f.ids.guild } as Parameters<typeof reconcileBackupPlan>[1]
-                const checked = yield* reconcileBackupPlan(store, config, bot.client, plan, p.dmId)
-                assert.deepEqual(checked, [])
-                assert.equal(calls.includes("work"), false)
-                assert.equal(calls.includes("item"), false)
-            }),
-        ),
-    )
 })
 
 test("an update and a delete check the Owner and the DM once more after their last channel read, right before the write", async () => {
@@ -835,7 +794,7 @@ type Kind =
 /**
  * One pass over a plan that holds the items named, against a server that keeps the channels in memory. It counts the requests the pass sent to
  * Fluxer by route. Like the backend, the store refuses a context, and a proof with any observation or reference, older than 60 seconds. Every item
- * it settles moves the clock on by stepMs, every page of items or of the origins it holds, 20 to a page, by pageMs, and when memberMs is set every
+ * it settles moves the clock on by stepMs, every page of items and every lookup among the origins it holds by pageMs, and when memberMs is set every
  * channel allows `members` members of its own, whose reads take memberMs, and when authorityMs is set each of the four reads of an Owner and DM
  * check, which is the server, its roles and the two members, takes that long. queryMs is what each read of an item from the backend takes, listMs the read of the server's channels, applyMs the request that settles an item before the backend judges its evidence, and with
  * shared every channel names the same members
@@ -853,12 +812,28 @@ const costPass = (
         listMs = 0,
         applyMs = 0,
         shared = false,
+        panel,
+    }: {
+        stepMs?: number
+        pageMs?: number
+        origins?: number
+        memberMs?: number
+        members?: number
+        authorityMs?: number
+        queryMs?: number
+        listMs?: number
+        applyMs?: number
+        shared?: boolean
+        /** A restored posted role panel each settings update answers with */
+        panel?: RolesPanel
     } = {},
 ) =>
     Effect.gen(function* () {
         const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
             p = platform(bot)
         yield* bot.ready()
+        // Fluxer leaves every member out of the gateway reads, so each is read by its ID as the test answers it
+        yield* answerMemberRequests(bot)
         const time = { now: Date.now() }
         if (authorityMs) {
             const slow = (body: unknown) => () => {
@@ -954,7 +929,7 @@ const costPass = (
                 return {
                     item,
                     object: kind.includes("xp")
-                        ? { sourceId: id, userId: f.ids.user, xp: 5 }
+                        ? { sourceId: id, epoch: 1, members: [{ userId: f.ids.user, xp: 5, expected: null }] }
                         : { family: "cleanupPolicy", sourceId: id, value: { channelId: named.id, enabled: true } },
                 }
             }),
@@ -971,33 +946,26 @@ const costPass = (
                 : []
             if ([context.observedAt, ...stamps].some((at) => at < time.now - 60000)) throw new Error("Stale evidence")
         }
-        // A page of 20, with the clock moved on by what reading it took
-        const page = <T>(all: readonly T[], cursor: string | undefined) => {
-            time.now += pageMs
-            const start = Number(cursor ?? 0)
-            return {
-                page: all.slice(start, start + 20),
-                ...(start + 20 < all.length ? { nextCursor: String(start + 20) } : {}),
-            }
-        }
         const held = Array.from({ length: origins }, (_, i) => ({
-            category: "structure",
-            sourceId: String(9000000 + i),
-            mappedId: String(9500000 + i),
-        }))
+                category: "structure",
+                sourceId: String(9000000 + i),
+                mappedId: String(9500000 + i),
+            })),
+            lookups: string[][] = []
         const store = {
             query: (input: BackupQueryRequest) =>
                 Effect.sync(() => {
                     fresh(input.context)
                     const op = input.operation
                     if (op.type === "plan") return { type: "plan", plan }
-                    if (op.type === "items") {
-                        const { page: shown, nextCursor } = page(items, op.cursor)
-                        return { type: "items", items: shown, ...(nextCursor ? { nextCursor } : {}) }
+                    if (op.type === "open") {
+                        time.now += pageMs
+                        return { type: "open", items: items.filter((row) => row.state === "planned").slice(0, 20) }
                     }
                     if (op.type === "origins") {
-                        const { page: shown, nextCursor } = page(held, op.cursor)
-                        return { type: "origins", origins: shown, ...(nextCursor ? { nextCursor } : {}) }
+                        time.now += pageMs
+                        lookups.push([...op.sourceIds])
+                        return { type: "origins", origins: held.filter((o) => op.sourceIds.includes(o.sourceId)) }
                     }
                     if (op.type === "item") {
                         time.now += queryMs
@@ -1019,7 +987,11 @@ const costPass = (
                         natives.push(op.native)
                         time.now += stepMs
                         items[i] = { ...items[i]!, state: items[i]!.disposition === "skip" ? "skipped" : "updated" }
-                        return { type: "item", item: items[i] }
+                        return {
+                            type: "item",
+                            item: items[i],
+                            ...(panel && items[i]!.state === "updated" ? { panel } : {}),
+                        }
                     }
                     if (op.type === "claim") {
                         items[i] = { ...items[i]!, state: "claimed" }
@@ -1048,19 +1020,31 @@ const costPass = (
                 }),
         } as unknown as BackupStore
         yield* bot.idle()
-        const before = bot.requests().length
+        const before = bot.requests().length,
+            panels: RolesPanel[] = []
         const config = { serverId: f.ids.guild } as Parameters<typeof processBackupPlanPass>[1]
         const exit = yield* Effect.exit(
-            Effect.asVoid(processBackupPlanPass(store, config, bot.client, plan, p.dmId)).pipe(
-                withClock(() => time.now),
-            ),
+            Effect.asVoid(
+                processBackupPlanPass(store, config, bot.client, plan, p.dmId, [], (synced) =>
+                    Effect.sync(() => panels.push(synced)),
+                ),
+            ).pipe(withClock(() => time.now)),
         )
         const routes: Record<string, number> = {}
         for (const request of bot.requests().slice(before)) {
             const route = `${request.method} ${request.path.replace(/\d{6,}/g, ":id")}`
             routes[route] = (routes[route] ?? 0) + 1
         }
-        return { exit, routes, total: bot.requests().length - before, states: items.map((x) => x.state), natives }
+        return {
+            exit,
+            routes,
+            total: bot.requests().length - before,
+            states: items.map((x) => x.state),
+            natives,
+            lookups,
+            named: named.id,
+            panels,
+        }
     })
 
 test("a pass opens with one read of the Owner and the DM, reads nothing for an identical item and checks again only before a write", async () => {
@@ -1140,29 +1124,50 @@ test("a pass reads the Owner, the DM and the identical channels again once they 
     assert.equal(fast.total, 5 + 6 + 6)
 })
 
-test("a pass renews its Owner and DM check between the pages of the plan's items and of the origins, so the backend never sees it stale", async () => {
+test("a restored posted role panel whose roles changed has its reactions cleared in the same pass", async () => {
+    const panel: RolesPanel = {
+        name: "colors",
+        kind: "reaction",
+        enabled: true,
+        exclusive: false,
+        revision: 1,
+        mappings: [{ emoji: "✅", roleId: "700" }],
+        withdrawing: false,
+        published: {
+            channelId: "600",
+            messageId: "500",
+            revision: 1,
+            mappings: [{ emoji: "✅", roleId: "700" }],
+            pendingClear: ["✅"],
+            clearGeneration: 1,
+        },
+    } as unknown as RolesPanel
+    const run = await Effect.runPromise(Effect.scoped(costPass(["setting update", "identical setting"], { panel })))
+    assert.equal(run.exit._tag, "Success")
+    assert.deepEqual(run.states, ["updated", "skipped"])
+    assert.deepEqual(run.panels, [panel])
+    // A restore that leaves the panel's reactions as they were sends nothing to clear
+    const unchanged = await Effect.runPromise(Effect.scoped(costPass(["setting update"])))
+    assert.deepEqual(unchanged.panels, [])
+})
+
+test("a pass looks up only the origin mappings its items name, however many earlier restores left", async () => {
     const cost = async (kinds: Kind[], options: { pageMs?: number; origins?: number }) => {
         const run = await Effect.runPromise(Effect.scoped(costPass(kinds, options)))
         assert.equal(run.exit._tag, "Success")
         return run
     }
-    // 22 pages of items at 3 seconds each is 66 seconds, so the opening check is renewed twice on the way and the first 20 items settle
-    const manyItems = await cost(
-        Array.from({ length: 440 }, () => "identical xp" as const),
-        { pageMs: 3_000 },
-    )
-    assert.deepEqual(manyItems.states.slice(0, 20), Array(20).fill("skipped"))
-    assert.deepEqual(new Set(manyItems.states.slice(20)), new Set(["planned"]))
-    assert.equal(manyItems.total, 5 + 2 * 5)
-    // The same for the origin mappings of earlier restores, read after the items
-    const manyOrigins = await cost(["setting update", "setting update"], { pageMs: 3_000, origins: 440 })
-    assert.deepEqual(manyOrigins.states, ["updated", "updated"])
-    assert.equal(manyOrigins.total, 5 + 2 * 5 + 6 + 6)
-    // Quick pages keep the opening check
+    // 6,000 mappings of earlier restores, more than the 5,000 a server once kept. Two settings that name one channel look it up once
+    const many = await cost(["setting update", "setting update"], { origins: 6_000 })
+    assert.deepEqual(many.states, ["updated", "updated"])
+    assert.deepEqual(many.lookups, [[many.named]])
+    // XP names no channel, so it looks nothing up
     const quick = await cost(
-        Array.from({ length: 440 }, () => "identical xp" as const),
-        { pageMs: 100 },
+        Array.from({ length: 20 }, () => "identical xp" as const),
+        { origins: 6_000 },
     )
+    assert.deepEqual(quick.states, Array(20).fill("skipped"))
+    assert.deepEqual(quick.lookups, [])
     assert.equal(quick.total, 5)
 })
 
@@ -1217,14 +1222,24 @@ test("a proof read from the channel list takes a channel and the category it nam
                     child = wire({ name: "rules", parent_id: category.id }),
                     gone = wire({ name: "gone", parent_id: bot.fixtures.nextId() })
                 const list = bot.rest.respond(`GET /guilds/${f.ids.guild}/channels`, { body: [category, child] })
+                // Fluxer says the channel and the category the list lacks are gone when each is read by its ID
+                for (const id of [gone.id, gone.parent_id])
+                    bot.rest.respond(`GET /channels/${id}`, {
+                        status: 404,
+                        body: { code: "UNKNOWN_CHANNEL", message: "Unknown Channel" },
+                    })
                 yield* bot.idle()
                 const evidence = yield* readBackupEvidence(bot.client, f.ids.guild, f.ids.user, p.dmId)
                 const objects = [
                     (yield* channelFrom(child)).snapshot,
                     { ...(yield* channelFrom(gone)).snapshot, sourceId: gone.id },
                 ]
-                const channelReads = () => bot.requests().filter((r) => r.path.startsWith("/channels/")).length,
-                    before = channelReads()
+                const channelReads = () =>
+                        bot
+                            .requests()
+                            .filter((r) => r.path.startsWith("/channels/"))
+                            .map((r) => r.path.split("/")[2]),
+                    before = channelReads().length
                 const proof = yield* readBackupNativeProof(
                     bot.client,
                     f.ids.guild,
@@ -1236,8 +1251,8 @@ test("a proof read from the channel list takes a channel and the category it nam
                     true,
                 )
                 assert.equal(list.requests().length, 1)
-                // No channel is read by its ID, and a category the list lacks is a missing reference
-                assert.equal(channelReads(), before)
+                // Only what the list lacks is read by its ID, and a category Fluxer says is gone is a missing reference
+                assert.deepEqual(channelReads().slice(before).sort(), [gone.id, gone.parent_id].sort())
                 assert.deepEqual(
                     proof.observations.map((o) => [o.sourceId, o.status]),
                     [
@@ -1289,4 +1304,141 @@ test("a pass renews its Owner and DM check right before it collects identical ch
     )
     assert.equal(run.exit._tag, "Success")
     assert.deepEqual(run.states, Array(7).fill("skipped"))
+})
+
+/** One pass over a plan whose only item is the order item, against a server whose three channels a reorder request can move */
+const orderPass = (behaviour: { reorder?: "refuse"; nothing?: true } = {}) =>
+    Effect.gen(function* () {
+        const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild })),
+            p = platform(bot)
+        yield* bot.ready()
+        // Fluxer leaves every member out of the gateway reads, so each is read by its ID as the test answers it
+        yield* answerMemberRequests(bot)
+        const channels = ["general", "rules", "news"].map((name) =>
+                bot.fixtures.channel({ id: bot.fixtures.nextId(), name, permission_overwrites: [] }),
+            ),
+            positions = new Map(channels.map((c, i) => [c.id, i]))
+        const news = channels[2]!
+        const reorders: unknown[] = []
+        bot.rest.respond(`GET /guilds/${f.ids.guild}/channels`, () => ({
+            body: channels.map((c) => ({ ...c, position: positions.get(c.id) })),
+        }))
+        bot.rest.respond(`PATCH /guilds/${f.ids.guild}/channels`, (request) => {
+            reorders.push(request.body)
+            if (behaviour.reorder === "refuse")
+                return { status: 400, body: { code: "INVALID_FORM_BODY", message: "Invalid" } }
+            // A channel with no channel before it goes first
+            for (const entry of request.body as { id: string; preceding_sibling_id: string | null }[])
+                positions.set(entry.id, entry.preceding_sibling_id === null ? -1 : 99)
+            return { status: 204 }
+        })
+        const plan = syntheticPlan({
+            planId: "synthetic-order-plan",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 900000,
+            confirmedAt: Date.now(),
+            itemCount: 1,
+            counts: { create: 0, update: 1, delete: 0, skip: 0, blocked: 0 },
+        })
+        let item: BackupItem = {
+            ...backupBinding(plan),
+            itemNo: 1,
+            generation: 1,
+            category: "structure",
+            family: "structure",
+            sourceId: "order",
+            name: "Channel order",
+            order: true,
+            disposition: "update",
+            reason: null,
+            state: "planned",
+            expectedHash: "c".repeat(64),
+            desiredHash: "d".repeat(64),
+            dependencyItemNo: null,
+            mappedId: null,
+        }
+        const writes: BackupWorkRequest["operation"][] = []
+        const store = {
+            query: (input: BackupQueryRequest) =>
+                Effect.sync(() => {
+                    const op = input.operation
+                    if (op.type === "plan") return { type: "plan", plan }
+                    if (op.type === "open" || op.type === "unconfirmed")
+                        return {
+                            type: op.type,
+                            items: [item].filter((row) =>
+                                op.type === "open" ? row.state === "planned" : row.state === "uncertain",
+                            ),
+                        }
+                    if (op.type === "origins") return { type: "origins", origins: [] }
+                    throw new Error(`Unexpected query ${op.type}`)
+                }),
+            work: (input: BackupWorkRequest) =>
+                Effect.sync(() => {
+                    const op = input.operation
+                    writes.push(op)
+                    if (op.type === "claim") {
+                        if (behaviour.nothing) {
+                            item = { ...item, state: "skipped" }
+                            return { type: "item", item }
+                        }
+                        item = { ...item, state: "claimed" }
+                        return {
+                            type: "grant",
+                            item,
+                            grant: {
+                                ...backupItemBinding(item),
+                                provider: plan.provider,
+                                serverId: f.ids.guild,
+                                ownerId: f.ids.user,
+                                botId: f.ids.bot,
+                                action: "order",
+                                moves: [{ id: news.id, parentId: null, precedingSiblingId: null }],
+                                dispatchExpiresAt: plan.expiresAt,
+                                nativeDeadlineMs: 5000,
+                            },
+                            claimed: true,
+                        }
+                    }
+                    if (op.type !== "outcome") throw new Error(`Unexpected work ${op.type}`)
+                    item = { ...item, state: op.outcome }
+                    return { type: "item", item }
+                }),
+        } as unknown as BackupStore
+        yield* bot.idle()
+        const config = { serverId: f.ids.guild } as Parameters<typeof processBackupPlanPass>[1]
+        const exit = yield* Effect.exit(processBackupPlanPass(store, config, bot.client, plan, p.dmId))
+        return {
+            exit,
+            reorders,
+            claims: writes.filter((op): op is Extract<typeof op, { type: "reserve" | "claim" }> => op.type === "claim"),
+            outcomes: writes.filter((op): op is Extract<typeof op, { type: "outcome" }> => op.type === "outcome"),
+            channels,
+        }
+    })
+
+test("the order item claims on the channel list in Fluxer's order, sends one reorder and settles as updated when every move landed", async () => {
+    const run = await Effect.runPromise(Effect.scoped(orderPass()))
+    assert.equal(run.exit._tag, "Success")
+    // The claim's proof lists the channels in their order, which the backend reads the current order from
+    assert.deepEqual(
+        run.claims[0]!.native.channels.map((c) => c.name),
+        ["general", "rules", "news"],
+    )
+    assert.deepEqual(run.reorders, [[{ id: run.channels[2]!.id, parent_id: null, preceding_sibling_id: null }]])
+    assert.deepEqual(
+        run.outcomes.map((o) => [o.outcome, o.channel, o.mappedId, o.noDispatch]),
+        [["updated", null, null, undefined]],
+    )
+})
+
+test("an order item whose reorder Fluxer refused is failed and says how many channels did not move, and one with nothing to move writes nothing", async () => {
+    const refused = await Effect.runPromise(Effect.scoped(orderPass({ reorder: "refuse" })))
+    assert.equal(refused.reorders.length, 1)
+    assert.deepEqual(
+        refused.outcomes.map((o) => [o.outcome, o.reason]),
+        [["failed", "1 channel of 1 did not move. Check again to see the order now"]],
+    )
+    const nothing = await Effect.runPromise(Effect.scoped(orderPass({ nothing: true })))
+    assert.deepEqual([nothing.reorders.length, nothing.outcomes.length], [0, 0])
 })

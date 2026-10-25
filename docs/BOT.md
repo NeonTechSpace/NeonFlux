@@ -103,20 +103,20 @@ The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, 
 
 ## Help, setup and health
 
-| Command | Behavior |
-| --- | --- |
-| `!help` | List the groups that hold a command you can use, each with one line on what it covers: Basics, setup, moderation, roles, messages, support, community and voice |
-| `!help <group>` | List the group's commands you can use, one line each, such as `!help support`. A feature or command name, such as `!help tickets` or `!help mod`, opens the group that holds it, and an unknown name gets the closest match |
-| `@NeonFlux help` | The same as `!help`, for members who do not know the prefix. Add a group after `help` to open it |
-| `!<command> help` | Show a command's most used forms, at most eight, such as `!custom help`. Help for a command with more forms ends with a line pointing to `help all` |
-| `!<command> help all [next]` | List the forms that help leaves out, 10 at a time, such as `!custom help all` |
-| `!setup` | Show how many features are on, counting those that need a step, then name the features that are on, those that are on but need a step, and those that are off |
-| `!setup <feature>` | Show one feature's state and its next step, such as `!setup tickets`. The feature may be its name, with or without spaces and in singular or plural, or its command, such as `ticket` or `lfg` |
-| `!health` | Sum up whether NeonFlux reaches its data service and Fluxer, how many permissions it lacks for the features that are on and which features need them, how many roles it gives rank at or above its own role, and how many safety warnings the audit of the server's roles found |
-| `!health permissions\|safety [next]` | List each missing permission with the features that need it and each role that ranks too high, or each safety warning with its fix, 10 at a time |
-| `!recovery` | Count what needs attention in each area, such as `Tickets 1, Publishing 2`: work that failed, got stuck or was not confirmed, features that are on but need a step and the permission problems of the latest check |
-| `!recovery <area> [next]` | List one area's entries with when each happened, 10 at a time, such as `!recovery tickets`. Entries that share a fix name it once |
-| `!recovery <area> <number>` | Show one entry of that list with the step that resolves it, such as `!recovery tickets 1` |
+| Command                              | Behavior                                                                                                                                                                                                                                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `!help`                              | List the groups that hold a command you can use, each with one line on what it covers: Basics, setup, moderation, roles, messages, support, community and voice                                                                                                                 |
+| `!help <group>`                      | List the group's commands you can use, one line each, such as `!help support`. A feature or command name, such as `!help tickets` or `!help mod`, opens the group that holds it, and an unknown name gets the closest match                                                     |
+| `@NeonFlux help`                     | The same as `!help`, for members who do not know the prefix. Add a group after `help` to open it                                                                                                                                                                                |
+| `!<command> help`                    | Show a command's most used forms, at most eight, such as `!custom help`. Help for a command with more forms ends with a line pointing to `help all`                                                                                                                             |
+| `!<command> help all [next]`         | List the forms that help leaves out, 10 at a time, such as `!custom help all`                                                                                                                                                                                                   |
+| `!setup`                             | Show how many features are on, counting those that need a step, then name the features that are on, those that are on but need a step, and those that are off                                                                                                                   |
+| `!setup <feature>`                   | Show one feature's state and its next step, such as `!setup tickets`. The feature may be its name, with or without spaces and in singular or plural, or its command, such as `ticket` or `lfg`                                                                                  |
+| `!health`                            | Sum up whether NeonFlux reaches its data service and Fluxer, how many permissions it lacks for the features that are on and which features need them, how many roles it gives rank at or above its own role, and how many safety warnings the audit of the server's roles found |
+| `!health permissions\|safety [next]` | List each missing permission with the features that need it and each role that ranks too high, or each safety warning with its fix, 10 at a time                                                                                                                                |
+| `!recovery`                          | Count what needs attention in each area, such as `Tickets 1, Publishing 2`: work that failed, got stuck or was not confirmed, features that are on but need a step and the permission problems of the latest check                                                              |
+| `!recovery <area> [next]`            | List one area's entries with when each happened, 10 at a time, such as `!recovery tickets`. Entries that share a fix name it once                                                                                                                                               |
+| `!recovery <area> <number>`          | Show one entry of that list with the step that resolves it, such as `!recovery tickets 1`                                                                                                                                                                                       |
 
 Help lists a command when your server permissions open it. Everyone sees member commands. Members with Kick members, Ban members, Time out members, Manage messages, Manage channels, Manage roles or Manage threads also see the staff commands, whose staff roles are still checked when they run. Manage community opens `!setup`, `!health`, `!recovery`, `!preset` and `!stats`, and the server owner and Administrators see every command. Help prints the server's prefix, except on lines about commands sent in a DM, which always use `!`. `!setup`, `!health` and `!recovery` are for the server owner and members with Manage community or Administrator
 
@@ -159,23 +159,23 @@ Each source reads at most 50 records and shows its newest 10, and the inbox show
 
 A preset sets several existing settings at once as a starting point. Community presets fit a kind of server, and security levels set automod and security together
 
-| Command | Behavior |
-| --- | --- |
-| `!preset list` | List the presets and how many settings each would change now |
-| `!preset show <name>` | Count the settings the preset would change and the automod rules it would add or update now, with the code that confirms them |
-| `!preset show <name> all [next]` | List each change from its current value, ten to a page |
-| `!preset apply <name>` | The same as `show` |
-| `!preset apply <name> <code>` | Apply the preset whose changes you saw. The reply counts what changed |
-| `!preset help` | Show syntax |
+| Command                          | Behavior                                                                                                                      |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `!preset list`                   | List the presets and how many settings each would change now                                                                  |
+| `!preset show <name>`            | Count the settings the preset would change and the automod rules it would add or update now, with the code that confirms them |
+| `!preset show <name> all [next]` | List each change from its current value, ten to a page                                                                        |
+| `!preset apply <name>`           | The same as `show`                                                                                                            |
+| `!preset apply <name> <code>`    | Apply the preset whose changes you saw. The reply counts what changed                                                         |
+| `!preset help`                   | Show syntax                                                                                                                   |
 
-| Preset | What it sets |
-| --- | --- |
-| `gaming` | Leveling on with 20 XP per message and a 60-second cooldown, and events on |
-| `support` | Tickets on with 90 days of ticket history, and leveling off |
-| `creator` | Events on, and leveling on with 10 XP per message and a 120-second cooldown |
-| `relaxed` | Automod on and enforcing without checking webhook and bot messages, rules that delete spam at 8 messages in 10 seconds and lookalike links, and join-burst detection and DEFCON 2 on a join burst off |
-| `balanced` | Automod on and enforcing without checking webhook and bot messages, rules that delete spam at 6 messages in 10 seconds, repeated messages at 4 in 30 seconds, mention floods at 15 in 30 seconds and lookalike links, security on and enforcing, and join-burst detection at 10 joins in 30 seconds without DEFCON 2 |
-| `strict` | Automod on and enforcing with webhook and bot messages checked, 10-minute timeouts for spam at 5 messages in 10 seconds and mention floods at 10 in 30 seconds, rules that delete repeated messages at 3 in 30 seconds, link floods at 6 in 30 seconds and lookalike links, security on and enforcing, and join-burst detection at 5 joins in 30 seconds with DEFCON 2 on a join burst |
+| Preset     | What it sets                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gaming`   | Leveling on with 20 XP per message and a 60-second cooldown, and events on                                                                                                                                                                                                                                                                                                             |
+| `support`  | Tickets on with 90 days of ticket history, and leveling off                                                                                                                                                                                                                                                                                                                            |
+| `creator`  | Events on, and leveling on with 10 XP per message and a 120-second cooldown                                                                                                                                                                                                                                                                                                            |
+| `relaxed`  | Automod on and enforcing without checking webhook and bot messages, rules that delete spam at 8 messages in 10 seconds and lookalike links, and join-burst detection and DEFCON 2 on a join burst off                                                                                                                                                                                  |
+| `balanced` | Automod on and enforcing without checking webhook and bot messages, rules that delete spam at 6 messages in 10 seconds, repeated messages at 4 in 30 seconds, mention floods at 15 in 30 seconds and lookalike links, security on and enforcing, and join-burst detection at 10 joins in 30 seconds without DEFCON 2                                                                   |
+| `strict`   | Automod on and enforcing with webhook and bot messages checked, 10-minute timeouts for spam at 5 messages in 10 seconds and mention floods at 10 in 30 seconds, rules that delete repeated messages at 3 in 30 seconds, link floods at 6 in 30 seconds and lookalike links, security on and enforcing, and join-burst detection at 5 joins in 30 seconds with DEFCON 2 on a join burst |
 
 - A preset changes only the settings in its row and only values that differ. Its automod rules are named `preset-spam`, `preset-repeat`, `preset-mentions`, `preset-links` and `preset-lookalikes`. A missing one is added, and an existing one of the same type gets the preset's action and limits and keeps its channels and exemptions. A rule of that name with another type is left alone
 - Presets never delete rules or other settings and never change channels or roles. A lower security level keeps rules a higher level added, so disable those with `!automod disable <name>` when they are not wanted
@@ -201,11 +201,11 @@ The bot keeps the style with the prefix, so a chat change applies at once and a 
 
 Server owners and members with Manage community set the bot's display name in their server. Anyone can show it
 
-| Task | Command |
-| --- | --- |
-| Show the nickname and the last apply result | `!nickname` |
-| Set the nickname | `!nickname set Neon Helper` |
-| Remove the nickname so the bot's username shows | `!nickname reset` |
+| Task                                            | Command                     |
+| ----------------------------------------------- | --------------------------- |
+| Show the nickname and the last apply result     | `!nickname`                 |
+| Set the nickname                                | `!nickname set Neon Helper` |
+| Remove the nickname so the bot's username shows | `!nickname reset`           |
 
 A nickname has 1 to 32 characters, with no control characters and no spaces at the start or end. The bot applies it at once and replies with the result. The dashboard can also change it, and the bot applies a dashboard change when it next checks for dashboard work
 
@@ -230,17 +230,17 @@ The server owner and members with Administrator manage definitions with `!custom
 
 The first responds to `!rules` with optional arguments. The second responds to messages equal to `hello`, ignoring case
 
-| Task | Command |
-| --- | --- |
-| Inspect or list | `!custom show rules`, `!custom list` |
-| Replace the response | `!custom update rules response text "..."` or `response embed "Title" "Description" "#3d66b8"` |
-| Restrict channels or roles | `!custom update rules channels #general #help`, `roles @Member`, or `channels all` to clear |
-| Set the cooldown | `!custom update rules cooldown 30` |
-| Enable or disable one definition | `!custom enable rules`, `!custom disable rules` |
-| Turn the module on or off | `!custom module on`, `!custom module off` |
-| Delete | `!custom delete rules` |
-| Change an autoresponder trigger or priority | `!auto update greeting trigger contains "hello"`, `!auto update greeting priority 10` |
-| Try a text without posting it | `!auto test hello there` |
+| Task                                        | Command                                                                                        |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Inspect or list                             | `!custom show rules`, `!custom list`                                                           |
+| Replace the response                        | `!custom update rules response text "..."` or `response embed "Title" "Description" "#3d66b8"` |
+| Restrict channels or roles                  | `!custom update rules channels #general #help`, `roles @Member`, or `channels all` to clear    |
+| Set the cooldown                            | `!custom update rules cooldown 30`                                                             |
+| Enable or disable one definition            | `!custom enable rules`, `!custom disable rules`                                                |
+| Turn the module on or off                   | `!custom module on`, `!custom module off`                                                      |
+| Delete                                      | `!custom delete rules`                                                                         |
+| Change an autoresponder trigger or priority | `!auto update greeting trigger contains "hello"`, `!auto update greeting priority 10`          |
+| Try a text without posting it               | `!auto test hello there`                                                                       |
 
 Use `!auto` in place of `!custom` for autoresponders. `!custom help` shows the common forms and `!custom help all` the rest
 
@@ -357,11 +357,11 @@ parent channel to lock instead
 
 ### DEFCON
 
-| Level | Behavior |
-| --- | --- |
-| 3 | Normal operation |
-| 2 | Staff commands and private appeals only. Public commands are blocked |
-| 1 | Only critical owner or Administrator controls |
+| Level | Behavior                                                             |
+| ----- | -------------------------------------------------------------------- |
+| 3     | Normal operation                                                     |
+| 2     | Staff commands and private appeals only. Public commands are blocked |
+| 1     | Only critical owner or Administrator controls                        |
 
 Use `!defcon status`, `!defcon diagnose` and `!defcon set 1|2|3`. Critical controls include status, diagnosis, DEFCON
 changes, disabling protections, recovery checks, the recovery inbox, presets (applying one is still refused at DEFCON
@@ -409,22 +409,22 @@ Server owners and Administrators prepare drafts and reusable templates with `!pu
 
 The send reply gives a post number. To change the sent message, update the draft and run `!publish edit <post-number> announcement`. The bot first checks that the message still matches what it last sent
 
-| Task | Command |
-| --- | --- |
-| Create, show, delete or preview | `!publish create\|show\|delete\|preview <name>`, `!publish list [next]` |
-| Copy a draft | `!publish clone <name> <new-name>` |
-| Work with templates | Put `template` after `!publish`, for example `!publish template create welcome` |
-| Copy a template into a draft | `!publish template clone <name> <new-name> draft` |
-| Set text | `!publish set <name> content\|title\|description\|url\|timestamp "value"`, `color #RRGGBB` |
-| Set author and footer | `!publish set <name> author "name" ["URL"\|none] ["icon URL"\|none]`, `footer "text" ["icon URL"]` |
-| Set media | `!publish set <name> image\|thumbnail "URL" ["description"]` |
-| Manage fields | `!publish field <name> add "name" "value" [on\|off]`, `set <1-25> ...`, `remove <1-25>` |
-| Clear parts | `!publish clear <name> content\|embed\|title\|description\|url\|color\|timestamp\|author\|footer\|image\|thumbnail\|fields` |
-| Inspect posts | `!publish posts [next]`, `!publish status <post-number>` |
-| Check a post with an unknown outcome | `!publish reconcile <post-number>` |
-| Record a post's outcome by hand | `!publish resolve <post-number> sent <message-id>`, `!publish resolve <post-number> failed` |
-| Stop tracking a post | `!publish forget <post-number>` |
-| Configure | `!publish module on\|off`, `!publish status` |
+| Task                                 | Command                                                                                                                     |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Create, show, delete or preview      | `!publish create\|show\|delete\|preview <name>`, `!publish list [next]`                                                     |
+| Copy a draft                         | `!publish clone <name> <new-name>`                                                                                          |
+| Work with templates                  | Put `template` after `!publish`, for example `!publish template create welcome`                                             |
+| Copy a template into a draft         | `!publish template clone <name> <new-name> draft`                                                                           |
+| Set text                             | `!publish set <name> content\|title\|description\|url\|timestamp "value"`, `color #RRGGBB`                                  |
+| Set author and footer                | `!publish set <name> author "name" ["URL"\|none] ["icon URL"\|none]`, `footer "text" ["icon URL"]`                          |
+| Set media                            | `!publish set <name> image\|thumbnail "URL" ["description"]`                                                                |
+| Manage fields                        | `!publish field <name> add "name" "value" [on\|off]`, `set <1-25> ...`, `remove <1-25>`                                     |
+| Clear parts                          | `!publish clear <name> content\|embed\|title\|description\|url\|color\|timestamp\|author\|footer\|image\|thumbnail\|fields` |
+| Inspect posts                        | `!publish posts [next]`, `!publish status <post-number>`                                                                    |
+| Check a post with an unknown outcome | `!publish reconcile <post-number>`                                                                                          |
+| Record a post's outcome by hand      | `!publish resolve <post-number> sent <message-id>`, `!publish resolve <post-number> failed`                                 |
+| Stop tracking a post                 | `!publish forget <post-number>`                                                                                             |
+| Configure                            | `!publish module on\|off`, `!publish status`                                                                                |
 
 A message has up to 2000 code units of content and one embed with up to 25 fields and 6000 code units of embed text. URLs must use HTTP or HTTPS and fit in 2048 code units. The bot does not fetch media or upload files
 
@@ -543,14 +543,14 @@ Members claim and drop roles on the [website](WEB.md#member-role-picker) from me
 !rolepicker on
 ```
 
-| Task | Command |
-| --- | --- |
-| Status, switch and help | `!rolepicker`, `!rolepicker on\|off`, `!rolepicker help` |
+| Task                            | Command                                                                                                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status, switch and help         | `!rolepicker`, `!rolepicker on\|off`, `!rolepicker help`                                                                                                      |
 | List, show, add or remove menus | `!rolepicker menu list`, `!rolepicker menu show <name> [next]`, `!rolepicker menu add <name> single\|multi ["description"]`, `!rolepicker menu remove <name>` |
-| Change a menu | `!rolepicker menu set <name> mode single\|multi`, `!rolepicker menu set <name> description "text"\|none` |
-| Menu roles | `!rolepicker menu role add\|remove <name> @roles...` |
-| Who may use it | `!rolepicker access`, `!rolepicker access allowed\|blocked [next]`, `!rolepicker access allow\|block\|unallow\|unblock role\|user <mentions or IDs>` |
-| Unconfirmed role change | `!rolepicker reconcile @user` |
+| Change a menu                   | `!rolepicker menu set <name> mode single\|multi`, `!rolepicker menu set <name> description "text"\|none`                                                      |
+| Menu roles                      | `!rolepicker menu role add\|remove <name> @roles...`                                                                                                          |
+| Who may use it                  | `!rolepicker access`, `!rolepicker access allowed\|blocked [next]`, `!rolepicker access allow\|block\|unallow\|unblock role\|user <mentions or IDs>`          |
+| Unconfirmed role change         | `!rolepicker reconcile @user`                                                                                                                                 |
 
 A server has up to 100 menus, which hold up to 1,000 roles together, and a role belongs to one menu. One menu may hold all of them. These bounds keep the role picker within one backend record and one backup segment. `!rolepicker menu list` shows 20 menus a page, and `!rolepicker menu list next` the following one. Menu roles follow the reaction panel rules: Below the bot's top role and the sender's, not everyone, not a staff role and only ordinary member permissions. A block always wins over an allow, and with no allowed roles or users every member who is not blocked may use the role picker. Like other role commands, turning the role picker off and removing a menu still work at DEFCON 1. Removing a menu keeps the roles members already chose
 
@@ -578,14 +578,14 @@ Staff give a member a role for a set time, and NeonFlux removes it when the time
 !temprole remove @member @Winner
 ```
 
-| Task | Command |
-| --- | --- |
-| Give a role for a set time | `!temprole add @member @role [duration]` |
-| Renew or shorten a grant, counted from now | `!temprole set @member @role <duration>` |
-| End a grant early and remove the role | `!temprole remove @member @role` |
-| List grants, the earliest end first | `!temprole list [@member] [next]` |
+| Task                                              | Command                                                                                                         |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Give a role for a set time                        | `!temprole add @member @role [duration]`                                                                        |
+| Renew or shorten a grant, counted from now        | `!temprole set @member @role <duration>`                                                                        |
+| End a grant early and remove the role             | `!temprole remove @member @role`                                                                                |
+| List grants, the earliest end first               | `!temprole list [@member] [next]`                                                                               |
 | Show or change role defaults, ten roles to a page | `!temprole defaults [next]`, `!temprole default @role <duration>\|none`, `!temprole max @role <duration>\|none` |
-| Recover after an unconfirmed role change | `!temprole reconcile @member` |
+| Recover after an unconfirmed role change          | `!temprole reconcile @member`                                                                                   |
 
 Durations are written like other durations, in any case, such as 30m, 12h, 7d, 2w or 1d12h, from 1 minute to 100 years, which keeps every end a calendar date. Without a duration, `add` uses the role's default duration, and a role's longest duration limits `add` and `set`. Defaults need Manage community and can also be set in [the dashboard](WEB.md#temporary-roles). A member holds one grant per role, so up to all of the server's roles, and up to 1,000 roles, as many as NeonFlux reads of a server, have defaults. `!temprole list @member` shows a member's grants ten to a page
 
@@ -618,15 +618,15 @@ A checklist of up to five steps guides new members through features the server a
 !onboarding on
 ```
 
-| Task | Command |
-| --- | --- |
-| Show your own checklist and what is left | `!onboarding` |
-| Show the checklist as configured | `!onboarding status` |
-| Add a step at the end | `!onboarding add rules`, `add panel <name>`, `add menu <name>`, `add link #channel "line"` |
-| Remove a step | `!onboarding remove <position>` |
-| Choose the greeting that carries it | `!onboarding delivery welcome\|dm` |
-| Set or clear the completion role | `!onboarding role @role\|none` |
-| Turn it on or off | `!onboarding on\|off` |
+| Task                                     | Command                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Show your own checklist and what is left | `!onboarding`                                                                              |
+| Show the checklist as configured         | `!onboarding status`                                                                       |
+| Add a step at the end                    | `!onboarding add rules`, `add panel <name>`, `add menu <name>`, `add link #channel "line"` |
+| Remove a step                            | `!onboarding remove <position>`                                                            |
+| Choose the greeting that carries it      | `!onboarding delivery welcome\|dm`                                                         |
+| Set or clear the completion role         | `!onboarding role @role\|none`                                                             |
+| Turn it on or off                        | `!onboarding on\|off`                                                                      |
 
 Members finish each step through the feature it names, and NeonFlux follows what those features already record:
 
@@ -719,12 +719,12 @@ Members open a ticket with `!ticket open` in a server channel or a DM, or by rea
 
 After `!ticket open`, the bot asks the first question. While a member has exactly one open intake, any DM from them that is not a command answers the current question, and the bot replies with the next one. Once every question is answered, it says how many are answered and who will see the conversation, then waits for a plain-word reply. `!ticket review <intake-number>` shows the answers:
 
-| Reply | Effect |
-| --- | --- |
-| Any other text | Answers the current question |
-| `back` | Clears the previous answer, or the last one at the confirmation step, shows it and asks that question again |
-| `send` | Creates the ticket for the shown audience, once every question is answered |
-| `cancel` | Cancels the intake |
+| Reply          | Effect                                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------------- |
+| Any other text | Answers the current question                                                                                |
+| `back`         | Clears the previous answer, or the last one at the confirmation step, shows it and asks that question again |
+| `send`         | Creates the ticket for the shown audience, once every question is answered                                  |
+| `cancel`       | Cancels the intake                                                                                          |
 
 The words match without regard to case. An answer with an attachment or sticker is refused, because answers keep text only, and an answer over 2000 characters gets a reply naming the limit. With more than one open intake, a plain DM gets one reply that names each intake, with its server in multi-server mode, and the `!ticket answer` and `!ticket cancel` commands, instead of a guess. Without an open intake, plain DMs get no reply. Each plain DM costs one backend read to look for an open intake
 
@@ -792,28 +792,29 @@ Saving reads only and never posts. A save that fails, usually for a missing View
 
 Owners and Administrators configure message XP with `!level`. Current members can read `!rank` and `!leaderboard`. Rank cards are native embeds, replies never notify anyone, and cards and leaderboards show members as mentions without storing display names or avatars
 
-Leveling starts disabled with 15 XP per eligible message and a 60-second cooldown. Level N needs `100 * N²` lifetime XP, up to level 1000. Scores belong to the account in this server and survive leaving and rejoining. While leveling is off, messages cost no leveling backend call: after the backend answers that leveling is off, the bot sends no XP candidates for ten minutes, or until a `!level` or `!preset` command or a leveling or preset change on the dashboard. Turning leveling on from either takes effect immediately, and a change by other means, such as a backup restore, within ten minutes
+Leveling starts disabled with 15 XP per eligible message and a 60-second cooldown. Level N needs `100 * N²` lifetime XP, up to level 1000. Scores belong to the account in this server and survive leaving and rejoining. While leveling is off, messages cost no leveling backend call: after the backend answers that leveling is off, the bot sends no XP candidates for ten minutes, or until a `!level` or `!preset` command or a leveling or preset change on the dashboard. Turning leveling on from either, or by restoring a backup, takes effect immediately
 
-| Command | Behavior |
-| --- | --- |
-| `!level help` | Show the common forms. `!level help all` lists the rest |
-| `!level config` | Show the status, the rate, how many excluded channels, excluded roles and role rewards are set, and where level-up messages go |
-| `!level config channels\|roles\|rewards [next]` | List the excluded channels, excluded roles or role rewards, 10 per page |
-| `!level module on\|off` | Start or pause XP and new reward grants |
-| `!level rate <1-100 XP> <15-3600 seconds>` | Set XP per message and cooldown |
-| `!level exclude channels\|roles <IDs...\|none>` | Replace the exclusion list, at most 50 each |
-| `!level announce off\|here\|#channel [rewards]` | Turn level-up messages off, post them where the member leveled up or in one text or announcement channel of this server. `rewards` posts only for levels with a reward role |
-| `!level map <1-1000 level> @role` | Add a reward role, at most 20 mappings |
-| `!level unmap <level>` | Remove one mapping |
-| `!level clear [confirm]` | Preview, then clear all mappings |
-| `!level correct @user <0-100000000 XP> <reason>` | Set an absolute XP value with an audit entry |
-| `!level reset member @user <reason> [confirm]` | Preview, then reset one member |
-| `!level reset server <reason> [confirm]` | Preview, then start a new season for everyone |
-| `!level status` | Show pending and blocked reward work, and how many member records exist, including members who now have no XP |
-| `!level reconcile [@user]` | Queue a reward check for the server or one member. For a member it first records what Fluxer shows for a reward role change that was not confirmed, one change per command |
-| `!level audit [next]` | Read correction and reset audits, 10 per page |
-| `!rank [@user or user ID]` | Show XP, level and rank |
-| `!leaderboard [next]` | Show 10 rows ordered by XP |
+| Command                                               | Behavior                                                                                                                                                                          |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `!level help`                                         | Show the common forms. `!level help all` lists the rest                                                                                                                           |
+| `!level config`                                       | Show the status, the rate, which channels earn XP, how many excluded channels, excluded roles and role rewards are set, and where level-up messages go                            |
+| `!level config only\|channels\|roles\|rewards [next]` | List the channels that earn XP, the excluded channels, excluded roles or role rewards, 10 per page                                                                                |
+| `!level module on\|off`                               | Start or pause XP and new reward grants                                                                                                                                           |
+| `!level rate <1-100 XP> <15-3600 seconds>`            | Set XP per message and cooldown                                                                                                                                                   |
+| `!level only channels <IDs...\|none>`                 | Let only these channels and their threads earn XP, up to 500, Fluxer's channel limit per server. `none` lets every channel earn XP again. Excluded channels and roles still apply. A category is refused, since it holds no messages. Set a list longer than one message holds on the dashboard |
+| `!level exclude channels\|roles <IDs...\|none>`       | Replace the exclusion list, up to 500 channels or 250 roles, Fluxer's limits per server. A category is refused, since it holds no messages. Set a list longer than one message holds on the dashboard |
+| `!level announce off\|here\|#channel [rewards]`       | Turn level-up messages off, post them where the member leveled up or in one text or announcement channel of this server. `rewards` posts only for levels with a reward role       |
+| `!level map <1-1000 level> @role`                     | Add a reward role, up to 250 mappings, as many as a server has roles                                                                                                              |
+| `!level unmap <level>`                                | Remove one mapping                                                                                                                                                                |
+| `!level clear [confirm]`                              | Preview, then clear all mappings                                                                                                                                                  |
+| `!level correct @user <0-100000000 XP> <reason>`      | Set an absolute XP value with an audit entry                                                                                                                                      |
+| `!level reset member @user <reason> [confirm]`        | Preview, then reset one member                                                                                                                                                    |
+| `!level reset server <reason> [confirm]`              | Preview, then start a new season for everyone                                                                                                                                     |
+| `!level status`                                       | Show pending and blocked reward work, and how many member records exist, including members who now have no XP                                                                     |
+| `!level reconcile [@user]`                            | Queue a reward check for the server or one member. For a member it first records what Fluxer shows for a reward role change that was not confirmed, one change per command        |
+| `!level audit [next]`                                 | Read correction and reset audits, 10 per page                                                                                                                                     |
+| `!rank [@user or user ID]`                            | Show XP, level and rank                                                                                                                                                           |
+| `!leaderboard [next]`                                 | Show 10 rows ordered by XP                                                                                                                                                        |
 
 Reasons need no quotes. A reset's final word `confirm` confirms it, and the words before it are the reason, so the preview prints the exact command to send. Corrections apply in the order their commands were sent, so an older correction that arrives late is rejected. `!leaderboard next`, `!level audit next` and `!level config <list> next` continue where your last page in that channel ended. Rows can shift between pages while XP is awarded. After a server reset, `!leaderboard next` reports the change and forgets its place, so start again with `!leaderboard`. Rank is exact for every member: One plus the members with more XP this season. Members with the same XP share a rank, so the ranks run 1, 2, 2, 4, and the card shows `#26` or, for a member who shares it, `#26, tied with 996 others`. Members with zero XP are unranked. A server that used leveling before exact ranks existed counts its members in the background, 200 at a time, and until then `!rank` answers `Counting, try again in a minute` and `!profile` shows only the level
 
@@ -926,15 +927,15 @@ Consent names the configured public channel as a mention, ID or name. A personal
 
 Owners and Administrators configure each route from a publishing template. A route follows its template by name, so an edit to the template reaches the next celebration right away. When the template is deleted or an edit makes it invalid for the kind, such as `{years}` in a birthday template, the route sends the copy saved when it was last configured. Templates can use `{user}` and `{server}`, plus `{years}` for anniversaries. Birthday posts never show the date or an age. All milestone replies and previews are private, and posts suppress mentions. `!milestone status` sent in a server channel answers there with `Details sent by DM`
 
-| Command | Behavior |
-| --- | --- |
-| `!milestone status [birthday\|anniversary [next]]` | Show configuration and limits, with the stored post records counted against their limit, or delivery history for one route. Birthday history leaves out due times and why a post skipped a clock change, so it never shows a date. `next` shows the following page |
-| `!milestone configure birthday\|anniversary #channel <IANA zone> HH:mm earlier\|later\|reject template <name>` | Set a route |
-| `!milestone preview birthday\|anniversary` | Preview the post privately |
-| `!milestone enable\|disable\|clear birthday\|anniversary` | Control one route |
-| `!milestone module on\|off` | Turn the module on or off |
-| `!milestone reconcile birthday\|anniversary <post>` | Recheck one known post |
-| `!milestone forget birthday\|anniversary <settled-post> [confirm]` | Drop settled tracking without deleting the post |
+| Command                                                                                                        | Behavior                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `!milestone status [birthday\|anniversary [next]]`                                                             | Show configuration and limits, with the stored post records counted against their limit, or delivery history for one route. Birthday history leaves out due times and why a post skipped a clock change, so it never shows a date. `next` shows the following page |
+| `!milestone configure birthday\|anniversary #channel <IANA zone> HH:mm earlier\|later\|reject template <name>` | Set a route                                                                                                                                                                                                                                                        |
+| `!milestone preview birthday\|anniversary`                                                                     | Preview the post privately                                                                                                                                                                                                                                         |
+| `!milestone enable\|disable\|clear birthday\|anniversary`                                                      | Control one route                                                                                                                                                                                                                                                  |
+| `!milestone module on\|off`                                                                                    | Turn the module on or off                                                                                                                                                                                                                                          |
+| `!milestone reconcile birthday\|anniversary <post>`                                                            | Recheck one known post                                                                                                                                                                                                                                             |
+| `!milestone forget birthday\|anniversary <settled-post> [confirm]`                                             | Drop settled tracking without deleting the post                                                                                                                                                                                                                    |
 
 Posts go out at the configured local time in the route's zone. February 29 celebrates on February 28 in other years.
 Anniversaries count completed years from one. A late delivery still sends until local midnight, and a missed day does
@@ -982,20 +983,20 @@ Limits are 1000 staff and 10000 member commands a day, which keeps one server fr
 
 ## Automatic message cleanup
 
-Owners and Administrators use `!cleanup` to delete messages older than a chosen age in selected Text and Announcement channels. Send a command that names no channel in a Text or Announcement channel, since a thread, forum post or voice channel is refused. The module and every policy start disabled. A server can have cleanup in at most 50 channels. Turning a channel's cleanup off keeps its slot. Ages run from one hour through 365 days and are written like other durations, in any case, such as `60m`, `1h30m`, `30d` or `2w`. A total that is not whole seconds is refused
+Owners and Administrators use `!cleanup` to delete messages older than a chosen age in selected Text and Announcement channels. Send a command that names no channel in a Text or Announcement channel, since a thread, forum post or voice channel is refused. The module and every policy start disabled. A server can have cleanup in up to 500 channels, Fluxer's limit of channels in a server. Turning a channel's cleanup off keeps its slot. A channel keeps up to 8,192 excluded authors and 8,192 excluded messages, and a server up to 20,000 across its cleanup channels, since a backup and every cleanup change read all of them at once. Ages run from one hour through 365 days and are written like other durations, in any case, such as `60m`, `1h30m`, `30d` or `2w`. A total that is not whole seconds is refused
 
-| Command | Behavior |
-| --- | --- |
-| `!cleanup help` | Show the common forms. `!cleanup help all` lists the rest |
-| `!cleanup configure #channel <age>` | Create or replace a channel policy |
-| `!cleanup show\|preview #channel` | Show the policy, or check up to 50 older messages without deleting |
-| `!cleanup list [next]` | List configured channels, 10 per page. `next` shows the following page |
-| `!cleanup status [#channel]` | Show the module and channel count, or one channel's state and last run in a few lines |
-| `!cleanup status #channel messages [next]` | List links to the channel's handled messages with their outcome, 10 per page and newest first. `next` shows the following page |
-| `!cleanup enable #channel [confirm]` | Enable the policy, including existing old messages |
-| `!cleanup disable #channel` | Stop new deletions and keep configuration |
-| `!cleanup module on\|off` | Turn the module on or off |
-| `!cleanup exclude #channel author\|message add\|remove <id>` | Keep up to 50 authors and 100 messages |
+| Command                                                      | Behavior                                                                                                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `!cleanup help`                                              | Show the common forms. `!cleanup help all` lists the rest                                                                      |
+| `!cleanup configure #channel <age>`                          | Create or replace a channel policy                                                                                             |
+| `!cleanup show\|preview #channel`                            | Show the policy, or check up to 50 older messages without deleting                                                             |
+| `!cleanup list [next]`                                       | List configured channels, 10 per page. `next` shows the following page                                                         |
+| `!cleanup status [#channel]`                                 | Show the module and channel count, or one channel's state and last run in a few lines                                          |
+| `!cleanup status #channel messages [next]`                   | List links to the channel's handled messages with their outcome, 10 per page and newest first. `next` shows the following page |
+| `!cleanup enable #channel [confirm]`                         | Enable the policy, including existing old messages                                                                             |
+| `!cleanup disable #channel`                                  | Stop new deletions and keep configuration                                                                                      |
+| `!cleanup module on\|off`                                    | Turn the module on or off                                                                                                      |
+| `!cleanup exclude #channel author\|message add\|remove <id> [id...]` | Keep the messages of these authors or these messages. Several IDs or mentions, apart or split by commas, change at once |
 
 Only human messages of ordinary or reply type that are unpinned, older than the cutoff and outside every exclusion and publishing or panel protection are deleted. Anything with unknown pin state, author, type or time is kept. Preview counts unknown messages as skipped. Replies contain metadata only and suppress mentions
 
@@ -1090,7 +1091,7 @@ Security alerts tell staff about changes that often come before a raid or a take
 | Show which alerts and actions are on and how many bots and webhooks are expected | `!alerts status` |
 | List the expected bots and webhooks, ten at a time | `!alerts expected [next]` |
 | Turn an alert or all of them on or off | `!alerts on\|off invites\|bots\|webhooks\|privileges\|impersonation\|all` |
-| Mark a bot or webhook as expected, or stop. A webhook's ID works too | `!alerts expect\|unexpect bot <ID>\|webhook <name>` |
+| Mark bots or webhooks as expected, or stop. Several IDs or mentions, apart or split by commas, change at once, and a webhook's name works too | `!alerts expect\|unexpect bot <ID>...\|webhook <name>\|<ID>...` |
 | Turn an alert's action on or off | `!alerts action bots\|webhooks\|privileges on\|off` |
 | List the server's invites with their codes, newest first | `!invites list [next]` |
 | Revoke an invite | `!invites revoke <code>` |
@@ -1126,22 +1127,22 @@ A member who joins a generator voice channel gets a room of their own, and NeonF
 !voice rename "Study hall"
 ```
 
-| Command | Who | Behavior |
-| --- | --- | --- |
-| `!voice generator add "name" [category-ID\|none]` | Staff | Create a generator voice channel in the category, which also receives its rooms |
-| `!voice generator list` | Staff | Show each generator's settings and the live room count |
-| `!voice generator set #generator name "name"` | Staff | Rename the generator channel |
-| `!voice generator set #generator category <category-ID\|none>` | Staff | Choose where new rooms are created, or none for top-level rooms |
-| `!voice generator set #generator template "text"` | Staff | Name new rooms. `{owner}` becomes the owner's server nickname or username |
-| `!voice generator set #generator limit <1-99\|none>` | Staff | Set the default member limit of new rooms |
-| `!voice generator set #generator region <region-ID\|auto>` | Staff | Give new rooms a fixed voice region, or use Fluxer's automatic routing |
-| `!voice generator remove #generator` | Staff | Stop using the channel as a generator. The channel stays |
-| `!voice rename "name"` | Owner, staff | Rename the room |
-| `!voice hide`, `!voice show` | Owner, staff | Hide the room from everyone without explicit access, or show it again |
-| `!voice allow @member`, `!voice block @member` | Owner, staff | Let a member see and join the room, or stop them from doing so |
-| `!voice limit <0-99>` | Owner, staff | Set the member limit, with 0 for no limit |
-| `!voice claim` | Member in the room | Take over the room you are in when its owner is not in it, unless you own another room |
-| `!voice transfer @member` | Owner, staff | Give the room to a member who is in it, is not a bot and owns no other room |
+| Command                                                        | Who                | Behavior                                                                               |
+| -------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------- |
+| `!voice generator add "name" [category-ID\|none]`              | Staff              | Create a generator voice channel in the category, which also receives its rooms        |
+| `!voice generator list`                                        | Staff              | Show each generator's settings and the live room count                                 |
+| `!voice generator set #generator name "name"`                  | Staff              | Rename the generator channel                                                           |
+| `!voice generator set #generator category <category-ID\|none>` | Staff              | Choose where new rooms are created, or none for top-level rooms                        |
+| `!voice generator set #generator template "text"`              | Staff              | Name new rooms. `{owner}` becomes the owner's server nickname or username              |
+| `!voice generator set #generator limit <1-99\|none>`           | Staff              | Set the default member limit of new rooms                                              |
+| `!voice generator set #generator region <region-ID\|auto>`     | Staff              | Give new rooms a fixed voice region, or use Fluxer's automatic routing                 |
+| `!voice generator remove #generator`                           | Staff              | Stop using the channel as a generator. The channel stays                               |
+| `!voice rename "name"`                                         | Owner, staff       | Rename the room                                                                        |
+| `!voice hide`, `!voice show`                                   | Owner, staff       | Hide the room from everyone without explicit access, or show it again                  |
+| `!voice allow @member`, `!voice block @member`                 | Owner, staff       | Let a member see and join the room, or stop them from doing so                         |
+| `!voice limit <0-99>`                                          | Owner, staff       | Set the member limit, with 0 for no limit                                              |
+| `!voice claim`                                                 | Member in the room | Take over the room you are in when its owner is not in it, unless you own another room |
+| `!voice transfer @member`                                      | Owner, staff       | Give the room to a member who is in it, is not a bot and owns no other room            |
 
 Room commands act on the room you own. Put `#room` after the verb, such as `!voice limit #room 5`, to choose another room. Staff means the server owner, an Administrator or a member with a moderation staff role and Manage channels, the same rule as `!mod slowmode`. Generator commands are staff commands, and room commands are member commands that DEFCON 2 pauses
 
@@ -1153,14 +1154,14 @@ Room commands act on the room you own. Put `#room` after the verb, such as `!voi
 - `!voice claim` and `!voice transfer` read who is in the room from the voice activity NeonFlux tracks. Until Fluxer has sent its list of who is in voice, after a restart or a new connection, both ask you to try again in a minute. A new owner of a hidden room gets the same access hiding gives the owner, and the old owner keeps theirs. A room keeps its name, even one made from `{owner}`. Group rooms from `!lfg` can be claimed and handed over too. A failing Fluxer voice server can report a member as gone, so a claim could then take a room whose owner is still in it
 - Room settings of a generator apply to rooms created after the change
 
-| NeonFlux permission | Used for |
-| --- | --- |
+| NeonFlux permission                                       | Used for                                                                                            |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | View channel and Connect to voice where rooms are created | Seeing rooms and their voice activity, since Fluxer delivers voice events only for visible channels |
-| Manage channels | Creating generators and rooms, renaming, member limits and deleting empty rooms |
-| Move members | Moving members into their rooms |
-| Manage roles | Hide, show, allow and block |
-| Set voice region | Fixed regions, which Fluxer applies with an edit right after the room is created |
-| Send messages in generators | Room limit notices |
+| Manage channels                                           | Creating generators and rooms, renaming, member limits and deleting empty rooms                     |
+| Move members                                              | Moving members into their rooms                                                                     |
+| Manage roles                                              | Hide, show, allow and block                                                                         |
+| Set voice region                                          | Fixed regions, which Fluxer applies with an edit right after the room is created                    |
+| Send messages in generators                               | Room limit notices                                                                                  |
 
 ### Room deletion
 
@@ -1188,26 +1189,26 @@ Members post a group for an activity, others join it, and once the group is full
 !lfg join 1
 ```
 
-| Command | Who | Behavior |
-| --- | --- | --- |
-| `!lfg "activity" <size> [in <time>] [note]` | Members | Post a group. The size counts you, from 2 to the server's largest size. A time such as `in 30m`, `in 2h` or `in 1d`, up to 7 days, shows when you plan to start |
-| `!lfg join <group>`, `!lfg leave <group>` | Members | Join or leave a group. The host cancels instead of leaving |
-| `!lfg start <group>` | Host, managers | Start a group before it is full |
-| `!lfg cancel <group>` | Host, managers | Cancel a group |
-| `!lfg list [next]` | Members | Show the open groups, 10 at a time |
-| `!lfg config` | Managers | Show the settings |
-| `!lfg config on\|off` | Managers | Turn the feature on or off |
-| `!lfg config channel #channel`, `!lfg config generator #generator\|none` | Managers | Choose the group channel and the voice generator |
-| `!lfg config expiry <10-1440>`, `size <2-25>`, `hosting <1-5>`, `open <1-50>` | Managers | Minutes a group stays open, the largest group size, open groups per host and open groups per server |
+| Command                                                                       | Who            | Behavior                                                                                                                                                        |
+| ----------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `!lfg "activity" <size> [in <time>] [note]`                                   | Members        | Post a group. The size counts you, from 2 to the server's largest size. A time such as `in 30m`, `in 2h` or `in 1d`, up to 7 days, shows when you plan to start |
+| `!lfg join <group>`, `!lfg leave <group>`                                     | Members        | Join or leave a group. The host cancels instead of leaving                                                                                                      |
+| `!lfg start <group>`                                                          | Host, managers | Start a group before it is full                                                                                                                                 |
+| `!lfg cancel <group>`                                                         | Host, managers | Cancel a group                                                                                                                                                  |
+| `!lfg list [next]`                                                            | Members        | Show the open groups, 10 at a time                                                                                                                              |
+| `!lfg config`                                                                 | Managers       | Show the settings                                                                                                                                               |
+| `!lfg config on\|off`                                                         | Managers       | Turn the feature on or off                                                                                                                                      |
+| `!lfg config channel #channel`, `!lfg config generator #generator\|none`      | Managers       | Choose the group channel and the voice generator                                                                                                                |
+| `!lfg config expiry <10-1440>`, `size <2-25>`, `hosting <1-5>`, `open <1-50>` | Managers       | Minutes a group stays open, the largest group size, open groups per host and open groups per server                                                             |
 
 Managers are the server owner and members with Administrator or Manage community, read fresh from Fluxer. Member commands pause at DEFCON 2 like other member commands. Activities have 1 to 50 characters and notes up to 200, each on one line. An activity with spaces needs quotes
 
-| Setting | Default | Range |
-| --- | --- | --- |
-| Minutes a group stays open | 60 | 10 to 1440 |
-| Largest group size, counting the host | 10 | 2 to 25 |
-| Open groups one member hosts | 1 | 1 to 5 |
-| Open groups per server | 20 | 1 to 50 |
+| Setting                               | Default | Range      |
+| ------------------------------------- | ------- | ---------- |
+| Minutes a group stays open            | 60      | 10 to 1440 |
+| Largest group size, counting the host | 10      | 2 to 25    |
+| Open groups one member hosts          | 1       | 1 to 5     |
+| Open groups per server                | 20      | 1 to 50    |
 
 - A group with a start time stays open that many minutes after it, otherwise after it was posted. When its time runs out, NeonFlux closes it and marks its card. Expiry runs through the work dispatcher, so open groups cost no backend calls until one is due
 - When the last free place is taken, the group starts on its own. NeonFlux creates a voice room named after the activity
@@ -1226,11 +1227,11 @@ Managers are the server owner and members with Administrator or Manage community
 - Choosing a generator checks that it exists. If it is removed later, groups cannot start until a manager chooses another one. A group room counts toward the server's limit of 50 temporary voice rooms
 - If NeonFlux cannot post a card, the group is cancelled and the reply names the fix. Cards and room access that NeonFlux cannot change are left as they are, and the reply names the fix for room access
 
-| NeonFlux permission | Used for |
-| --- | --- |
-| View channel and Send messages in the group channel | Cards and the call to the room |
-| Manage channels | Creating group rooms |
-| Manage roles | Limiting group rooms to the group |
+| NeonFlux permission                                 | Used for                          |
+| --------------------------------------------------- | --------------------------------- |
+| View channel and Send messages in the group channel | Cards and the call to the room    |
+| Manage channels                                     | Creating group rooms              |
+| Manage roles                                        | Limiting group rooms to the group |
 
 ## Sticky messages, dashboard link and member list order
 
@@ -1240,13 +1241,13 @@ These commands work for the server owner and members with Administrator or Manag
 
 A sticky message keeps one bot message at the bottom of a channel. After members post, NeonFlux sends the text again and deletes the copy it sent before
 
-| Command | Behavior |
-| --- | --- |
-| `!sticky add #channel "text"` | Add a sticky, or replace its text, and post it at once |
-| `!sticky interval #channel <10-3600>` | Set the shortest time in seconds between reposts, 30 by default |
-| `!sticky remove #channel` | Stop the sticky and delete its last copy. Also works once the channel is deleted |
-| `!sticky list` | Show the stickies with their intervals |
-| `!sticky help` | Show syntax |
+| Command                               | Behavior                                                                         |
+| ------------------------------------- | -------------------------------------------------------------------------------- |
+| `!sticky add #channel "text"`         | Add a sticky, or replace its text, and post it at once                           |
+| `!sticky interval #channel <10-3600>` | Set the shortest time in seconds between reposts, 30 by default                  |
+| `!sticky remove #channel`             | Stop the sticky and delete its last copy. Also works once the channel is deleted |
+| `!sticky list`                        | Show the stickies with their intervals                                           |
+| `!sticky help`                        | Show syntax                                                                      |
 
 - A server has at most five sticky channels. The channel must be a text or announcement channel where NeonFlux has View channel and Send messages. Text has 1 to 2000 characters, and mentions in it notify no one
 - A member message reposts the sticky at once when its interval has passed since the last repost. Later messages within the interval lead to one more repost when the interval ends, so a busy channel gets at most one repost per interval. Messages from bots and webhooks, and messages in the channel's threads, cause none
@@ -1264,13 +1265,13 @@ A sticky message keeps one bot message at the bottom of a channel. After members
 
 Fluxer link channels open an external address from the server sidebar. NeonFlux can keep one that opens the server's own dashboard page, `<website>/?server=<server ID>`, where `<website>` is `NEONFLUX_WEBSITE_URL`
 
-| Command | Behavior |
-| --- | --- |
-| `!sidebar` | Show the link channel and the address it opens |
+| Command                               | Behavior                                                                                                    |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `!sidebar`                            | Show the link channel and the address it opens                                                              |
 | `!sidebar add ["name"] [category-ID]` | Create the link channel, named `NeonFlux dashboard` unless you name it, at the top level or in the category |
-| `!sidebar set "name"` | Rename the link and point it at the current website address |
-| `!sidebar remove` | Delete the link channel |
-| `!sidebar help` | Show syntax |
+| `!sidebar set "name"`                 | Rename the link and point it at the current website address                                                 |
+| `!sidebar remove`                     | Delete the link channel                                                                                     |
+| `!sidebar help`                       | Show syntax                                                                                                 |
 
 - Creating or changing the link needs `NEONFLUX_WEBSITE_URL` in the Convex deployment and Manage channels for NeonFlux
 - If the backend cannot record a new link, NeonFlux deletes the channel it just created
@@ -1283,13 +1284,13 @@ Fluxer link channels open an external address from the server sidebar. NeonFlux 
 
 Fluxer shows members grouped under their roles that are set to display separately, ordered by a display position kept apart from the role hierarchy. Changing it never changes permissions
 
-| Command | Behavior |
-| --- | --- |
-| `!memberlist` | Show the roles shown separately, in member list order, top first |
-| `!memberlist set @role @role...` | Set the whole order, top first, naming each of those roles once |
-| `!memberlist move @role <position>` | Move one role, where 1 is the top |
-| `!memberlist reset` | Clear every display position, so the member list follows the role hierarchy again |
-| `!memberlist help` | Show syntax |
+| Command                             | Behavior                                                                          |
+| ----------------------------------- | --------------------------------------------------------------------------------- |
+| `!memberlist`                       | Show the roles shown separately, in member list order, top first                  |
+| `!memberlist set @role @role...`    | Set the whole order, top first, naming each of those roles once                   |
+| `!memberlist move @role <position>` | Move one role, where 1 is the top                                                 |
+| `!memberlist reset`                 | Clear every display position, so the member list follows the role hierarchy again |
+| `!memberlist help`                  | Show syntax                                                                       |
 
 - Changing the order also needs Manage roles or Administrator, and NeonFlux needs Manage roles
 - Fluxer lets NeonFlux move only roles below its own top role, and NeonFlux moves only roles below your top role too, unless you own the server. Roles that cannot move keep their display position, and NeonFlux places the others around them. When there is no room between two roles that cannot move, NeonFlux refuses and names them. Reset the order first, or change those roles in Fluxer
@@ -1303,14 +1304,14 @@ NeonFlux posts the new uploads of up to 10 YouTube channels per server. It learn
 
 The commands work for the server owner and members with Administrator or Manage community, read fresh from Fluxer like `!prefix`. DEFCON 2 treats them as staff commands. The dashboard's [YouTube alerts](WEB.md#youtube-alerts) section has the same settings, and chat and dashboard changes reach the dashboard's settings history
 
-| Command | Behavior |
-| --- | --- |
+| Command                              | Behavior                                                                                                                                                                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `!youtube add <channel-ID> #channel` | Follow a YouTube channel and post its new uploads in a text, announcement or forum channel. For a channel the server already follows, which can also be given by name, move its alerts to that channel and turn them back on |
-| `!youtube remove <name>` | Stop following the channel |
-| `!youtube status` | Show each followed channel on one line with where its alerts go and whether they are on, and one hint for turning alerts that are off back on. `!youtube` alone does the same |
-| `!youtube status <name>` | Show one channel: Where its alerts go and the fix when they are off, its last notification, its last post, its newest video and any trouble reaching YouTube |
-| `!youtube test <name>` | Post a test alert for the channel in its alert channel now, built from the newest video its feed or a notification named, with a line that says it is a test. Without one it posts a placeholder that links the channel |
-| `!youtube help` | Show syntax |
+| `!youtube remove <name>`             | Stop following the channel                                                                                                                                                                                                   |
+| `!youtube status`                    | Show each followed channel on one line with where its alerts go and whether they are on, and one hint for turning alerts that are off back on. `!youtube` alone does the same                                                |
+| `!youtube status <name>`             | Show one channel: Where its alerts go and the fix when they are off, its last notification, its last post, its newest video and any trouble reaching YouTube                                                                 |
+| `!youtube test <name>`               | Post a test alert for the channel in its alert channel now, built from the newest video its feed or a notification named, with a line that says it is a test. Without one it posts a placeholder that links the channel      |
+| `!youtube help`                      | Show syntax                                                                                                                                                                                                                  |
 
 - A channel ID starts with `UC` and has 24 characters. On YouTube, open the channel, select the more link in its description, then Share channel and Copy channel ID. A link that contains `/channel/UC…` works too. An `@handle` or a custom channel address does not, because looking it up needs YouTube's API
 - `<name>` is the name YouTube gives a followed channel, in any case, or its channel ID or a link with it. NeonFlux learns the name from the channel's public feed when it is added, or from its first notification if that read fails. Until then the channel shows and takes its ID
@@ -1337,19 +1338,19 @@ The dashboard's [server structure](WEB.md#server-structure) section has no chat 
 
 The help desk serves forum or media channels that a manager picks. Each new post gets a short greeting, its author or staff close it with `!solved`, staff post saved answers with `!answer` and open a ticket for the author with `!escalate`, and an author whose post got no reply gets one reminder. A thread budget guard warns staff before the server reaches Fluxer's limit of 1,000 active threads. The dashboard's Help desk section under Community has the same settings and the saved answers, and chat and dashboard changes reach the settings history
 
-| Command | Who | Behavior |
-| --- | --- | --- |
-| `!helpdesk` | Manager | Show the settings and the server's active thread count |
-| `!helpdesk forum add\|remove #forum` | Manager | Choose the forum or media channels the help desk serves, up to 10. `remove` also works for a deleted forum |
-| `!helpdesk greeting "text"\|off` | Manager | The greeting on each new post, 1 to 500 characters |
-| `!helpdesk tag "name"` | Manager | The forum tag `!solved` applies, `Solved` by default |
-| `!helpdesk nudge <1-168>\|off` | Manager | Hours without a reply before the author gets one reminder, 24 by default |
-| `!helpdesk guard #staff-channel\|off` | Manager | Warn staff in this channel near the thread limit |
-| `!helpdesk archive on\|off` | Manager | Give threads their channel's default auto-archive time |
-| `!solved` | Post author, staff | In a help post: Apply the solved tag and close the post |
-| `!answer <name>` | Staff | Post a saved answer in this channel |
-| `!answer list [next]`, `!answer set <name> "title" "text"`, `!answer remove <name>` | Staff | Manage up to 50 saved answers. The list shows 10 at a time |
-| `!escalate <ticket-category>` | Ticket staff | In a help post: Open a ticket for the post's author |
+| Command                                                                             | Who                | Behavior                                                                                                   |
+| ----------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `!helpdesk`                                                                         | Manager            | Show the settings and the server's active thread count                                                     |
+| `!helpdesk forum add\|remove #forum`                                                | Manager            | Choose the forum or media channels the help desk serves, up to 10. `remove` also works for a deleted forum |
+| `!helpdesk greeting "text"\|off`                                                    | Manager            | The greeting on each new post, 1 to 500 characters                                                         |
+| `!helpdesk tag "name"`                                                              | Manager            | The forum tag `!solved` applies, `Solved` by default                                                       |
+| `!helpdesk nudge <1-168>\|off`                                                      | Manager            | Hours without a reply before the author gets one reminder, 24 by default                                   |
+| `!helpdesk guard #staff-channel\|off`                                               | Manager            | Warn staff in this channel near the thread limit                                                           |
+| `!helpdesk archive on\|off`                                                         | Manager            | Give threads their channel's default auto-archive time                                                     |
+| `!solved`                                                                           | Post author, staff | In a help post: Apply the solved tag and close the post                                                    |
+| `!answer <name>`                                                                    | Staff              | Post a saved answer in this channel                                                                        |
+| `!answer list [next]`, `!answer set <name> "title" "text"`, `!answer remove <name>` | Staff              | Manage up to 50 saved answers. The list shows 10 at a time                                                 |
+| `!escalate <ticket-category>`                                                       | Ticket staff       | In a help post: Open a ticket for the post's author                                                        |
 
 Managers are the server owner and members with Administrator or Manage community. Help desk staff also include members with Manage threads, read in the command's channel. `!solved` is a member command, and DEFCON 2 treats the other commands as staff commands
 
@@ -1382,14 +1383,14 @@ Members share what they made and describe themselves on the [website](WEB.md#mem
 
 A member posts a showcase on the website with a title of up to 100 characters, text of up to 1,000 and up to 3 links. NeonFlux posts it as itself in the showcase channel, as an embed with the member's server nickname or username. The first HTTPS link to a PNG, JPEG, GIF or WebP image becomes the embed image, and NeonFlux never fetches it or hosts files. Members edit and delete their own showcases on the website: an edit changes the posted message, and a deletion deletes it
 
-| Task | Command |
-| --- | --- |
-| List showcases, for everyone | `!showcase list [@member]` |
-| Status, switch and help | `!showcase`, `!showcase on\|off`, `!showcase help` |
-| Choose the channel | `!showcase channel #channel\|none` |
-| Limit showcases per member | `!showcase limit <1-50>\|none` |
-| Set the time between a member's showcases | `!showcase interval <30m, 2h or 1d>\|none`, from 1 minute to 7 days |
-| Who may post | `!showcase access`, `!showcase access allowed\|blocked [next]`, `!showcase access allow\|block\|unallow\|unblock role\|user <mentions or IDs>` |
+| Task                                      | Command                                                                                                                                        |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| List showcases, for everyone              | `!showcase list [@member]`                                                                                                                     |
+| Status, switch and help                   | `!showcase`, `!showcase on\|off`, `!showcase help`                                                                                             |
+| Choose the channel                        | `!showcase channel #channel\|none`                                                                                                             |
+| Limit showcases per member                | `!showcase limit <1-50>\|none`                                                                                                                 |
+| Set the time between a member's showcases | `!showcase interval <30m, 2h or 1d>\|none`, from 1 minute to 7 days                                                                            |
+| Who may post                              | `!showcase access`, `!showcase access allowed\|blocked [next]`, `!showcase access allow\|block\|unallow\|unblock role\|user <mentions or IDs>` |
 
 `!showcase channel` checks that NeonFlux has View channel, Send messages and Embed links there and names what it lacks. The limit counts showcases that still exist, and the wait counts from the member's newest showcase that still exists. Showcases already posted stay in their channel when the channel changes. The access lists work like the role picker's: A block always wins, and with no allowed roles or users every member who is not blocked may post
 
@@ -1401,12 +1402,12 @@ A member's profile has a short bio of up to 300 characters, up to 3 links and an
 
 A member with a birthday sign-up from `!milestone` in this server can choose on the website to show its month and day on their profile, such as `March 3`. The choice belongs to the sign-up and starts off with every new one, so it turns off when the member removes or changes the birthday, gives consent again, leaves the server or deletes their data. A profile never shows a year or an age
 
-| Task | Command |
-| --- | --- |
-| Show a profile, for everyone | `!profile [@member]` |
-| Status, switch and help | `!profile status`, `!profile on\|off`, `!profile help` |
-| Set the time between a member's `!profile` commands | `!profile cooldown <1-3600 seconds, or 30s, 5m or 1h>\|none` |
-| Who may use profiles | `!profile access`, `!profile access allowed\|blocked [next]`, `!profile access allow\|block\|unallow\|unblock role\|user <mentions or IDs>` |
+| Task                                                | Command                                                                                                                                     |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Show a profile, for everyone                        | `!profile [@member]`                                                                                                                        |
+| Status, switch and help                             | `!profile status`, `!profile on\|off`, `!profile help`                                                                                      |
+| Set the time between a member's `!profile` commands | `!profile cooldown <1-3600 seconds, or 30s, 5m or 1h>\|none`                                                                                |
+| Who may use profiles                                | `!profile access`, `!profile access allowed\|blocked [next]`, `!profile access allow\|block\|unallow\|unblock role\|user <mentions or IDs>` |
 
 The access lists decide who may save a profile, who may run `!profile` and whose profile it shows. The cooldown is kept in NeonFlux's memory, so a restart clears it. A shorter or removed cooldown, set in chat or on the dashboard, also ends a wait that is already running
 
@@ -1418,21 +1419,21 @@ Before NeonFlux posts or edits a showcase, saves a profile or shows one, the ser
 
 Only the current server Owner can use `!backup`, in a verified one-to-one DM with NeonFlux. Running it in the server returns only a private hint. Archives and reports stay private and suppress mentions
 
-Attach an archive as NeonFlux sent it, with its name unchanged, such as `neonflux-backup-archive.nfb`. After `neonflux-backup-` a name may hold up to 128 letters, digits, `-` and `_`, so rename a copy such as `neonflux-backup-archive (1).nfb` first
+An export sends the archive as one file, or as numbered parts such as `neonflux-backup-0123abcd-1of3.nfb` when it holds more than 4 MiB, one DM message per part. To inspect or preview it, attach every part to one message, in any order, with the names unchanged. After `neonflux-backup-` a name may hold up to 128 letters, digits, `-` and `_`, so rename a copy such as `neonflux-backup-0123abcd-1of3 (1).nfb` first. A message that lacks a part, or holds a part of another archive, gets a reply that names how many parts the archive has
 
-| Command | Behavior |
-| --- | --- |
-| `!backup help` | Show the backup commands |
-| `!backup export config xp structure` | Export only the categories you name |
-| `!backup inspect` | Validate the attached encrypted `.nfb` archive and show its metadata |
-| `!backup preview` | With an attached archive, check what a restore would change on the server as it is now and make the restore plan you can confirm for 15 minutes. It shows the first page of the plan, 10 items to a page, with blocked ones first. Without an archive, it shows the first page of the plan shown last. `!backup plan` does the same |
-| `!backup preview match` | As preview, and the plan also deletes the channels and categories the archive does not hold. It needs the archive |
-| `!backup preview next` | Show the next page of that plan |
-| `!backup items [next]` | List the plan's items with their reasons, 10 to a page, problems first |
-| `!backup confirm` | Run up to 20 items of the plan |
-| `!backup status` | Show your newest plan that is not forgotten and how far it got |
-| `!backup reconcile` | Recheck up to 20 created items with unknown results |
-| `!backup forget` | Drop a settled plan and keep what it created |
+| Command                              | Behavior                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `!backup help`                       | Show the backup commands                                                                                                                                                                                                                                                                                              |
+| `!backup export config xp structure` | Export only the categories you name                                                                                                                                                                                                                                                                                   |
+| `!backup inspect`                    | Validate the attached encrypted `.nfb` archive, every part of it, and show its metadata                                                                                                                                                                                                                               |
+| `!backup preview`                    | With an attached archive, check what a restore would change on the server as it is now and make the restore plan you can confirm for a day. It shows the first page of the plan, 10 items to a page, problems first. Without an archive, it shows the first page of the plan shown last. `!backup plan` does the same |
+| `!backup preview match`              | As preview, and the plan also deletes the channels and categories the archive does not hold. It needs the archive                                                                                                                                                                                                     |
+| `!backup preview next`               | Show the next page of that plan                                                                                                                                                                                                                                                                                       |
+| `!backup items [next]`               | List the plan's items with their reasons, 10 to a page, problems first                                                                                                                                                                                                                                                |
+| `!backup confirm`                    | Run the plan to the end in the background, and post the outcome in the DM                                                                                                                                                                                                                                             |
+| `!backup status`                     | Show your newest plan that is not forgotten and how far it got                                                                                                                                                                                                                                                        |
+| `!backup reconcile`                  | Recheck up to 20 created items with unknown results                                                                                                                                                                                                                                                                   |
+| `!backup forget`                     | Drop a settled plan and keep what it created                                                                                                                                                                                                                                                                          |
 
 Items, confirm, reconcile and forget work on the plan NeonFlux showed you last, through `!backup preview` or
 `!backup status`, so a confirmation runs exactly the plan you saw. NeonFlux remembers that plan in memory. After a
@@ -1440,7 +1441,7 @@ restart, or once a plan expired, send `!backup status` to pick up your newest pl
 `!backup preview` again
 
 A preview is the plan. NeonFlux reads the archive and the server fresh from Fluxer, decides each item and stores the
-result as a plan that `!backup confirm` runs. Nothing changes until you confirm. Each item is one of these, with its
+result as a plan that `!backup confirm` runs. Nothing changes until you confirm. The channels settings name come from one read of the server's channel list, and a check and a restore read every role, member and channel one setting may name, up to the 4,020 roles of a role panel with every required and excluded role, so a setting is never too large to check. Each item is one of these, with its
 reason:
 
 - Create: The server does not have it yet
@@ -1452,20 +1453,26 @@ reason:
 
 The preview also says what a restore gives beyond the server as it is. It counts the items that give more permissions
 than the server has now and names those permissions, and it counts the settings that turn on, because a restore copies
-every on/off switch from the archive. It also counts the items that start to delete messages or post logs, but not a
-channel delete, which has a line of its own. An item names its changed settings in words, such as cooldown seconds, and
+every on/off switch from the archive. It also counts the items with a warning, such as messages they delete or post,
+but not a channel delete, which has a line of its own. An item names its changed settings in words, such as cooldown seconds, and
 a channel's parent as its category. A newer preview replaces the plan nobody confirmed, so the plan a confirmation runs
-is always the one you saw last. A confirmed plan can run until it expires or is forgotten. A confirmation of a plan that
+is always the one you saw last. A preview of the same archive on an unchanged server keeps the plan and gives it another
+day. A confirmed plan runs until every item is done, however long that takes. A confirmation of a plan that
 a newer preview replaced, such as one made by **Check again** on the dashboard, says so and points to `!backup status`,
 which picks up the newest plan, or to a new preview. The [dashboard](WEB.md#backup-restore) also shows the preview as a
 diff, asks NeonFlux to read the archive message and the server again and, for the owner, confirms and runs the plan
-there. A preview names the reason when the archive cannot be read, when the restore refuses the archive as a whole and
-when the key is missing. A server keeps at most 10 restore plans, and `!backup preview` past that names the limit.
-**Check again** on the dashboard shows its general error then. Every confirmed plan counts toward the 10, forgotten or
-not, for at least seven days after it expires, and longer while a created channel's outcome is unknown
+there. A preview names the reason when the archive cannot be read, when it was made by an older NeonFlux, when the restore
+refuses the archive as a whole and when the key is missing. A large archive is checked in parts, and
+`!backup status` says so while the check is still being built. A server has at most 10 restore plans that are not
+finished, so old checks cannot pile up, and `!backup preview` past that names the limit. **Check again** on the
+dashboard shows its general error then. A plan frees its place when its restore finishes or you forget it
 
-Repeat the same confirmation until the plan finishes, within its 15-minute expiry. A restore stops writing as soon as
-you are no longer the server Owner or the DM is no longer verified. An identical channel is checked
+One confirmation runs the whole plan in the background. The reply says how many items it holds, `!backup status` shows
+how far it got and NeonFlux posts the outcome in the DM when it ends. One restore runs at a time on a server, so a
+confirmation while another runs says so. A restore that makes no progress for 10 minutes, such as while the bot is not
+running, stops, NeonFlux posts that outcome in the DM once it runs again, and `!backup confirm` on that plan continues
+it. A restore stops writing as soon as you are no longer
+the server Owner or the DM is no longer verified. An identical channel is checked
 again against the server, so one that changed or is gone ends as a conflict. A restore never recreates roles, moves
 members or lowers DEFCON, and it deletes only with `match`. A partly finished restore is not rolled back, and a step
 that finds the server changed since the preview ends as a conflict instead of overwriting it. Each restored setting goes
@@ -1478,17 +1485,55 @@ gains and counts it in the header, such as "Turns on message cleanup: messages o
 deleted" or "Turns on logs: membership logs go to #logs". It blocks the item only when the bot cannot use that channel:
 cleanup needs View channel, Read message history and Manage messages there, and logs need View channel, Send messages,
 Embed links and Read message history, and the reason names the missing permissions. The same check runs again when the
-item runs. A published or withdrawing role panel is blocked until you withdraw it
+item runs. A role panel that is missing returns unposted, and the preview warns that staff post it with `!roles publish <name> #channel <draft-name>`. A posted panel whose archived roles differ changes under its posted message as a staff edit does, so NeonFlux clears the reactions whose role changed as the item runs, and the preview warns about it. When it could not clear them, the next reaction on the panel or `!roles reactions <name>` finishes it. A posted panel is blocked when that edit is not possible, such as a switch to one choice, and a panel being withdrawn is blocked until that finishes
 
-- `config`: Authored settings for moderation, automod, responses, publishing drafts and templates, roles and unpublished
-  panels, greetings, tickets, leveling, milestones, suggestions, cleanup, metadata logs and the event and schedule
-  switches. Event and schedule definitions are excluded. A restore creates what is missing and updates what differs, so
-  a setting you changed since the backup returns to its archived value. Settings that are not in the archive stay
-- `xp`: Current-season XP for at most 500 members. A restore creates missing profiles and sets a differing profile to
-  the archived XP, records the correction in the leveling audit and leaves members who are not in the archive alone. It
-  queues no reward roles, so they follow at the member's next activity
-- `structure`: At most 100 categories, text, announcement, voice, forum and media channels with at most 500 permission
-  overwrites. Names, parents, permissions, topic, NSFW, slowmode, bitrate and user limit are kept, and an announcement
+- `config`: Authored settings for moderation with how long cases are kept and the role that may view private cases,
+  automod, responses, publishing drafts and templates, roles and role panels without their posted messages, greetings, tickets, leveling,
+  milestones, suggestions, cleanup, metadata logs, events and their discussion thread switch, each event, schedules and
+  each scheduled post, the prefix, reply style and bot nickname, analytics, voice generators, looking for group, the
+  role picker, the access lists of the role picker, showcases and profiles, temporary role defaults, the newcomer
+  checklist, sticky messages, security alerts and their actions, the help desk and its saved answers, showcases,
+  profiles and followed YouTube channels. A restore creates what is missing and updates what differs, so a setting you
+  changed since the backup returns to its archived value. Settings that are not in the archive stay. A setting past its
+  feature's own limit, such as an automod rule that would take the server's rules past 2000 patterns together, is
+  blocked with that reason, at the preview or when its step runs, and the rest of the restore goes on
+- Events and schedules: An event always returns as a draft, with no card, responses or discussion thread. A schedule
+  that was on returns on, and the preview warns that it posts in its channel. A date that passed never returns and
+  nothing is posted for it: A repeat whose first dates passed starts again from its next date ahead, with the dates its
+  count has left, and the preview names that date. An event with no date left returns as a draft without a date, a
+  schedule with no date left returns paused, and the preview says so. A repeating event leaves out a reminder further
+  ahead than its stored dates reach, which `!event` and the dashboard refuse, and the preview says so. An event with the same name that is published, cancelled or
+  being forgotten, and a cancelled schedule with the same name, are blocked when the restore would change them, and a
+  cancelled event or schedule is not in an archive
+- Other settings: The bot applies a restored nickname as itself after the step and records what Fluxer kept, as a change
+  on the dashboard does. Features that keep their settings in the bot's memory, such as sticky messages, the help desk,
+  voice generators, security alerts, leveling, the newcomer checklist, suggestion votes, metadata logs, analytics and the prefix, use
+  each restored item at once, without a restart. A sticky message posts in its channel again, and the preview warns about
+  it. Setting the role
+  that may view private cases is a warning the preview counts. A followed YouTube channel is followed again with a new
+  subscription secret, which an archive never holds. The dashboard link, the member list order and presets are not in an
+  archive, because `!sidebar` makes the link again, Fluxer keeps the role order and presets store nothing of their own.
+  Ticket panels are not in an archive either, since each belongs to its posted message, so post them again with `!ticket
+  panel`
+- `xp`: Current-season XP of every member who has some. The plan holds the members in items of up to 100. A restore
+  creates missing profiles and sets a differing profile to the archived XP, records the correction in the leveling audit
+  and leaves members who are not in the archive alone. A member whose XP changed after the check is left alone too, and
+  the item's reason counts them. A member who deleted their data with `!mydata delete` after the backup was made is left
+  out, at the check and again at the restore, and the item's reason counts them without naming them. A new XP season
+  since the check leaves the whole item alone. It queues no reward roles, so they follow at the member's next activity
+- `structure`: Every category, text, announcement, voice, forum and media channel with all its permission overwrites,
+  up to the 500 channels Fluxer allows in a server. A channel keeps up to 4,019 overwrites, as many as one restore check
+  reads beside its category. A check reads the members that overwrites name a hundred to a request, and one by one only
+  the members Fluxer leaves out, such as members who left. It checks channels in groups that name at most 100 members,
+  unless one channel alone names more, and its member reads for a group, with their waits for Fluxer's limits, end 40
+  seconds after the first answer, so they reach the backend within its 60 seconds. Fluxer answers 12 such requests every
+  10 seconds for the whole bot and 40 reads by ID every 10 seconds for the server, both shared with the bot's other
+  work, so a member left out that the check could not read in that time is not taken as gone and blocks only the
+  channel that names it, with a reason. A check takes the channels from one read of the server's channel list, while a
+  restore reads each channel again before it changes it. Fluxer lists only the channels NeonFlux can view, so a check reads
+  each archived channel the list leaves out by its ID. Only one Fluxer says is gone counts as missing, and one NeonFlux
+  cannot read, such as a channel it cannot view, is blocked with a reason instead of created again. Anything a check read that got too old for the backend before
+  it was sent, such as during the Owner and DM check, is left out, so only what names it is blocked, with a reason. Names, parents, permissions, topic, NSFW, slowmode, bitrate and user limit are kept, and an announcement
   channel is restored as an announcement channel. Forum and media channels also keep their tags with name, moderation
   and emoji, default reaction, default auto-archive time, sort order, the setting that requires a tag on each post and,
   for forums, the layout. Threads and forum posts are not backed up, and other channel types are skipped. Every
@@ -1496,8 +1541,10 @@ item runs. A published or withdrawing role panel is blocked until you withdraw i
   archived but cannot be written back, so that channel is blocked. A restore creates a missing channel, with categories
   first and their permissions in the creation request, and a forum or media channel with its tags in one request. It
   updates a channel that exists with different values, which can be its name, category, topic, NSFW setting, slowmode,
-  bitrate, user limit, tags, forum settings, text or announcement type and permissions. The position of a channel is not
-  in an archive, so a restore leaves the order alone. A channel that a restore made and somebody deleted since is made
+  bitrate, user limit, tags, forum settings, text or announcement type and permissions. An archive also keeps each
+  channel's place among its siblings, and one order item after every other channel item puts the channels back in that
+  order with the fewest moves and one request, as the structure editor does. A channel the archive does not hold, and a
+  channel NeonFlux cannot manage, keep their places. A channel that a restore made and somebody deleted since is made
   again. A role or member that is gone is left out of a channel's permissions, and the preview marks each one it
   dropped. An overwrite for one that the server's channel already holds stays as it is
 - Permissions: Fluxer decides what NeonFlux may write. A change that gives permissions needs NeonFlux to hold them in
@@ -1518,13 +1565,12 @@ item runs. A published or withdrawing role panel is blocked until you withdraw i
   undone, so the preview counts the deletions, lists each one first and warns before you confirm. NeonFlux does not
   delete a channel that tickets or voice rooms own, one it cannot manage, or a category that would still hold a channel.
   A category whose permissions change waits for a second run while it holds a channel that follows it and that match
-  deletes, since the first run deletes the channel and the next check finds the category free. The plan, deletions
-  included, holds at most 500 items. Channels and categories are the only things match
-  deletes, and settings and XP converge in both modes
+  deletes, since the first run deletes the channel and the next check finds the category free. Channels and categories are
+  the only things match deletes, and settings and XP converge in both modes
 - Configuration that names an announcement, forum or media channel restores like configuration that names a text
   channel
 
-Archives exclude credentials, AFK text, birthdays, votes, RSVPs, member data, ticket bodies, moderation notes, audit history and live state. This is not a full server, database or message backup. Export refuses an archive that would exceed restore limits, so every archive can be restored. Restore limits are 1 MiB per snapshot, 512 KiB per archive and 500 plan items
+Archives exclude credentials, AFK text, birthdays, votes, RSVPs, member data, ticket bodies, moderation notes, audit history and live state. This is not a full server, database or message backup. An archive holds at most 40 MiB, in at most 10 parts of 4 MiB, since a restore reads every part from one message, and export refuses a larger one, so every archive can be restored. Archives from an older NeonFlux are refused by name and need a new export
 
 Set `NEONFLUX_BACKUP_KEY` in the bot environment to a base64 32-byte key that is independent of the bot and backend
 credentials. Without it, export, inspect and new previews are disabled and other features keep working. NeonFlux never
@@ -1537,10 +1583,10 @@ stored on the platform are not durable backup storage
 
 `!export` sends the server's NeonFlux data as readable JSON that other bots can load: Every feature's settings, leveling XP and levels, member showcases and profiles, moderation cases with their corrections and appeals. Text the owner erased with `!mod erase` stays out. It is separate from the encrypted backup above, which only restores into NeonFlux. [The export guide](EXPORT.md) documents every field of format version 2
 
-| Command | Behavior |
-| --- | --- |
-| `!export` | Send this server's data as a JSON file in the DM |
-| `!export help` | Show what the export holds |
+| Command        | Behavior                                         |
+| -------------- | ------------------------------------------------ |
+| `!export`      | Send this server's data as a JSON file in the DM |
+| `!export help` | Show what the export holds                       |
 
 Only the current server Owner can export, in a verified one-to-one DM with NeonFlux, because the file holds private moderation data. Running it in the server returns only a private hint, and anyone else gets no answer. NeonFlux reads the owner and the DM from Fluxer before it starts, at least every 45 seconds while it reads and right before it sends each file. An export larger than about 4 MiB arrives as several numbered files, each a complete file of the same format. The dashboard's [Server export](WEB.md#server-export) section offers the same export as a download. The server's audit log records each export, never its content
 
@@ -1548,12 +1594,12 @@ Only the current server Owner can export, in a verified one-to-one DM with NeonF
 
 NeonFlux counts server activity for the dashboard's Analytics section. It keeps counts only, never which member did what
 
-| Command | Behavior |
-| --- | --- |
-| `!stats` | Show joins, leaves, newcomer checklist completions when there are any, messages, the top three channels and the three busiest hours of the day, shown in each reader's time, for the last seven UTC days, including today |
-| `!stats on` | Start counting for this server |
-| `!stats off` | Stop counting for this server |
-| `!stats help` | Show syntax |
+| Command       | Behavior                                                                                                                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `!stats`      | Show joins, leaves, newcomer checklist completions when there are any, messages, the top three channels and the three busiest hours of the day, shown in each reader's time, for the last seven UTC days, including today |
+| `!stats on`   | Start counting for this server                                                                                                                                                                                            |
+| `!stats off`  | Stop counting for this server                                                                                                                                                                                             |
+| `!stats help` | Show syntax                                                                                                                                                                                                               |
 
 Like `!prefix`, these commands work for the server owner and members with Administrator or Manage community, and other members get a refusal. Analytics starts on. The dashboard has the same switch
 
@@ -1566,20 +1612,20 @@ open batch first so its reply is current. A server with no activity causes no ba
 unavailable the same batch is sent again and never counted twice, and a batch not saved within a day is dropped. A crash
 or forced stop loses the counts not yet saved, at most the last five minutes
 
-`!stats off` stops counting at once and drops counts not yet sent. When the dashboard turns analytics off, the backend stores nothing from the bot's next batch, and the bot then stops counting. While analytics is off, member activity makes the bot recheck the setting at most every ten minutes, so turning it on from the dashboard resumes counting within about ten minutes of activity. Turning analytics off keeps existing counts. Channel and hourly counts expire after 35 days and daily join and leave counts after 400 days
+`!stats off` stops counting at once and drops counts not yet sent. A change on the dashboard reaches the running bot at once too: Turning analytics off stops counting and drops counts not yet sent, and turning it on resumes counting. If the bot misses that change while analytics is off, member activity makes it recheck the setting at most every ten minutes. Turning analytics off keeps existing counts. Channel and hourly counts expire after 35 days and daily join and leave counts after 400 days
 
 ## Your data
 
 Any member can see, export and delete what NeonFlux stores about them. These commands work only in a one-to-one DM with the bot. They cover every server at once and take no `--server` selector
 
-| Command | Behavior |
-| --- | --- |
-| `!mydata [next]` | List the servers where NeonFlux stores something under your user ID, numbered, 10 to a page, with a record count for each |
-| `!mydata <number or server ID>` | Show what it stores in that server per feature, and what deletion keeps and why |
-| `!mydata export [server ID]` | Send that data as a JSON file, for every server or for one |
-| `!mydata delete <number or server ID>` | Show what deleting your data in that server removes and what it keeps |
-| `!mydata delete <number or server ID> confirm` | Delete it. This cannot be undone |
-| `!mydata help` | Show syntax |
+| Command                                        | Behavior                                                                                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `!mydata [next]`                               | List the servers where NeonFlux stores something under your user ID, numbered, 10 to a page, with a record count for each |
+| `!mydata <number or server ID>`                | Show what it stores in that server per feature, and what deletion keeps and why                                           |
+| `!mydata export [server ID]`                   | Send that data as a JSON file, for every server or for one                                                                |
+| `!mydata delete <number or server ID>`         | Show what deleting your data in that server removes and what it keeps                                                     |
+| `!mydata delete <number or server ID> confirm` | Delete it. This cannot be undone                                                                                          |
+| `!mydata help`                                 | Show syntax                                                                                                               |
 
 A number means the server at that place in the last `!mydata` list shown to you. A server ID names a server the list did
 not reach, and its records are counted for that server alone. When the list reached its read limit, every count says "or more" and a note says that a server can be missing. A confirmation deletes only in the server whose deletion
@@ -1599,6 +1645,7 @@ Some data stays because a rule needs it, and the reply says why:
 - A greeting that is being sent stays until it finishes
 - A message log record whose post is being sent stays until it finishes, and the log post itself stays in the log channel
 - Security records are not listed: Spam detection counts and verification links keep their own expiry, watchlist entries stay until staff remove them, and security alert records expire after 30 days
+- NeonFlux keeps that you deleted your data in the server and when, nothing else, so restoring a backup made before cannot bring your XP back. A backup can be restored at any time, so this record stays while NeonFlux keeps the server's data
 
 One request reads or deletes a bounded amount. An export of every server first searches each kind of data for the
 servers that hold yours, in up to 20 bounded backend calls, so a server is not missed because the `!mydata` listing

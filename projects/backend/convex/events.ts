@@ -12,6 +12,7 @@ import {
     eventsReminderProblem,
 } from "@neonflux/contracts/events"
 import { CIVIL_WINDOW } from "@neonflux/contracts/civil"
+import type { BackupConfigValues } from "@neonflux/contracts/backup"
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import type { Doc } from "./_generated/dataModel.js"
@@ -53,6 +54,8 @@ import { serverPrefix } from "./generalSettings.ts"
 import { decode, fail, integer, name, source, configurationSourceId, type ConfigurationIdentity } from "./validation.ts"
 import { composerAdmin, composerContext, eventEligible } from "./publishingContext.ts"
 import { ringWork } from "./workSignal.ts"
+
+type BackupEventValue = BackupConfigValues["event"]
 
 /** Fails an attempt that never reached Fluxer, and its post */
 async function failUndispatched(
@@ -702,6 +705,69 @@ export const rsvp = serviceMutation({
     },
 })
 
+/**
+ * A backup restore's event, by name: a draft with the archived settings, made or changed in place. It is never published, so it posts no
+ * card and takes no responses. The calendar comes only while every date is ahead, which the feature's own calendar check decides, and a
+ * published, cancelled or forgotten event stays as it is
+ */
+export async function restoreEventDraft(ctx: MutationCtx, serverId: string, value: BackupEventValue, now: number) {
+    const eventName = name(value.name),
+        state = await eventState(ctx, serverId),
+        calendar = value.calendar ? validateEventCalendar(value.calendar, now) : undefined
+    const fields = {
+        channelId: value.channelId,
+        title: value.title,
+        description: value.description,
+        capacity: value.capacity,
+        reminderOffsets: eventOffsets(value.reminderOffsets),
+        ...(value.template
+            ? { template: { ...value.template, content: publishingContent(value.template.content) } }
+            : {}),
+        ...(calendar ? { calendar, endsAt: calendar.dates.at(-1)!.endsAt } : {}),
+        updatedAt: now,
+    }
+    let event = await ctx.db
+        .query("events")
+        .withIndex("by_name", (q) => q.eq("serverId", serverId).eq("name", eventName))
+        .unique()
+    if (event && (event.state !== "draft" || event.forgetting)) fail(409, "Only a draft event can be restored")
+    // A setting the archive leaves out is cleared, as the draft holds only what it had
+    if (event)
+        await ctx.db.patch(event._id, {
+            template: undefined,
+            calendar: undefined,
+            endsAt: undefined,
+            firstStartsAt: undefined,
+            nextIndex: undefined,
+            lastSkipped: undefined,
+            ...fields,
+            revision: advanceEvent(event.revision),
+        })
+    else {
+        await eventCount(ctx, serverId, "definitions", 1)
+        await ctx.db.insert("events", {
+            serverId,
+            eventNo: state.nextEventNo,
+            name: eventName,
+            revision: 1,
+            ...fields,
+            state: "draft",
+            participationStarted: false,
+            createdAt: now,
+        })
+        await ctx.db.patch(state._id, { nextEventNo: advanceEvent(state.nextEventNo) })
+    }
+    event = (await ctx.db
+        .query("events")
+        .withIndex("by_name", (q) => q.eq("serverId", serverId).eq("name", eventName))
+        .unique())!
+    const occurrences = await ctx.db
+        .query("eventOccurrences")
+        .withIndex("by_event", (q) => q.eq("serverId", serverId).eq("eventNo", event!.eventNo))
+        .take(CIVIL_WINDOW + 1)
+    for (const occurrence of occurrences) await ctx.db.delete(occurrence._id)
+    await addOccurrences(ctx, event, calendar?.dates ?? [], "draft", event.revision, now)
+}
 export async function applyEventsManagement(
     ctx: MutationCtx,
     identity: ConfigurationIdentity,

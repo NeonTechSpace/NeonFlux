@@ -162,7 +162,7 @@ test("Website and command setting changes record who changed what, newest first,
             actorName: undefined,
             feature: "responses",
             setting: "create rules",
-            summary: "definitions: added rules",
+            summary: "definitions: added custom:rules",
             kind: "setting",
         },
         {
@@ -193,7 +193,7 @@ test("Website and command setting changes record who changed what, newest first,
     assert.ok(
         created!.changes.some(
             (change) =>
-                change.path === "definitions[rules].reply.text" &&
+                change.path === "definitions[custom:rules].reply.text" &&
                 !("before" in change) &&
                 change.after === "Synthetic authored reply",
         ),
@@ -224,7 +224,7 @@ test("Change summaries cover every custom command, which the website reads in on
     await manage({ type: "disable", name: "b21" })
     assert.deepEqual(
         (await page()).entries.slice(0, 2).map((entry) => entry.summary),
-        ["definitions: changed b21", "definitions: added a01"],
+        ["definitions: changed custom:b21", "definitions: added custom:a01"],
     )
 })
 
@@ -355,10 +355,57 @@ test("Creating and changing a draft past the first 1,000 has Details, as other l
     assert.deepEqual(
         (await detail(changed!.id))!.changes.filter((change) => change.path.endsWith(".content")),
         [
-            { path: "drafts[d9999].canonicalContent.content", before: "First", after: "Second" },
-            { path: "drafts[d9999].content.content", before: "First", after: "Second" },
+            { path: "drafts[draft:d9999].canonicalContent.content", before: "First", after: "Second" },
+            { path: "drafts[draft:d9999].content.content", before: "First", after: "Second" },
         ],
     )
+})
+
+test("Cloning a draft into a template of the same name, and back, records only the new copy in Details", async () => {
+    const { t, page, detail } = await fixture()
+    let messageId = 4000
+    const manage = (operation: Record<string, unknown>) =>
+        t.mutation(internal.publishing.manage, {
+            request: {
+                serverId: "10",
+                messageId: String(messageId++),
+                createdAt: now,
+                actor: { ...manager, userId: "99", isOwner: true },
+                operation,
+            },
+        })
+    await manage({ type: "draft-create", kind: "draft", name: "example", content: { content: "Hello" } })
+    await manage({
+        type: "draft-clone",
+        kind: "draft",
+        name: "example",
+        expectedRevision: 1,
+        toKind: "template",
+        toName: "example",
+    })
+    await manage({ type: "draft-create", kind: "template", name: "card", content: { content: "Card" } })
+    await manage({
+        type: "draft-clone",
+        kind: "template",
+        name: "card",
+        expectedRevision: 1,
+        toKind: "draft",
+        toName: "card",
+    })
+    const [back, , cloned] = (await page()).entries
+    for (const [entry, to] of [
+        [cloned, "template:example"],
+        [back, "draft:card"],
+    ] as const) {
+        const changes = (await detail(entry!.id))!.changes
+        assert.ok(changes.length)
+        assert.deepEqual(
+            changes.filter((change) => "before" in change || !change.path.startsWith(`drafts[${to}].`)),
+            [],
+        )
+        assert.ok(changes.some((change) => change.path === `drafts[${to}].name`))
+    }
+    assert.deepEqual([cloned?.summary, back?.summary], ["drafts: added template:example", "drafts: added draft:card"])
 })
 
 test("The reply style changes from chat and the website at the prefix's revision, recording only the setting that changed", async () => {
@@ -532,7 +579,7 @@ test("Logging, role settings and a backup restore record through their shared wr
     })
     const [panel] = (await page()).entries
     const created = (await detail(panel!.id))!.changes
-    assert.ok(created.some((change) => change.path === "panels[colors].name" && change.after === "colors"))
+    assert.ok(created.some((change) => change.path === "panels[reaction:colors].name" && change.after === "colors"))
     assert.deepEqual(
         created.filter((change) => /_id|_creationTime|serverId|revision/.test(change.path)),
         [],

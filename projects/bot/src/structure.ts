@@ -35,8 +35,11 @@ const has = (bits: bigint, permission: bigint) => (bits & permission) === permis
 // Fluxer orders siblings by position, and channels with the same position by ID
 const order = (a: GuildChannel, b: GuildChannel) =>
     (a.position ?? 0) - (b.position ?? 0) || (BigInt(a.id) < BigInt(b.id) ? -1 : 1)
-/** The server's categories and channels in sibling order, each with its parent, as the read and the backend list them */
-function sorted(channels: readonly GuildChannel[]) {
+/**
+ * The server's categories and channels in sibling order, each with its parent, as the read and the backend list them. A backup reads the
+ * same order, so its places match what the structure editor shows
+ */
+export function sorted(channels: readonly GuildChannel[]) {
     const ids = new Set(channels.map((channel) => channel.id))
     const parentOf = (channel: GuildChannel) =>
         channel.type !== ChannelType.Category && channel.parentId && ids.has(channel.parentId) ? channel.parentId : null

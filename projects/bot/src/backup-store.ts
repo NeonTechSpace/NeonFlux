@@ -1,24 +1,24 @@
 import {
-    BACKUP_RESTORE_LIMITS,
     BackupManageResult,
     BackupManifest,
-    canonicalBackupJson,
+    BackupOutcomeClaimResult,
     BackupPreviewFailedResult,
     BackupPreviewReadyResult,
     BackupPreviewResult,
     BackupQueryResult,
-    BackupSnapshot,
+    BackupRunStepResult,
+    BackupSnapshotPage,
     BackupWorkResult,
-    backupWithinLimits,
     type BackupBinding,
     type BackupItem,
     type BackupItemBinding,
     type BackupManageRequest,
     type BackupPreviewFailedRequest,
-    type BackupPreviewRequest,
+    type BackupPreviewSegmentRequest,
+    type BackupPreviewStartRequest,
     type BackupQueryRequest,
     type BackupRunStepRequest,
-    type BackupSnapshotRequest,
+    type BackupSnapshotPageRequest,
     type BackupWorkRequest,
 } from "@neonflux/contracts/backup"
 import { Clock, Data, Effect, Schema } from "effect"
@@ -32,16 +32,7 @@ export class BackupStoreError extends Data.TaggedError("BackupStoreError")<{
 }> {}
 export function validateBackupManifest(value: unknown): BackupManifest {
     try {
-        const manifest = Schema.decodeUnknownSync(BackupManifest, { onExcessProperty: "error" })(value)
-        // Exports stay within the restore plan limits, so every valid archive can be restored
-        const items = manifest.config.length + manifest.xp.length + manifest.structure.length
-        if (
-            !backupWithinLimits(manifest) ||
-            items > BACKUP_RESTORE_LIMITS.planItems ||
-            Buffer.byteLength(canonicalBackupJson(manifest), "utf8") > BACKUP_RESTORE_LIMITS.planBytes
-        )
-            throw new Error()
-        return manifest
+        return Schema.decodeUnknownSync(BackupManifest, { onExcessProperty: "error" })(value)
     } catch {
         throw new BackupStoreError({ operation: "manifest", status: null })
     }
@@ -63,18 +54,21 @@ const sameBinding = (a: BackupBinding, b: BackupBinding) =>
     a.planHash === b.planHash &&
     a.archiveDigest === b.archiveDigest
 export interface BackupStore {
-    snapshot(input: BackupSnapshotRequest): Effect.Effect<BackupSnapshot, BackupStoreError>
+    snapshotPage(input: BackupSnapshotPageRequest): Effect.Effect<BackupSnapshotPage, BackupStoreError>
     query(input: BackupQueryRequest): Effect.Effect<BackupQueryResult, BackupStoreError>
     manage(input: BackupManageRequest): Effect.Effect<BackupManageResult, BackupStoreError>
     work(input: BackupWorkRequest): Effect.Effect<BackupWorkResult, BackupStoreError>
-    preview(input: BackupPreviewRequest): Effect.Effect<BackupPreviewResult, BackupStoreError>
+    previewStart(input: BackupPreviewStartRequest): Effect.Effect<BackupPreviewResult, BackupStoreError>
+    previewSegment(input: BackupPreviewSegmentRequest): Effect.Effect<BackupPreviewResult, BackupStoreError>
     previewReady(serverId: string): Effect.Effect<BackupPreviewReadyResult, BackupStoreError>
     previewFailed(
         serverId: string,
         requestedAt: number,
         failure: BackupPreviewFailedRequest["failure"],
     ): Effect.Effect<BackupPreviewFailedResult, BackupStoreError>
-    runStep(input: BackupRunStepRequest): Effect.Effect<BackupPreviewFailedResult, BackupStoreError>
+    runStep(input: BackupRunStepRequest): Effect.Effect<BackupRunStepResult, BackupStoreError>
+    /** Takes the outcome a run from chat that ended for lack of progress owes the owner, once */
+    outcomeClaim(serverId: string, requestedAt: number): Effect.Effect<BackupOutcomeClaimResult, BackupStoreError>
 }
 export function createBackupStore(config: BackendConfig): BackupStore {
     const request = createBackendRequest(config)
@@ -101,16 +95,17 @@ export function createBackupStore(config: BackendConfig): BackupStore {
     const matchesItem = (v: BackupItem, b: BackupItemBinding) =>
         sameBinding(v, b) && v.itemNo === b.itemNo && v.generation === b.generation
     return {
-        snapshot: (input) =>
+        snapshotPage: (input) =>
             call(
-                "snapshot",
+                "snapshot-page",
                 input,
-                BackupSnapshot,
+                BackupSnapshotPage,
                 (v, now) =>
                     v.capturedAt <= now + 5000 &&
                     v.capturedAt >= input.context.observedAt - 5000 &&
                     (input.selected.includes("config") || !v.config.length) &&
-                    (input.selected.includes("xp") || !v.xp.length),
+                    (input.selected.includes("xp") || !v.xp.length) &&
+                    v.cursor !== input.cursor,
             ),
         query: (input) =>
             call("query", input, BackupQueryResult, (v) => {
@@ -129,20 +124,39 @@ export function createBackupStore(config: BackendConfig): BackupStore {
                             ? !v.object || (v.object.family === v.item.family && v.object.sourceId === v.item.sourceId)
                             : v.object.sourceId === v.item.sourceId)
                     )
-                if (v.type === "items" && op.type === "items")
+                if ((v.type === "items" && op.type === "items") || (v.type === "page" && op.type === "page"))
                     return (
                         v.items.every((i) => sameBinding(i, op.binding)) &&
                         (!v.nextCursor || v.nextCursor !== op.cursor)
+                    )
+                // Items still to start, and creations still to check, are never settled ones
+                if (v.type === "open" && op.type === "open")
+                    return v.items.every(
+                        (i) => sameBinding(i, op.binding) && (i.state === "planned" || i.state === "reserved"),
+                    )
+                if (v.type === "unconfirmed" && op.type === "unconfirmed")
+                    return v.items.every(
+                        (i) =>
+                            sameBinding(i, op.binding) &&
+                            i.category === "structure" &&
+                            i.disposition === "create" &&
+                            i.mappedId !== null,
                     )
                 if (v.type === "plans" && op.type === "plans")
                     return (
                         v.plans.every((p) => p.serverId === input.serverId && p.ownerId === input.context.ownerId) &&
                         (!v.nextCursor || v.nextCursor !== op.cursor)
                     )
+                // Each mapping comes back at most once, and only for an archive channel the request named
                 if (v.type === "origins" && op.type === "origins")
                     return (
-                        v.origins.every((o) => o.serverId === input.serverId && o.provider === op.provider) &&
-                        (!v.nextCursor || v.nextCursor !== op.cursor)
+                        unique(v.origins, (o) => o.sourceId) &&
+                        v.origins.every(
+                            (o) =>
+                                o.serverId === input.serverId &&
+                                o.provider === op.provider &&
+                                op.sourceIds.includes(o.sourceId),
+                        )
                     )
                 // Each channel comes back at most once, and only if the request named it
                 return (
@@ -152,22 +166,31 @@ export function createBackupStore(config: BackendConfig): BackupStore {
                     v.channels.every((x) => op.channelIds.includes(x.id))
                 )
             }),
-        preview: (input) =>
+        previewStart: (input) =>
             call(
-                "preview",
+                "preview-start",
                 input,
                 BackupPreviewResult,
                 (v) =>
-                    v.plan.backupId === input.manifest.backupId &&
+                    v.plan.backupId === input.header.backupId &&
                     v.plan.archiveDigest === input.archiveDigest &&
                     v.plan.serverId === input.serverId &&
                     v.plan.ownerId === input.context.ownerId &&
-                    v.plan.provider === input.manifest.provider,
+                    v.plan.provider === input.header.provider,
+            ),
+        previewSegment: (input) =>
+            call(
+                "preview-segment",
+                input,
+                BackupPreviewResult,
+                (v) => v.plan.serverId === input.serverId && v.plan.ownerId === input.context.ownerId,
             ),
         previewReady: (serverId) => call("preview-ready", { serverId }, BackupPreviewReadyResult, () => true),
         previewFailed: (serverId, requestedAt, failure) =>
             call("preview-failed", { serverId, requestedAt, failure }, BackupPreviewFailedResult, () => true),
-        runStep: (input) => call("run-step", input, BackupPreviewFailedResult, () => true),
+        runStep: (input) => call("run-step", input, BackupRunStepResult, () => true),
+        outcomeClaim: (serverId, requestedAt) =>
+            call("outcome-claim", { serverId, requestedAt }, BackupOutcomeClaimResult, () => true),
         manage: (input) =>
             call("manage", input, BackupManageResult, (v) => {
                 const op = input.operation,
@@ -176,7 +199,7 @@ export function createBackupStore(config: BackendConfig): BackupStore {
                 return (
                     sameBinding(p, op.binding) &&
                     (op.type === "confirm"
-                        ? v.type === "confirmed" && p.confirmedAt !== undefined
+                        ? v.type === "confirmed" && p.confirmedAt !== undefined && p.state === "ready"
                         : v.type === "forgotten" && p.forgotten)
                 )
             }),
@@ -192,8 +215,10 @@ export function createBackupStore(config: BackendConfig): BackupStore {
                     g.serverId === input.serverId &&
                     g.ownerId === op.context.ownerId &&
                     g.botId === op.context.botId &&
-                    g.sourceId === v.item.sourceId &&
-                    g.channel.sourceId === v.item.sourceId &&
+                    // The order item moves channels by their IDs on the server, and a channel item names its own channel
+                    (g.action === "order"
+                        ? v.item.order === true && op.type === "claim"
+                        : g.sourceId === v.item.sourceId && g.channel.sourceId === v.item.sourceId) &&
                     g.dispatchExpiresAt === v.item.dispatchExpiresAt &&
                     g.dispatchExpiresAt <= now + 120000 &&
                     g.dispatchExpiresAt > op.context.observedAt &&

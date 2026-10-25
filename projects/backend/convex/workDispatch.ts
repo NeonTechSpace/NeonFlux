@@ -165,6 +165,27 @@ const dashboardSources = (Object.entries(DASHBOARD_JOB_STATES) as [DashboardJobT
 )
 const WORK_SOURCES: readonly Source[] = [
     ...dashboardSources,
+    // A restore from chat that ended for lack of progress still owes the owner its outcome, which its expiry marked
+    source({
+        kind: "dashboard",
+        key: "backupPreviewJobs.outcome",
+        table: "backupPreviewJobs",
+        index: "by_outcome",
+        prefix: [["outcomeDue", true]],
+        order: "createdAt",
+        undated: true,
+        pass: () => "preview",
+    }),
+    // An analytics switch the website changed, which the running bot reads at once
+    source({
+        kind: "dashboard",
+        key: "analyticsSettings.reload",
+        table: "analyticsSettings",
+        index: "by_reload",
+        prefix: [["reloadDue", true]],
+        undated: true,
+        pass: () => "analytics",
+    }),
     ...(["solved", "redeemed"] as const).map((status) =>
         source({
             kind: "verification",

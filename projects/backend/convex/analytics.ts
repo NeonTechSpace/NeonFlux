@@ -17,6 +17,7 @@ import { dashboardSession, renewSession, verifiedManager } from "./dashboard.ts"
 import { auditChanges, describeChange, recordAudit } from "./auditLog.ts"
 import { renewalIdentity } from "./dashboardProvider.ts"
 import { decode, fail, isId, type AuditActor } from "./validation.ts"
+import { ringWork } from "./workSignal.ts"
 import {
     addHours,
     analyticsRecord,
@@ -83,8 +84,8 @@ export async function recentOnboarded(ctx: QueryCtx, serverId: string) {
     )
 }
 
-// Chat and the website both set the switch here, which records a change in the audit log
-async function writeEnabled(
+// Chat, the website and a backup restore all set the switch here, which records a change in the audit log
+export async function writeAnalyticsEnabled(
     ctx: MutationCtx,
     serverId: string,
     actor: AuditActor,
@@ -96,9 +97,18 @@ async function writeEnabled(
     if (expectedRevision !== undefined && expectedRevision !== revision)
         return { saved: false, conflict: true, revision }
     if (old?.enabled === enabled || (!old && enabled)) return { saved: true, revision }
-    const next = { enabled, revision: revision + 1, updatedAt: Date.now(), updatedBy: actor.userId }
+    // The bot learns a change from chat or a restore as it makes it. A website change wakes the bot's dashboard pass, which reads it
+    const website = actor.source === "website"
+    const next = {
+        enabled,
+        revision: revision + 1,
+        updatedAt: Date.now(),
+        updatedBy: actor.userId,
+        ...(website ? { reloadDue: true as const } : {}),
+    }
     if (old) await ctx.db.patch(old._id, next)
     else await ctx.db.insert("analyticsSettings", { serverId, ...next })
+    if (website) await ringWork(ctx)
     await recordAudit(ctx, serverId, actor, {
         kind: "setting",
         feature: "analytics",
@@ -121,8 +131,19 @@ export const manage = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<AnalyticsSettings> => {
         const input = decode(AnalyticsManageRequest, request)
-        await writeEnabled(ctx, input.serverId, { userId: input.actorId, source: "command" }, input.enabled)
+        await writeAnalyticsEnabled(ctx, input.serverId, { userId: input.actorId, source: "command" }, input.enabled)
         return { enabled: input.enabled }
+    },
+})
+
+// The bot's dashboard pass reads the switch the website changed and marks it read, so the running bot applies it at once
+export const reloaded = serviceMutation({
+    args: { request: v.any() },
+    handler: async (ctx, { request }): Promise<AnalyticsSettings> => {
+        const serverId = decode(AnalyticsSettingsRequest, request).serverId,
+            row = await readAnalyticsSettings(ctx, serverId)
+        if (row?.reloadDue) await ctx.db.patch(row._id, { reloadDue: undefined })
+        return { enabled: row?.enabled ?? true }
     },
 })
 
@@ -282,7 +303,7 @@ export const applyDashboard = internalMutation({
         const stored = await dashboardSession(ctx, input.sessionToken, input.serverId)
         if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0)
             fail(400, "Invalid settings revision")
-        return writeEnabled(
+        return writeAnalyticsEnabled(
             ctx,
             input.serverId,
             { userId: stored.userId, name: stored.userName, source: "website" },

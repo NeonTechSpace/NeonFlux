@@ -1,7 +1,12 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { Schema } from "effect"
-import { BackupItem, type BackupConfigObject, type BackupStructureObject } from "@neonflux/contracts/backup"
+import {
+    BACKUP_PLAN_MS,
+    BackupItem,
+    type BackupConfigObject,
+    type BackupStructureObject,
+} from "@neonflux/contracts/backup"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { state as moderationState } from "../convex/moderationStore.ts"
 import { allPermissions, binding, fixture, installBackupEnv, read, status } from "./backup-fixture.ts"
@@ -817,7 +822,7 @@ test("Match mode blocks a delete that would leave a category holding something o
     assert.equal(matched.plan.counts.blocked, 5)
 })
 
-test("Match mode makes a plan of more than 500 items a refusal that says how many it would be", async (t) => {
+test("Match mode plans its deletions with the rest of the archive, which has no limit of items", async (t) => {
     const f = await fixture(t),
         archive = f.channel("100"),
         profiles = Array.from({ length: 499 }, (_, i) => ({
@@ -828,20 +833,10 @@ test("Match mode makes a plan of more than 500 items a refusal that says how man
         extra = f.channel("300"),
         proof = f.proof([], [], [f.seen(archive)], [f.listing(archive), f.listing(extra)])
     const manifest = f.manifest([], profiles, [archive])
-    // The archive alone fills the plan, and the default mode keeps to it
-    assert.equal((await f.plan(manifest, proof)).plan.itemCount, 500)
-    const body = {
-        serverId: "1",
-        context: f.context(),
-        manifest,
-        archiveDigest: "a".repeat(64),
-        native: proof,
-        archive: { channelId: "90", messageId: "700" },
-        match: true,
-    }
-    const refused = await f.http("/backup/preview", body)
-    await status(refused, 413)
-    assert.equal(((await f.db.run((ctx) => ctx.db.query("backupPlans").collect())) as unknown[]).length, 1)
+    // The channel and five pages of XP, and match adds the deletion of the channel the archive does not hold
+    assert.equal((await f.plan(manifest, proof)).plan.itemCount, 6)
+    const matched = await f.plan(manifest, proof, true)
+    assert.deepEqual([matched.plan.itemCount, matched.plan.counts.delete], [7, 1])
 })
 
 // A category that is private on the server and public in the archive, with channels that follow it
@@ -1182,7 +1177,7 @@ test("A claimed update or delete that is never answered ages to uncertain withou
     // A late answer does not turn an aged claim into an outcome, and the plan can be forgotten and cleaned
     await status(await f.outcome(update!, "updated", archive), 409)
     assert.equal((await read(await f.manage({ type: "forget", binding: binding(planned.plan) }))).type, "forgotten")
-    f.advance(604800000 + 900001)
+    f.advance(604800000 + BACKUP_PLAN_MS + 1)
     for (let pass = 0; pass < 4; pass++) await f.clean()
     assert.equal(((await f.db.run((ctx) => ctx.db.query("backupPlans").collect())) as unknown[]).length, 0)
 })
@@ -1313,4 +1308,66 @@ test("A category's reason stays within the limit of an item's reason, whatever c
         assert(item.reason!.length < 512, `${item.reason!.length} characters`)
         assert.doesNotThrow(() => Schema.decodeUnknownSync(BackupItem)(item))
     }
+})
+
+test("A pass reads the next 20 items to start in item order, a page lists problems first, and a reconcile lists only channel creations nobody confirmed", async (t) => {
+    const f = await fixture(t)
+    // 22 channels the server lacks and two it has under another name
+    const absent = Array.from({ length: 22 }, (_, i) => f.channel(String(100 + i))),
+        renamed = [f.channel("200"), f.channel("201")].map((x) => ({ ...x, name: `new-${x.name}` })),
+        proof = f.proof(
+            absent,
+            [],
+            renamed.map((x) => f.seen(live(x, { name: "old-name" }))),
+        )
+    const planned = await f.plan(f.manifest([], [], [...absent, ...renamed]), proof)
+    await f.confirm(planned.plan)
+    const ask = async (type: string, cursor?: string) =>
+        (await read(await f.query({ type, binding: binding(planned.plan), ...(cursor ? { cursor } : {}) }))) as {
+            items: BackupItem[]
+            nextCursor?: string
+        }
+    const open = await ask("open")
+    assert.equal(open.items.length, 20)
+    assert.deepEqual(
+        open.items.map((x) => x.itemNo),
+        [...open.items.map((x) => x.itemNo)].sort((a, b) => a - b),
+    )
+    assert(open.items.every((x) => x.state === "planned"))
+    const create = open.items.find((x) => x.disposition === "create")!,
+        update = (await ask("open")).items
+            .concat((await ask("items", planned.nextCursor)).items)
+            .find((x) => x.disposition === "update")!
+    // One creation and one update end without an answer, and one creation fails
+    const failed = open.items.filter((x) => x.disposition === "create")[1]!
+    for (const item of [create, failed]) {
+        await read(await f.reserve(item, proof))
+        await read(await f.claim(item, proof))
+    }
+    await read(await f.claim(update, proof))
+    await read(await f.outcome(create, "uncertain", null, { mappedId: "500" }))
+    await read(await f.outcome(failed, "failed", null))
+    await read(await f.outcome(update, "uncertain", null))
+    // The pass's next read starts after what settled
+    assert(!(await ask("open")).items.some((x) => [create.itemNo, failed.itemNo, update.itemNo].includes(x.itemNo)))
+    // Only the creation with a channel to look for is reconciled, never the update
+    assert.deepEqual(
+        (await ask("unconfirmed")).items.map((x) => x.itemNo),
+        [create.itemNo],
+    )
+    // A page holds 10, and the problems come first
+    const first = await ask("page")
+    assert.equal(first.items.length, 10)
+    assert.deepEqual(
+        new Set(first.items.slice(0, 3).map((x) => x.itemNo)),
+        new Set([create.itemNo, failed.itemNo, update.itemNo]),
+    )
+    let total = first.items.length,
+        cursor = first.nextCursor
+    while (cursor) {
+        const next = await ask("page", cursor)
+        total += next.items.length
+        cursor = next.nextCursor
+    }
+    assert.equal(total, planned.plan.itemCount)
 })

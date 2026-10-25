@@ -1,5 +1,5 @@
 import { type BackupChange, type BackupItemState, type BackupPreviewFailure } from "@neonflux/contracts/backup"
-import { permissionNames } from "@neonflux/contracts/permission-names"
+import { overwriteText, permissionList, permissionNames } from "@neonflux/contracts/permission-names"
 import type { DashboardBackupChangedItem } from "@neonflux/backend/dashboard-contracts"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { dashboardApi } from "./dashboard-api"
@@ -15,12 +15,11 @@ const failures = (dm: (command: string) => string): Record<BackupPreviewFailure,
     owner: "NeonFlux found that you no longer own this server or that its DM with you is no longer private. A check you had not confirmed was removed, and a running restore stopped",
     archive: `NeonFlux could not read the archive again. Its DM message may be deleted or its attachment expired, or the recovery key changed. Send ${dm("!backup preview")} with the archive attached again`,
     key: "Backups are off because the bot has no backup key, so the archive cannot be read. The bot operator sets NEONFLUX_BACKUP_KEY",
-    refused:
-        "A restore refuses this archive as a whole because it exceeds restore limits. Export fewer categories at a time",
+    refused: "A restore refuses this archive as a whole, because it does not hold what its header says",
     error: `NeonFlux could not read the archive or the server, or could not continue a restore. Check again, or send ${dm("!backup status")} in the DM and continue there with ${dm("!backup confirm")}`,
     unanswered: "NeonFlux did not answer. Check that the bot is online, then check again",
     paused: `DEFCON 1 pauses restores, so nothing more was restored. Check again, or continue in the DM with ${dm("!backup confirm")} once DEFCON is lower`,
-    expired: "The check expired before the restore finished. Check again to compare with the server",
+    expired: `The restore stopped because NeonFlux made no progress for 10 minutes. Check again, or continue in the DM with ${dm("!backup confirm")}`,
 })
 const itemStates: Record<BackupItemState, string> = {
     planned: "Waiting",
@@ -45,24 +44,50 @@ const marks = {
 const familyNames: Partial<Record<string, string>> = {
     ticketCategory: "Ticket category",
     milestoneRoute: "Milestone route",
+    automod: "Automod rule",
+    panel: "Role panel",
+    metadata: "Metadata logs",
+    general: "Prefix, reply style and nickname",
+    rolepicker: "Role picker",
+    temproles: "Temporary role defaults",
+    onboarding: "Newcomer checklist",
+    alerts: "Security alerts",
+    helpdesk: "Help desk",
+    helpdeskAnswer: "Saved answer",
+    lfg: "Looking for group",
+    showcase: "Showcases",
+    profile: "Profiles",
+    youtube: "YouTube alerts for",
+}
+const accessNames: Partial<Record<string, string>> = {
+    rolepicker: "Role picker access",
+    showcase: "Showcase access",
+    profile: "Profile access",
 }
 const plural = (count: number, word: string, words = `${word}s`) => `${count} ${count === 1 ? word : words}`
 /** What an archive item is, as the bot's preview names it. Restores stay in their own server, so an archive channel's ID names the channel there while it exists */
+const channelFamilies: Partial<Record<string, string>> = {
+    cleanupPolicy: "Message cleanup in",
+    voiceGenerator: "Voice generator",
+    sticky: "Sticky message in",
+}
 const target = (
-    item: Pick<DashboardBackupChangedItem, "category" | "family" | "sourceId" | "name">,
+    item: Pick<DashboardBackupChangedItem, "category" | "family" | "sourceId" | "name"> & { order?: true },
     names?: MentionNames,
 ) =>
-    item.category === "structure"
-        ? `Channel ${item.name ?? mentionText(`<#${item.sourceId}>`, names)}`
-        : item.category === "xp"
-          ? `XP of ${mentionText(`<@${item.sourceId}>`)}`
-          : item.family === "cleanupPolicy"
-            ? `Message cleanup in ${mentionText(`<#${item.sourceId}>`, names)}`
-            : item.sourceId === item.family
-              ? capital(item.family)
-              : `${familyNames[item.family] ?? capital(item.family)} ${item.sourceId}`
-const listed = (bits: string) => permissionNames(bits).join(", ") || "none"
-const permissions = (p: { allow: string; deny: string }) => `Allow ${listed(p.allow)}. Deny ${listed(p.deny)}`
+    item.order
+        ? "Channel order"
+        : item.category === "structure"
+          ? `Channel ${item.name ?? mentionText(`<#${item.sourceId}>`, names)}`
+          : item.category === "xp"
+            ? `XP of ${mentionText(item.name ?? `<@${item.sourceId}>`)}`
+            : channelFamilies[item.family]
+              ? `${channelFamilies[item.family]} ${mentionText(`<#${item.sourceId}>`, names)}`
+              : item.family === "access"
+                ? (accessNames[item.sourceId] ?? `${capital(item.sourceId)} access`)
+                : item.sourceId === item.family
+                  ? (familyNames[item.family] ?? capital(item.family))
+                  : `${familyNames[item.family] ?? capital(item.family)} ${item.sourceId}`
 function Changes({ changes, names }: { changes: BackupChange[]; names?: MentionNames | undefined }) {
     const fields = changes.flatMap((x) => (x.kind === "field" ? [x] : [])),
         overwrites = changes.flatMap((x) => (x.kind === "overwrite" ? [x] : []))
@@ -79,16 +104,16 @@ function Changes({ changes, names }: { changes: BackupChange[]; names?: MentionN
                                 {x.dropped ? (
                                     <p>
                                         The {x.type} is gone, so this is not restored. The archive had:{" "}
-                                        {permissions(x.before)}
+                                        {overwriteText(x.before)}
                                     </p>
                                 ) : (
                                     <>
-                                        <p>Before: {permissions(x.before)}</p>
-                                        <p>After: {permissions(x.after)}</p>
+                                        <p>Before: {overwriteText(x.before)}</p>
+                                        <p>After: {overwriteText(x.after)}</p>
                                     </>
                                 )}
                                 {permissionNames(x.gain).length > 0 && (
-                                    <p>Added allows or lifted denies: {listed(x.gain)}</p>
+                                    <p>Added allows or lifted denies: {permissionList(x.gain)}</p>
                                 )}
                             </li>
                         )
@@ -190,7 +215,11 @@ export function BackupSection({ client, sessionToken, serverId, catalog, connect
             .catch(() => setConfirmFailed(true))
             .finally(() => setConfirming(false))
     }
-    const busy = data?.state === "queued" || data?.state === "running" || data?.state === "waiting"
+    const busy =
+        data?.state === "queued" ||
+        data?.state === "running" ||
+        data?.state === "waiting" ||
+        (data?.plan?.building === true && data.state !== "failed")
     const counts = plan?.counts,
         changes = counts ? counts.create + counts.update : 0,
         deletes = counts?.delete ?? 0,
@@ -198,12 +227,12 @@ export function BackupSection({ client, sessionToken, serverId, catalog, connect
         now = Date.now()
     const blocker =
         plan &&
-        (busy
+        (busy || plan.building
             ? "NeonFlux is working on this"
             : data?.state === "failed"
               ? "The last check failed. Check again first"
               : now >= plan.confirmBefore
-                ? "This check is about to expire. Check again first"
+                ? "This check expired. Check again first"
                 : changes + deletes === 0
                   ? "Nothing here can be restored"
                   : !connected
@@ -233,8 +262,8 @@ export function BackupSection({ client, sessionToken, serverId, catalog, connect
         ...(plan.warned
             ? [
                   [
-                      "Starts work",
-                      `${plural(plan.warned, "item")} start${plan.warned === 1 ? "s" : ""} to delete messages or post logs, as the rows say`,
+                      "Warnings",
+                      `${plural(plan.warned, "item")} ha${plan.warned === 1 ? "s" : "ve"} a warning, such as messages ${plan.warned === 1 ? "it deletes or posts" : "they delete or post"}, as the rows say`,
                   ],
               ]
             : []),
@@ -272,6 +301,11 @@ export function BackupSection({ client, sessionToken, serverId, catalog, connect
                     <>
                         {data.state === "queued" && (
                             <p role="status">Asking NeonFlux to read the archive and the server again…</p>
+                        )}
+                        {plan?.building && data.state !== "failed" && (
+                            <p role="status">
+                                Building the check. NeonFlux compares the archive with the server part by part…
+                            </p>
                         )}
                         {data.state === "failed" && data.failure && (
                             <p className="notice error" role="alert">

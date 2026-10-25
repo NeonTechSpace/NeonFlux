@@ -129,6 +129,12 @@ export const forgetPrefix = (serverId: string) => {
     prefixes.delete(serverId)
 }
 
+/** Make the next command read a server's prefix and reply style again, keeping the last known ones until it does */
+export const refreshPrefix = (serverId: string) => {
+    const cached = prefixes.get(serverId)
+    if (cached) cached.readAt = Number.NEGATIVE_INFINITY
+}
+
 /** Start one server's prefix and reply style memory for a new bot run and return its prefix reader, which refreshes both */
 export function createPrefixReader(store: GeneralSettingsStore | undefined, serverId: string) {
     prefixes.delete(serverId)

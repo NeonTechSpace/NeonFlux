@@ -663,8 +663,8 @@ test("Backup plans stay with the server they were created for", async (tc) => {
         privateReplyAuthorized: true,
     })
     const manifest = (serverId: string) => ({
-        version: 1,
-        backupId: "same_backup_id",
+        version: 2,
+        backupId: "a".repeat(32),
         provider,
         serverId,
         selected: ["config"],
@@ -672,9 +672,6 @@ test("Backup plans stay with the server they were created for", async (tc) => {
         observations: { databaseAt: now, structureStartedAt: now, structureFinishedAt: now },
         counts: { config: 0, xp: 0, structure: 0, overwrites: 0 },
         exclusions: [...backupExclusions],
-        config: [],
-        xp: [],
-        structure: [],
     })
     const source = (serverId: string, messageId = "100") => ({
         serverId,
@@ -682,19 +679,21 @@ test("Backup plans stay with the server they were created for", async (tc) => {
         createdAt: now,
         context: context(serverId),
     })
+    // An archive with nothing in it is a check of no segments, which is ready at once
     const preview = (serverId: string, archiveServerId: string, digest: string) => ({
         serverId,
         context: context(serverId),
-        manifest: manifest(archiveServerId),
+        header: manifest(archiveServerId),
+        segmentDigests: [],
         archiveDigest: digest,
-        native: null,
         archive: { channelId: "90", messageId: "100" },
         match: false,
     })
     const plans = []
     for (const serverId of ["10", "20"])
         plans.push(
-            (await t.mutation(internal.backup.preview, { request: preview(serverId, serverId, "a".repeat(64)) })).plan,
+            (await t.mutation(internal.backup.previewStart, { request: preview(serverId, serverId, "a".repeat(64)) }))
+                .plan,
         )
     const foreign = plans[0]
     assert(foreign)
@@ -717,7 +716,7 @@ test("Backup plans stay with the server they were created for", async (tc) => {
             status(404),
         )
     await assert.rejects(
-        t.mutation(internal.backup.preview, { request: preview("20", "10", "b".repeat(64)) }),
+        t.mutation(internal.backup.previewStart, { request: preview("20", "10", "b".repeat(64)) }),
         status(403),
     )
     assert.deepEqual(await t.run((ctx) => ctx.db.query("backupPlans").collect()), before)

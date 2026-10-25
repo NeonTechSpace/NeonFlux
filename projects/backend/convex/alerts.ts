@@ -100,25 +100,47 @@ export async function applyAlertsManagement(
     let patch: Partial<Doc<"alertSettings">> = {}
     if (op.type === "set") patch = { [op.alert]: op.enabled }
     else if (op.type === "action") patch = { [op.action]: op.enabled }
-    else if (op.type === "expect") {
+    else if (op.type === "expect" || op.type === "expected-set") {
+        // Several IDs change in one write. New ones go after those already expected, and each ID is listed once
         const key = op.kind === "bot" ? "expectedBotIds" : "expectedWebhookIds",
-            list = settings[key].filter((id) => id !== op.id)
-        if (op.expected) {
-            // The list is one stored array, which Convex limits to 8,192 values
-            if (list.length >= ALERT_EXPECTED_LIMIT)
-                fail(
-                    429,
-                    `A server can mark up to ${ALERT_EXPECTED_LIMIT.toLocaleString("en-US")} expected ${op.kind}s`,
-                )
-            list.push(op.id)
-        }
+            ids = new Set(op.ids)
+        const list =
+            op.type === "expected-set"
+                ? [...ids]
+                : op.expected
+                  ? [...new Set([...settings[key], ...ids])]
+                  : settings[key].filter((id) => !ids.has(id))
+        // The list is one stored array, which Convex limits to 8,192 values
+        if (list.length > ALERT_EXPECTED_LIMIT)
+            fail(429, `A server can mark up to ${ALERT_EXPECTED_LIMIT.toLocaleString("en-US")} expected ${op.kind}s`)
         patch = { [key]: list }
     } else patch = { inviteList: op.invites! }
+    await writeAlerts(ctx, serverId, actorId, row, patch)
+    const next = await readAlerts(ctx, serverId)
+    return { settings: publicAlerts(next), invites: publicInviteList(next) }
+}
+async function writeAlerts(
+    ctx: MutationCtx,
+    serverId: string,
+    actorId: string,
+    row: Doc<"alertSettings"> | null,
+    patch: Partial<Doc<"alertSettings">>,
+) {
     const fields = { ...patch, updatedAt: Date.now(), updatedBy: actorId }
     if (row) await ctx.db.patch(row._id, fields)
     else await ctx.db.insert("alertSettings", { serverId, ...defaultAlertSettings(), ...fields })
-    const next = await readAlerts(ctx, serverId)
-    return { settings: publicAlerts(next), invites: publicInviteList(next) }
+}
+/** A restore writes both expected lists whole, since one change for each ID would read the whole settings row again for each */
+export async function restoreExpectedAlerts(
+    ctx: MutationCtx,
+    serverId: string,
+    actorId: string,
+    lists: Pick<AlertSettings, "expectedBotIds" | "expectedWebhookIds">,
+) {
+    await writeAlerts(ctx, serverId, actorId, await readAlerts(ctx, serverId), {
+        expectedBotIds: [...new Set(lists.expectedBotIds)],
+        expectedWebhookIds: [...new Set(lists.expectedWebhookIds)],
+    })
 }
 
 /** Admits the security record of an action's outcome. Its source is derived from the action's key, so it is admitted once */

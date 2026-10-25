@@ -14,10 +14,31 @@ import {
     isId,
     origin,
 } from "./common.ts"
-import { PublishingContent, PublishingKind, PublishingName } from "./publishing-base.ts"
-import { CleanupPolicy } from "./cleanup.ts"
+import {
+    PublishingContent,
+    PublishingKind,
+    PublishingName,
+    PublishingYoutubeConsumer,
+    SchedulesContentSource,
+} from "./publishing-base.ts"
+import { MemberAccessLists } from "./shared.ts"
+import { AlertSettings } from "./alerts.ts"
+import { CLEANUP_POLICY_LIMIT, CleanupPolicy } from "./cleanup.ts"
+import type { DashboardConfigurationFamily } from "./dashboard.ts"
+import { EventsDefinition } from "./events.ts"
+import { validNickname, validPrefix } from "./general.ts"
 import { GreetingsRouteSettings, GreetingsSettings, type GreetingsRoute } from "./greetings.ts"
+import { HelpDeskAnswer, HelpDeskSettings } from "./helpdesk.ts"
 import { LEVELING_XP_CAP, LevelingSettings } from "./leveling.ts"
+import { LfgSettings } from "./lfg.ts"
+import { OnboardingSettings } from "./onboarding.ts"
+import { ProfileSettings } from "./profiles.ts"
+import { ROLE_PICKER_MENUS, RolePickerMenu } from "./role-picker.ts"
+import { SchedulesCalendar } from "./schedules.ts"
+import { ShowcaseSettings } from "./showcases.ts"
+import { StickyMessage } from "./sticky.ts"
+import { TemporaryRoleSettings } from "./temporary-roles.ts"
+import { VoiceGenerator } from "./voice.ts"
 import {
     METADATA_CHANNEL_LIMIT,
     MetadataLogsEventRoute,
@@ -28,29 +49,59 @@ import {
 import { MilestonesRoute } from "./milestones.ts"
 import { AutomodRule, ModerationSettings } from "./moderation.ts"
 import { ResponseDefinition } from "./responses.ts"
-import { RolesMappings, RolesPanel, RolesPanelKind, RolesSettings } from "./roles.ts"
+import {
+    ROLES_MAPPING_SCOPE,
+    ROLES_PANEL_MAPPINGS,
+    RolesMappings,
+    RolesPanel,
+    RolesPanelKind,
+    RolesSettings,
+} from "./roles.ts"
 import { TicketCategory, TicketSettings } from "./tickets.ts"
 
 // Selective backup and restore, see docs/BOT.md#selective-backup-and-restore
 
-/** A restore plan holds at most 500 items and confirms within 15 minutes. The website confirms it only with at least 5 minutes left to run it */
-export const BACKUP_PLAN_MS = 900000,
-    BACKUP_CONFIRM_MARGIN_MS = 300000
-const BACKUP_PLAN_ITEMS = 500
-/** The most items of each category one archive holds */
-export const BACKUP_CATEGORY_LIMITS = { config: 500, xp: 500, structure: 100 } as const
 /**
- * Restore limits: Items and canonical bytes per plan, plans per server, rows per page of plans, items or origins, overwrites per archive,
- * the bytes of a database snapshot and the origin mappings a server keeps
+ * A restore check stays confirmable for a day, since it describes the server at one moment, and a confirmed run goes on until it makes no
+ * progress for 10 minutes
+ */
+export const BACKUP_PLAN_MS = 86400000,
+    BACKUP_RUN_IDLE_MS = 600000
+// The most roles, members and channels one setting may name, a role panel's mappings with their required and excluded roles, so a
+// setting's proof always fits whatever IDs it keeps. Moderation settings name at most 1,752 and role settings 1,200
+const BACKUP_PROOF_REFERENCES = ROLES_PANEL_MAPPINGS * (1 + 2 * ROLES_MAPPING_SCOPE)
+/**
+ * Archive and restore limits, with the reason for each in docs/BOT.md#selective-backup-and-restore: parts of one archive and bytes of a
+ * part, the plaintext of one decrypted archive, the canonical bytes and written items of one plan segment, channels of a structure segment,
+ * members of an XP page, rows of a snapshot page of XP and of drafts, plans per server that are not finished, rows per page of plans or
+ * items, items per chat page, the archive channels one origin lookup names, the roles, members and channels one native proof reads and the
+ * members one check segment names
  */
 export const BACKUP_RESTORE_LIMITS = {
-    planItems: BACKUP_PLAN_ITEMS,
-    planBytes: 524288,
+    parts: 10,
+    partBytes: 4194304,
+    plaintextBytes: 41943040,
+    segmentBytes: 524288,
+    segmentItems: 500,
+    segmentChannels: 100,
+    xpPage: 100,
+    snapshotXp: 500,
+    snapshotDrafts: 100,
+    /** Ticket categories per snapshot page. Each holds up to 256 KiB of canned replies, so 20 stay within one read */
+    snapshotTicketCategories: 20,
     plans: 10,
     page: 20,
-    overwrites: 500,
-    snapshotBytes: 1048576,
-    originMappings: 5000,
+    chatPage: 10,
+    originLookup: 100,
+    // The overwrites one channel keeps. Fluxer sets no limit of its own, so a channel keeps as many as one restore check proves beside
+    // its category
+    channelOverwrites: BACKUP_PROOF_REFERENCES - 1,
+    proofReferences: BACKUP_PROOF_REFERENCES,
+    /**
+     * Members one check segment names, unless one channel or setting alone names more. That is one gateway request, and reading each by
+     * its ID when Fluxer leaves all of them out, at its 40 member reads per 10 seconds, fits the proof's 40 seconds
+     */
+    segmentMembers: 100,
 } as const
 /** Stable JSON for digests and comparisons, with sorted keys and undefined properties left out. Bot and backend hash it alike. Values JSON cannot hold exactly are refused */
 export function canonicalBackupJson(value: unknown): string {
@@ -75,7 +126,7 @@ export function canonicalBackupJson(value: unknown): string {
  * compare equal
  */
 export function backupChannelSemantic(channel: BackupStructureObject) {
-    const { sourceId: _id, capturedAt: _at, managed: _managed, ...rest } = channel
+    const { sourceId: _id, capturedAt: _at, managed: _managed, position: _position, ...rest } = channel
     return { ...rest, overwrites: [...rest.overwrites].sort((a, b) => a.id.localeCompare(b.id)) }
 }
 /**
@@ -110,8 +161,6 @@ export const backupExclusions = [
     "claims",
     "live-ownership",
     "effective-defcon",
-    "event-definitions",
-    "schedule-definitions",
 ]
 const optional = Schema.optionalKey
 const unique = <A>(values: readonly A[], key: (value: A) => unknown = (value) => value) =>
@@ -175,9 +224,31 @@ const greeting = (route: GreetingsRoute) =>
 /** A log destination names its channel and owner together, and an enabled one has both */
 const destination = (v: { readonly enabled: boolean; readonly channelId?: string; readonly ownerId?: string }) =>
     (v.channelId === undefined) === (v.ownerId === undefined) && (!v.enabled || v.channelId !== undefined)
+const {
+    eventNo: _eventNo,
+    revision: _eventDefinitionRevision,
+    state: _eventState,
+    participationStarted: _participationStarted,
+    // What the event shows of its live progress, which a restore works out again
+    next: _eventNext,
+    resume: _eventResume,
+    lastSkipped: _eventLastSkipped,
+    notice: _eventNotice,
+    cardPostNo: _cardPostNo,
+    postId: _postId,
+    threadId: _threadId,
+    createdAt: _eventCreatedAt,
+    updatedAt: _eventUpdatedAt,
+    ...event
+} = EventsDefinition.fields
+const { display: _display, ...menu } = RolePickerMenu.fields
+const { revision: _helpDeskRevision, ...helpdesk } = HelpDeskSettings.fields
+/** The member features whose access lists an archive keeps, each with its own allow and block lists */
+export const backupAccessFeatures = ["rolepicker", "showcase", "profile"] as const
 /** Each family's authored configuration as an archive keeps it, without revisions, counters or live state */
 const values = {
-    moderation: Schema.Struct(moderation),
+    /** privateDataRoleId opens private cases on the website to a role, so a restore warns when it sets one */
+    moderation: Schema.Struct({ ...moderation, privateDataRoleId: optional(Id) }),
     responses: Schema.Struct({ customEnabled: Schema.Boolean, autoEnabled: Schema.Boolean }),
     response: Schema.Struct(response).check(
         Schema.makeFilter((v) => (v.kind === "auto" ? v.trigger !== undefined : v.trigger === undefined)),
@@ -242,8 +313,51 @@ const values = {
                 (!v.allChannels || v.messageChannelIds.length === 0),
         ),
     ),
-    events: enabled,
+    events: Schema.Struct({ enabled: Schema.Boolean, threads: optional(Schema.Boolean) }),
+    /** An event restores as a draft. Its calendar returns only while every date is ahead */
+    event: Schema.Struct(event),
     schedules: enabled,
+    /** A schedule restores on only while every date is ahead, and paused otherwise */
+    schedule: Schema.Struct({
+        name: PublishingName,
+        channelId: Id,
+        calendar: SchedulesCalendar,
+        source: SchedulesContentSource,
+        content: PublishingContent,
+        enabled: Schema.Boolean,
+    }),
+    /** The prefix, the reply style and the bot's nickname. Without a nickname the bot shows its username */
+    general: Schema.Struct({
+        prefix: Schema.String.check(Schema.makeFilter(validPrefix)),
+        replyStyle: optional(Schema.Literals(["embed", "text"])),
+        nickname: optional(Schema.String.check(Schema.makeFilter(validNickname))),
+    }),
+    analytics: enabled,
+    voiceGenerator: Schema.Struct(
+        pick(VoiceGenerator.fields, "channelId", "categoryId", "template", "userLimit", "region"),
+    ),
+    lfg: LfgSettings,
+    rolepicker: Schema.Struct({
+        enabled: Schema.Boolean,
+        menus: List(Schema.Struct(menu), ROLE_PICKER_MENUS).check(
+            Schema.makeFilter((menus) => unique(menus, (row) => row.name)),
+        ),
+    }),
+    access: Schema.Struct({ feature: Schema.Literals(backupAccessFeatures), ...MemberAccessLists.fields }),
+    temproles: TemporaryRoleSettings,
+    onboarding: OnboardingSettings,
+    /** A sticky message posts in its channel again once members write there */
+    sticky: Schema.Struct(pick(StickyMessage.fields, "channelId", "content", "intervalSeconds")),
+    alerts: AlertSettings,
+    helpdesk: Schema.Struct(helpdesk),
+    helpdeskAnswer: Schema.Struct(pick(HelpDeskAnswer.fields, "name", "title", "content")),
+    showcase: ShowcaseSettings,
+    profile: ProfileSettings,
+    /** A followed YouTube channel. Its WebSub secret and callback token stay out, and a restore subscribes again with new ones */
+    youtube: Schema.Struct({
+        youtubeChannelId: PublishingYoutubeConsumer.fields.youtubeChannelId,
+        channelId: Id,
+    }),
 }
 export type BackupConfigValues = { readonly [K in keyof typeof values]: (typeof values)[K]["Type"] }
 /** The configuration families, in the order a restore plan lists them */
@@ -272,9 +386,30 @@ const configObjects = Schema.Union([
     entry("cleanupPolicy"),
     entry("metadata"),
     entry("events"),
+    entry("event"),
     entry("schedules"),
+    entry("schedule"),
+    entry("general"),
+    entry("analytics"),
+    entry("voiceGenerator"),
+    entry("lfg"),
+    entry("rolepicker"),
+    entry("access"),
+    entry("temproles"),
+    entry("onboarding"),
+    entry("sticky"),
+    entry("alerts"),
+    entry("helpdesk"),
+    entry("helpdeskAnswer"),
+    entry("showcase"),
+    entry("profile"),
+    entry("youtube"),
 ])
-/** What names a configuration object within its family: a response, draft or template by kind and name, a rule, panel or ticket category by name */
+/**
+ * What names a configuration object within its family: a response, draft or template by kind and name, a rule, panel, ticket category, event,
+ * schedule or saved answer by name, a cleanup policy, voice generator or sticky message by channel, an access list by feature and a YouTube
+ * follow by YouTube channel
+ */
 export function backupConfigIdentity(object: typeof configObjects.Type) {
     switch (object.family) {
         case "response":
@@ -283,14 +418,58 @@ export function backupConfigIdentity(object: typeof configObjects.Type) {
         case "automod":
         case "panel":
         case "ticketCategory":
+        case "event":
+        case "schedule":
+        case "helpdeskAnswer":
             return object.value.name
         case "milestoneRoute":
             return object.value.kind
         case "cleanupPolicy":
+        case "voiceGenerator":
+        case "sticky":
             return object.value.channelId
+        case "access":
+            return object.value.feature
+        case "youtube":
+            return object.value.youtubeChannelId
         default:
             return object.family
     }
+}
+/**
+ * What a backup does with each dashboard family: the configuration families that keep it, or why it stays out. A family the dashboard gains
+ * fails the contract check until it is listed here
+ */
+export const BACKUP_DASHBOARD_COVERAGE: Record<
+    DashboardConfigurationFamily,
+    BackupConfigFamily[] | { excluded: string }
+> = {
+    responses: ["responses", "response"],
+    moderation: ["moderation", "automod"],
+    publishing: ["publishing", "draft"],
+    greetings: ["greetings"],
+    tickets: ["tickets", "ticketCategory"],
+    leveling: ["leveling"],
+    milestones: ["milestones", "milestoneRoute"],
+    suggestions: ["suggestions"],
+    cleanup: ["cleanup", "cleanupPolicy"],
+    events: ["events", "event"],
+    schedules: ["schedules", "schedule"],
+    nickname: ["general"],
+    voice: ["voiceGenerator"],
+    rolepicker: ["rolepicker", "access"],
+    temproles: ["temproles"],
+    sticky: ["sticky"],
+    sidebar: { excluded: "The dashboard link is a native link channel that !sidebar makes again" },
+    memberlist: { excluded: "The member list order is the role order, which Fluxer keeps" },
+    alerts: ["alerts"],
+    helpdesk: ["helpdesk", "helpdeskAnswer"],
+    onboarding: ["onboarding"],
+    presets: { excluded: "Presets are computed from the other settings and store nothing of their own" },
+    lfg: ["lfg"],
+    showcase: ["showcase", "access"],
+    profile: ["profile", "access"],
+    youtube: ["youtube"],
 }
 export const BackupConfigObject = configObjects.check(
     Schema.makeFilter((object) => object.sourceId === backupConfigIdentity(object)),
@@ -300,6 +479,20 @@ export const BackupXpObject = Schema.Struct({ sourceId: Id, userId: Id, xp: Int(
     Schema.makeFilter((v) => v.sourceId === v.userId),
 )
 export type BackupXpObject = typeof BackupXpObject.Type
+/**
+ * One XP item of a plan: up to 100 members, each with the archived XP and the XP the check found, or null for a member with no profile. A
+ * restore sets only the members whose XP is still the one the check found
+ */
+export const BackupXpPage = Schema.Struct({
+    sourceId: Token,
+    /** The XP season the check read, since a new season changes every member's XP at once */
+    epoch: Int(),
+    members: List(
+        Schema.Struct({ userId: Id, xp: Int(0, LEVELING_XP_CAP), expected: Schema.NullOr(Int(0, LEVELING_XP_CAP)) }),
+        BACKUP_RESTORE_LIMITS.xpPage,
+    ).check(Schema.isMinLength(1)),
+})
+export type BackupXpPage = typeof BackupXpPage.Type
 /** An overwrite as the server has it, with any 64-bit permissions, never allowing and denying the same one */
 export const BackupOverwrite = Schema.Struct({
     id: Id,
@@ -328,6 +521,8 @@ const channelName = Str(100).check(
 )
 const BackupChannelType = Schema.Literals(["category", "text", "voice", "forum", "media", "announcement"])
 /**
+ * position is the channel's place among the channels of its category, or among the top-level channels and categories, counted from 0 in
+ * Fluxer's order. A restore puts the channels back in that order with one order item, and position is not part of what a channel restores to.
  * Announcement channels keep the same settings as text channels. Forum and media channels also keep their tags, default reaction, default auto-archive minutes, sort order, the REQUIRE_TAG flag and,
  * for forums, the layout. Their posts are threads, which are not backed up. managed labels a channel that NeonFlux's tickets or temporary voice rooms
  * made, which a restore never brings back or changes, since NeonFlux forgets those channels after it closes them
@@ -337,7 +532,9 @@ export const BackupStructureObject = Schema.Struct({
     type: BackupChannelType,
     name: channelName,
     parentId: Schema.NullOr(Id),
-    overwrites: List(BackupOverwrite, 100).check(Schema.makeFilter((rows) => unique(rows, (row) => row.id))),
+    overwrites: List(BackupOverwrite, BACKUP_RESTORE_LIMITS.channelOverwrites).check(
+        Schema.makeFilter((rows) => unique(rows, (row) => row.id)),
+    ),
     topic: optional(Schema.NullOr(Str(4096))),
     nsfw: optional(Schema.Boolean),
     slowmodeSeconds: optional(Int(0, 21600)),
@@ -352,6 +549,7 @@ export const BackupStructureObject = Schema.Struct({
     layout: optional(Int(0, 255)),
     requireTag: optional(Schema.Boolean),
     managed: optional(Schema.Literals(["ticket", "voiceRoom"])),
+    position: optional(Int(0, STRUCTURE_CHANNELS - 1)),
     capturedAt: Millis,
 }).check(
     Schema.makeFilter(
@@ -374,26 +572,18 @@ export const BackupStructureObject = Schema.Struct({
     ),
 )
 export type BackupStructureObject = typeof BackupStructureObject.Type
-const configList = List(BackupConfigObject, BACKUP_CATEGORY_LIMITS.config).check(
-    Schema.makeFilter((rows) => unique(rows, (row) => `${row.family}:${row.sourceId}`)),
-)
-const xpList = List(BackupXpObject, BACKUP_CATEGORY_LIMITS.xp).check(
-    Schema.makeFilter((rows) => unique(rows, (row) => row.userId)),
-)
-export const BackupSnapshot = Schema.Struct({
+/** One page of a database snapshot: the settings of one family, or up to 500 members' XP. cursor reads the next page, null after the last */
+export const BackupSnapshotPage = Schema.Struct({
     capturedAt: Millis,
-    config: configList,
-    xp: xpList,
-    counts: Schema.Struct({ config: Int(0, BACKUP_CATEGORY_LIMITS.config), xp: Int(0, BACKUP_CATEGORY_LIMITS.xp) }),
-}).check(Schema.makeFilter((v) => v.counts.config === v.config.length && v.counts.xp === v.xp.length))
-export type BackupSnapshot = typeof BackupSnapshot.Type
-/**
- * What an encrypted archive holds, in format version 1. Category sizes and selection are checked by backupWithinLimits, since a restore
- * refuses those with their own status
- */
-export const BackupManifest = Schema.Struct({
-    version: Schema.Literal(1),
-    backupId: Token,
+    config: List(BackupConfigObject, 100),
+    xp: List(BackupXpObject, BACKUP_RESTORE_LIMITS.snapshotXp),
+    cursor: Schema.NullOr(label(4096)),
+})
+export type BackupSnapshotPage = typeof BackupSnapshotPage.Type
+const headerFields = {
+    version: Schema.Literal(2),
+    /** 16 random bytes in hex, which every part of the archive carries and authenticates */
+    backupId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/)),
     provider: BackupProvider,
     serverId: Id,
     selected: selection(["config", "xp", "structure"]),
@@ -403,19 +593,50 @@ export const BackupManifest = Schema.Struct({
         structureStartedAt: Schema.NullOr(Millis),
         structureFinishedAt: Schema.NullOr(Millis),
     }),
-    counts: Schema.Struct({ config: Int(), xp: Int(), structure: Int(), overwrites: Int() }),
+    counts: Schema.Struct({
+        config: Int(),
+        xp: Int(),
+        structure: Int(0, STRUCTURE_CHANNELS),
+        overwrites: Int(),
+    }),
     exclusions: Schema.mutable(Schema.Array(Schema.String)),
+}
+type Header = Schema.Struct.Type<typeof headerFields>
+/** What every archive's header must say of itself: its times in order, the categories it read and the exclusions of this version */
+const headerValid = (v: Header) => {
+    const o = v.observations
+    return (
+        [o.databaseAt, o.structureStartedAt, o.structureFinishedAt].every((at) => at === null || at <= v.capturedAt) &&
+        ((!v.selected.includes("config") && !v.selected.includes("xp")) || o.databaseAt !== null) &&
+        (!v.selected.includes("structure") ||
+            (o.structureStartedAt !== null &&
+                o.structureFinishedAt !== null &&
+                o.structureStartedAt <= o.structureFinishedAt)) &&
+        (["config", "xp", "structure"] as const).every((key) => v.selected.includes(key) || v.counts[key] === 0) &&
+        v.exclusions.length === backupExclusions.length &&
+        v.exclusions.every((name, i) => name === backupExclusions[i])
+    )
+}
+/** An archive without its objects, which a restore check starts with before the objects come in segments */
+export const BackupManifestHeader = Schema.Struct(headerFields).check(Schema.makeFilter(headerValid))
+export type BackupManifestHeader = typeof BackupManifestHeader.Type
+/**
+ * What an encrypted archive holds, in format version 2: every family's settings, the XP of every member with a score and up to 500
+ * channels with up to 500 overwrites each, the most a ticket channel holds. The 40 MiB archive bound is the only bound on members
+ * with XP. Items appear only in the categories an archive selected
+ */
+export const BackupManifest = Schema.Struct({
+    ...headerFields,
     config: Schema.mutable(Schema.Array(BackupConfigObject)),
     xp: Schema.mutable(Schema.Array(BackupXpObject)),
     structure: Schema.mutable(Schema.Array(BackupStructureObject)),
 }).check(
     Schema.makeFilter((v) => {
         const o = v.observations,
-            overwrites = v.structure.reduce((total, channel) => total + channel.overwrites.length, 0),
-            structure = v.selected.includes("structure")
+            overwrites = v.structure.reduce((total, channel) => total + channel.overwrites.length, 0)
         const types = new Map(v.structure.map((channel) => [channel.sourceId, channel.type]))
         return (
-            overwrites <= BACKUP_RESTORE_LIMITS.overwrites &&
+            headerValid(v) &&
             unique(v.config, (row) => `${row.family}:${row.sourceId}`) &&
             unique(v.xp, (row) => row.userId) &&
             unique(v.structure, (row) => row.sourceId) &&
@@ -423,34 +644,21 @@ export const BackupManifest = Schema.Struct({
             v.counts.xp === v.xp.length &&
             v.counts.structure === v.structure.length &&
             v.counts.overwrites === overwrites &&
-            [o.databaseAt, o.structureStartedAt, o.structureFinishedAt].every(
-                (at) => at === null || at <= v.capturedAt,
-            ) &&
-            ((!v.selected.includes("config") && !v.selected.includes("xp")) || o.databaseAt !== null) &&
-            (!structure ||
-                (o.structureStartedAt !== null &&
-                    o.structureFinishedAt !== null &&
-                    o.structureStartedAt <= o.structureFinishedAt &&
-                    v.structure.every(
-                        (channel) =>
-                            channel.capturedAt >= o.structureStartedAt! && channel.capturedAt <= o.structureFinishedAt!,
-                    ))) &&
-            v.exclusions.length === backupExclusions.length &&
-            v.exclusions.every((name, i) => name === backupExclusions[i]) &&
             v.structure.every(
-                (channel) => channel.parentId === null || (types.get(channel.parentId) ?? "category") === "category",
+                (channel) =>
+                    channel.capturedAt >= o.structureStartedAt! &&
+                    channel.capturedAt <= o.structureFinishedAt! &&
+                    (channel.parentId === null || (types.get(channel.parentId) ?? "category") === "category"),
             )
         )
     }),
 )
 export type BackupManifest = typeof BackupManifest.Type
-/** Each category within its limit, and items only in the categories an archive selected. A restore refuses any other archive as a whole */
-export const backupWithinLimits = (manifest: BackupManifest) =>
-    (["config", "xp", "structure"] as const).every(
-        (key) =>
-            manifest[key].length <= BACKUP_CATEGORY_LIMITS[key] &&
-            (manifest.selected.includes(key) || !manifest[key].length),
-    )
+/** The header of a decoded archive, which a restore check starts with */
+export const backupManifestHeader = (manifest: BackupManifest): BackupManifestHeader => {
+    const { config: _config, xp: _xp, structure: _structure, ...header } = manifest
+    return header
+}
 /** The bot's fresh evidence that the current server owner asked in a private one-to-one DM. The backend checks its time, people and audience */
 export const BackupContext = Schema.Struct({
     ...origin,
@@ -509,7 +717,10 @@ export const BackupLiveChannel = Schema.Struct({
     synced: Schema.Boolean,
 })
 export type BackupLiveChannel = typeof BackupLiveChannel.Type
-/** serverId, ownerId and botId must name the request's server and the context's owner and bot, which the backend checks */
+/**
+ * serverId, ownerId and botId must name the request's server and the context's owner and bot, which the backend checks. channels lists the
+ * server's channels in Fluxer's order, each category followed by its channels, so the order item reads the current order from it
+ */
 export const BackupNativeProof = Schema.Struct({
     ...origin,
     observedAt: Millis,
@@ -520,7 +731,7 @@ export const BackupNativeProof = Schema.Struct({
     botPermissions: PermissionBits,
     actorCanManageChannels: Schema.Boolean,
     botCanManageChannels: Schema.Boolean,
-    references: List(BackupReference, 1000),
+    references: List(BackupReference, BACKUP_RESTORE_LIMITS.proofReferences),
     observations: List(BackupNativeObservation, 100),
     channels: List(BackupLiveChannel, STRUCTURE_CHANNELS),
 }).check(
@@ -541,7 +752,7 @@ export const BackupBinding = Schema.Struct({
 export type BackupBinding = typeof BackupBinding.Type
 export const BackupItemBinding = Schema.Struct({
     ...BackupBinding.fields,
-    itemNo: Int(1, BACKUP_PLAN_ITEMS),
+    itemNo: Int(1),
     generation: Schema.Literal(1),
 })
 export type BackupItemBinding = typeof BackupItemBinding.Type
@@ -564,16 +775,16 @@ export type BackupItemState = typeof BackupItemState.Type
 const family = Schema.Literals([...backupConfigFamilies, "xp", "structure"])
 const resolution = Schema.Literals(["match", "absent", "conflict"])
 const counts = Schema.Struct({
-    create: Int(0, BACKUP_PLAN_ITEMS),
-    update: Int(0, BACKUP_PLAN_ITEMS),
-    delete: Int(0, BACKUP_PLAN_ITEMS),
-    skip: Int(0, BACKUP_PLAN_ITEMS),
-    blocked: Int(0, BACKUP_PLAN_ITEMS),
+    create: Int(),
+    update: Int(),
+    delete: Int(),
+    skip: Int(),
+    blocked: Int(),
 })
 const total = (value: typeof counts.Type) => value.create + value.update + value.delete + value.skip + value.blocked
 /** What a restore plan grants beyond the server as it is: items that gain permissions, the permissions all of them gain and the settings that turn on */
 const BackupGainSummary = Schema.Struct({
-    items: Int(0, BACKUP_PLAN_ITEMS),
+    items: Int(),
     bits: PermissionBits,
     switches: Int(0),
 })
@@ -592,7 +803,7 @@ export const BackupItem = Schema.Struct({
     state: BackupItemState,
     expectedHash: Digest,
     desiredHash: Digest,
-    dependencyItemNo: Schema.NullOr(Int(1, BACKUP_PLAN_ITEMS)),
+    dependencyItemNo: Schema.NullOr(Int(1)),
     mappedId: Schema.NullOr(label(256)),
     /** A channel's name, since its source ID names a channel that may no longer exist */
     name: optional(label(100)),
@@ -606,6 +817,8 @@ export const BackupItem = Schema.Struct({
     on: optional(Schema.Literal(true)),
     /** What an item that deletes or posts will do, such as a cleanup policy that turns on, for the owner to read before confirming */
     warning: optional(label(256)),
+    /** The one item that puts the channels in the archive's order, after every other channel item */
+    order: optional(Schema.Literal(true)),
     dispatchExpiresAt: optional(Millis),
     claimedAt: optional(Millis),
     finishedAt: optional(Millis),
@@ -624,16 +837,27 @@ export const BackupPlan = Schema.Struct({
     createdAt: Millis,
     expiresAt: Millis,
     confirmedAt: optional(Millis),
-    itemCount: Int(0, BACKUP_PLAN_ITEMS),
+    itemCount: Int(),
     counts,
     gain: BackupGainSummary,
     /** The plan also deletes the channels and categories the archive does not hold */
     match: Schema.Boolean,
     forgotten: Schema.Boolean,
+    /** building while its segments come in, and confirmable only once ready */
+    state: Schema.Literals(["building", "ready"]),
+    /** The items with a warning other than a channel delete, and how many items are in each state */
+    warned: Int(),
+    states: Schema.Struct(
+        Object.fromEntries(BackupItemState.literals.map((state) => [state, optional(Int())])) as {
+            [K in BackupItemState]: Schema.optionalKey<ReturnType<typeof Int>>
+        },
+    ),
+    /** When a confirmed run ended with every item settled */
+    settledAt: optional(Millis),
 }).check(
     Schema.makeFilter(
         (v) =>
-            v.expiresAt === v.createdAt + BACKUP_PLAN_MS &&
+            v.expiresAt > v.createdAt &&
             total(v.counts) === v.itemCount &&
             (v.confirmedAt === undefined || (v.confirmedAt >= v.createdAt && v.confirmedAt < v.expiresAt)),
     ),
@@ -647,31 +871,53 @@ export const BackupOrigin = Schema.Struct({
     sourceId: label(128),
     state: Schema.Literals(["reserved", "claimed", "created", "uncertain", "failed"]),
     planId: label(256),
-    itemNo: Int(1, BACKUP_PLAN_ITEMS),
+    itemNo: Int(1),
     generation: Schema.Literal(1),
     mappedId: Schema.NullOr(label(256)),
     desiredHash: Digest,
     resolved: optional(resolution),
 }).check(Schema.makeFilter(nativeMapping))
 export type BackupOrigin = typeof BackupOrigin.Type
-/**
- * What one claim allows the bot to do to a channel. A create brings the channel to make. An update brings the channel as it should be and from,
- * the channel as it was when the backend decided, which the bot must still find just before it writes. A delete brings the channel as it is,
- * both as channel and as from
- */
-export const BackupGrant = Schema.Struct({
+const grantFields = {
     ...BackupItemBinding.fields,
     provider: BackupProvider,
     serverId: Id,
     ownerId: Id,
     botId: Id,
+    dispatchExpiresAt: Millis,
+    nativeDeadlineMs: Schema.Literal(5000),
+}
+/**
+ * What one claim allows the bot to do to a channel. A create brings the channel to make. An update brings the channel as it should be and from,
+ * the channel as it was when the backend decided, which the bot must still find just before it writes. A delete brings the channel as it is,
+ * both as channel and as from
+ */
+export const BackupChannelGrant = Schema.Struct({
+    ...grantFields,
     sourceId: Id,
     action: Schema.Literals(["create", "update", "delete"]),
     channel: BackupStructureObject,
     from: optional(BackupStructureObject),
-    dispatchExpiresAt: Millis,
-    nativeDeadlineMs: Schema.Literal(5000),
 }).check(Schema.makeFilter((v) => (v.action === "create") === (v.from === undefined)))
+export type BackupChannelGrant = typeof BackupChannelGrant.Type
+/** One move of the order item, as the structure editor sends it: the channel's category and the channel right before it there */
+export const BackupMove = Schema.Struct({
+    id: Id,
+    parentId: Schema.NullOr(Id),
+    precedingSiblingId: Schema.NullOr(Id),
+})
+export type BackupMove = typeof BackupMove.Type
+/** The fewest moves that put the server's channels in the archive's order, sent in one reorder request */
+export const BackupOrderGrant = Schema.Struct({
+    ...grantFields,
+    action: Schema.Literal("order"),
+    moves: List(BackupMove, STRUCTURE_CHANNELS).check(
+        Schema.isMinLength(1),
+        Schema.makeFilter((rows) => unique(rows, (row) => row.id)),
+    ),
+})
+export type BackupOrderGrant = typeof BackupOrderGrant.Type
+export const BackupGrant = Schema.Union([BackupChannelGrant, BackupOrderGrant])
 export type BackupGrant = typeof BackupGrant.Type
 /**
  * One difference an item makes: a field row names a leaf of the value by path, with the value before and after and on when it turns a setting on.
@@ -722,17 +968,23 @@ export const BackupPreviewJob = Schema.Struct({
     requestedAt: Millis,
     match: Schema.Boolean,
     plan: optional(BackupPlan),
+    /** The run started from chat, so the bot posts its outcome in the DM when it ends */
+    notify: optional(Schema.Literal(true)),
+    /** The run from chat ended for lack of progress, so the bot claims its outcome and posts it in the DM, and runs nothing */
+    ended: optional(Schema.Struct({ failure: optional(BackupPreviewFailure) })),
 })
 export type BackupPreviewJob = typeof BackupPreviewJob.Type
 
 const cursor = optional(label(4096)),
     nextCursor = optional(label(8192))
-export const BackupSnapshotRequest = Schema.Struct({
+/** One page of the snapshot an export reads. cursor names the page after the first, as the last page answered it */
+export const BackupSnapshotPageRequest = Schema.Struct({
     serverId: Id,
     context: BackupContext,
     selected: selection(["config", "xp"]),
+    cursor,
 })
-export type BackupSnapshotRequest = typeof BackupSnapshotRequest.Type
+export type BackupSnapshotPageRequest = typeof BackupSnapshotPageRequest.Type
 export const BackupQueryRequest = Schema.Struct({
     serverId: Id,
     context: BackupContext,
@@ -740,8 +992,19 @@ export const BackupQueryRequest = Schema.Struct({
         Schema.Struct({ type: Schema.Literal("plans"), cursor }),
         Schema.Struct({ type: Schema.Literal("plan"), binding: BackupBinding }),
         Schema.Struct({ type: Schema.Literal("items"), binding: BackupBinding, cursor }),
+        /** Ten items in the order a page lists them, problems first */
+        Schema.Struct({ type: Schema.Literal("page"), binding: BackupBinding, cursor }),
+        /** Up to 20 items still to start, in item order */
+        Schema.Struct({ type: Schema.Literal("open"), binding: BackupBinding }),
+        /** Up to 20 channel creations whose outcome a check has not confirmed */
+        Schema.Struct({ type: Schema.Literal("unconfirmed"), binding: BackupBinding }),
         Schema.Struct({ type: Schema.Literal("item"), binding: BackupItemBinding }),
-        Schema.Struct({ type: Schema.Literal("origins"), provider: BackupProvider, cursor }),
+        /** The channels earlier restores made for these archive channels, so a pass reads only the mappings it uses */
+        Schema.Struct({
+            type: Schema.Literal("origins"),
+            provider: BackupProvider,
+            sourceIds: Ids(BACKUP_RESTORE_LIMITS.originLookup).check(Schema.isMinLength(1)),
+        }),
         Schema.Struct({ type: Schema.Literal("managed"), channelIds: Ids(100) }),
     ]),
 })
@@ -751,12 +1014,17 @@ export const BackupQueryResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("plans"), plans: List(BackupPlan, 20), nextCursor }),
     Schema.Struct({ type: Schema.Literal("plan"), plan: BackupPlan }),
     Schema.Struct({ type: Schema.Literal("items"), items, nextCursor }),
+    Schema.Struct({ type: Schema.Literal("page"), items, nextCursor }),
+    Schema.Struct({ type: Schema.Literal("open"), items }),
+    Schema.Struct({ type: Schema.Literal("unconfirmed"), items }),
     Schema.Struct({
         type: Schema.Literal("item"),
         item: BackupItem,
-        object: Schema.NullOr(Schema.Union([BackupConfigObject, BackupXpObject, BackupStructureObject])),
+        object: Schema.NullOr(Schema.Union([BackupConfigObject, BackupXpPage, BackupStructureObject])),
+        /** For the cleanup module, the channels of the cleanup policies that are on now, which turning it on resumes */
+        resumed: optional(Ids(CLEANUP_POLICY_LIMIT)),
     }),
-    Schema.Struct({ type: Schema.Literal("origins"), origins: List(BackupOrigin, 20), nextCursor }),
+    Schema.Struct({ type: Schema.Literal("origins"), origins: List(BackupOrigin, BACKUP_RESTORE_LIMITS.originLookup) }),
     Schema.Struct({
         type: Schema.Literal("managed"),
         channels: List(Schema.Struct({ id: Id, managed: Schema.Literals(["ticket", "voiceRoom"]) }), 100),
@@ -775,7 +1043,13 @@ export const BackupManageRequest = Schema.Struct({
 })
 export type BackupManageRequest = typeof BackupManageRequest.Type
 export const BackupManageResult = Schema.Union([
-    Schema.Struct({ type: Schema.Literal("confirmed"), duplicate: Schema.Boolean, plan: BackupPlan }),
+    /** run says whether this confirmation started the run or found it running */
+    Schema.Struct({
+        type: Schema.Literal("confirmed"),
+        duplicate: Schema.Boolean,
+        plan: BackupPlan,
+        run: Schema.Literals(["started", "running"]),
+    }),
     Schema.Struct({ type: Schema.Literal("forgotten"), plan: BackupPlan }),
 ])
 export type BackupManageResult = typeof BackupManageResult.Type
@@ -817,27 +1091,80 @@ export const BackupWorkRequest = Schema.Struct({
 })
 export type BackupWorkRequest = typeof BackupWorkRequest.Type
 export const BackupWorkResult = Schema.Union([
-    Schema.Struct({ type: Schema.Literal("item"), item: BackupItem }),
+    /** panel is a restored posted role panel with reactions to clear, which the bot clears at once as after a staff edit */
+    Schema.Struct({ type: Schema.Literal("item"), item: BackupItem, panel: optional(RolesPanel) }),
     Schema.Struct({ type: Schema.Literal("grant"), item: BackupItem, grant: BackupGrant, claimed: Schema.Boolean }),
 ])
 export type BackupWorkResult = typeof BackupWorkResult.Type
 /**
- * archive is the DM message that carries the encrypted archive, so the website can ask the bot to read it again. requestedAt names the website
- * request this answers, and a preview from chat has none
+ * One part of an archive's objects for a restore check, in the order a plan runs them: categories, then other channels, up to 100 a segment,
+ * then the structure segment that holds the deletions of a match restore and the order item, then settings, up to 500 a segment, then XP
+ * pages of up to 100 members
  */
-export const BackupPreviewRequest = Schema.Struct({
+/**
+ * An archived channel as a category's decision reads it: Fluxer copies a category's permission change to the channels that follow it, and
+ * the decision compares each one's archived permissions, by the digest of backupOverwritesJson, before the channels come in their own
+ * segments
+ */
+export const BackupChannelSummary = Schema.Struct({
+    sourceId: Id,
+    parentId: Schema.NullOr(Id),
+    overwrites: Digest,
+    managed: optional(Schema.Literals(["ticket", "voiceRoom"])),
+    position: optional(Int(0, STRUCTURE_CHANNELS - 1)),
+})
+export type BackupChannelSummary = typeof BackupChannelSummary.Type
+/** The overwrites of a channel in ID order, as the digest of a channel summary hashes them */
+export const backupOverwritesJson = (overwrites: readonly BackupOverwrite[]) =>
+    canonicalBackupJson([...overwrites].sort((a, b) => a.id.localeCompare(b.id)))
+const segmentChannels = List(BackupStructureObject, BACKUP_RESTORE_LIMITS.segmentChannels).check(Schema.isMinLength(1))
+export const BackupSegment = Schema.Union([
+    /** Categories carry every other archived channel as a summary */
+    Schema.Struct({
+        kind: Schema.Literal("categories"),
+        structure: segmentChannels,
+        channels: List(BackupChannelSummary, STRUCTURE_CHANNELS),
+    }),
+    Schema.Struct({ kind: Schema.Literal("channels"), structure: segmentChannels }),
+    Schema.Struct({ kind: Schema.Literal("structure") }),
+    Schema.Struct({
+        kind: Schema.Literal("config"),
+        config: List(BackupConfigObject, BACKUP_RESTORE_LIMITS.segmentItems).check(Schema.isMinLength(1)),
+    }),
+    Schema.Struct({
+        kind: Schema.Literal("xp"),
+        xp: List(BackupXpObject, BACKUP_RESTORE_LIMITS.xpPage).check(Schema.isMinLength(1)),
+    }),
+])
+export type BackupSegment = typeof BackupSegment.Type
+/**
+ * Starts a restore check of an archive, whose segments follow in order and must match segmentDigests. archive is the DM message that
+ * carries the encrypted archive's parts, so the website can ask the bot to read it again. requestedAt names the website request this
+ * answers, and a check from chat has none
+ */
+export const BackupPreviewStartRequest = Schema.Struct({
     requestedAt: optional(Millis),
     serverId: Id,
     context: BackupContext,
-    manifest: BackupManifest,
+    header: BackupManifestHeader,
+    segmentDigests: List(Digest, 1000),
     archiveDigest: Digest,
-    native: Schema.NullOr(BackupNativeProof),
     archive: Schema.Struct({ channelId: Id, messageId: Id }),
     /** Also delete the channels and categories the archive does not hold */
     match: Schema.Boolean,
 })
-export type BackupPreviewRequest = typeof BackupPreviewRequest.Type
-/** The restore plan a preview made, which is the same plan a confirmation runs */
+export type BackupPreviewStartRequest = typeof BackupPreviewStartRequest.Type
+/** One segment of the check that previewStart began, with the bot's fresh evidence of the server for it */
+export const BackupPreviewSegmentRequest = Schema.Struct({
+    serverId: Id,
+    context: BackupContext,
+    planId: Str(128),
+    segmentNo: Int(),
+    segment: BackupSegment,
+    native: Schema.NullOr(BackupNativeProof),
+})
+export type BackupPreviewSegmentRequest = typeof BackupPreviewSegmentRequest.Type
+/** The restore plan a check made, which is the same plan a confirmation runs. It is building until its last segment came in */
 export const BackupPreviewResult = Schema.Struct({ plan: BackupPlan })
 export type BackupPreviewResult = typeof BackupPreviewResult.Type
 /** The archive the website waits for the bot to read again */
@@ -854,7 +1181,7 @@ export type BackupPreviewFailedRequest = typeof BackupPreviewFailedRequest.Type
 /** recorded is false when no refresh was waiting, or no restore was running for the request */
 export const BackupPreviewFailedResult = Schema.Struct({ recorded: Schema.Boolean })
 export type BackupPreviewFailedResult = typeof BackupPreviewFailedResult.Type
-/** One pass of a restore the website confirmed: how many items it recorded, and owner when the sender no longer owns the server */
+/** One pass of a confirmed restore: how many items it recorded, and owner when the sender no longer owns the server */
 export const BackupRunStepRequest = Schema.Struct({
     serverId: Id,
     requestedAt: Millis,
@@ -862,3 +1189,81 @@ export const BackupRunStepRequest = Schema.Struct({
     stopped: optional(Schema.Literal("owner")),
 })
 export type BackupRunStepRequest = typeof BackupRunStepRequest.Type
+/** recorded is false when no restore was running for the request. ended says the run ended with this pass, and why when it stopped */
+export const BackupRunStepResult = Schema.Struct({
+    recorded: Schema.Boolean,
+    ended: optional(Schema.Struct({ failure: optional(BackupPreviewFailure) })),
+})
+export type BackupRunStepResult = typeof BackupRunStepResult.Type
+/** Takes the outcome of the run that requestedAt started, which ended for lack of progress. claimed is false when none is due */
+export const BackupOutcomeClaimRequest = Schema.Struct({ serverId: Id, requestedAt: Millis })
+export type BackupOutcomeClaimRequest = typeof BackupOutcomeClaimRequest.Type
+export const BackupOutcomeClaimResult = Schema.Struct({ claimed: Schema.Boolean })
+export type BackupOutcomeClaimResult = typeof BackupOutcomeClaimResult.Type
+/**
+ * Splits an archive into the segments of its restore check, in the order a plan runs them. Each segment stays within 512 KiB of canonical
+ * JSON, its own count of objects and, when references names what an object's evidence reads, the roles, members and channels one native
+ * proof reads, which is what the bot reads for one segment, and the members whose reads fit one proof's time. So the members one channel
+ * names never take the time of another channel's. summarize gives each channel its summary for the categories' segments
+ */
+export function backupSegments(
+    manifest: BackupManifest,
+    summarize: (channel: BackupStructureObject) => BackupChannelSummary,
+    references: (object: BackupConfigObject | BackupStructureObject) => readonly string[] = () => [],
+): BackupSegment[] {
+    const bytes = (value: unknown) => new TextEncoder().encode(canonicalBackupJson(value)).length
+    function chunk<T extends BackupConfigObject | BackupStructureObject | BackupXpObject>(
+        rows: readonly T[],
+        most: number,
+        base: number,
+    ): T[][] {
+        const out: T[][] = []
+        let current: T[] = [],
+            size = base,
+            refs = new Set<string>()
+        const members = (keys: ReadonlySet<string>) => [...keys].filter((key) => key.startsWith("member:")).length
+        for (const row of rows) {
+            const own = bytes(row) + 1,
+                named = "userId" in row ? [] : references(row),
+                more = new Set([...refs, ...named])
+            if (
+                current.length &&
+                (current.length >= most ||
+                    size + own > BACKUP_RESTORE_LIMITS.segmentBytes ||
+                    more.size > BACKUP_RESTORE_LIMITS.proofReferences ||
+                    members(more) > BACKUP_RESTORE_LIMITS.segmentMembers)
+            ) {
+                out.push(current)
+                current = []
+                size = base
+                refs = new Set(named)
+            } else refs = more
+            current.push(row)
+            size += own
+        }
+        if (current.length) out.push(current)
+        return out
+    }
+    const segments: BackupSegment[] = []
+    if (manifest.selected.includes("structure")) {
+        const byId = (a: BackupStructureObject, b: BackupStructureObject) => a.sourceId.localeCompare(b.sourceId)
+        const categories = manifest.structure.filter((x) => x.type === "category").sort(byId),
+            others = manifest.structure.filter((x) => x.type !== "category").sort(byId),
+            channels = others.map(summarize)
+        for (const structure of chunk(categories, BACKUP_RESTORE_LIMITS.segmentChannels, bytes(channels) + 64))
+            segments.push({ kind: "categories", structure, channels })
+        for (const structure of chunk(others, BACKUP_RESTORE_LIMITS.segmentChannels, 64))
+            segments.push({ kind: "channels", structure })
+        segments.push({ kind: "structure" })
+    }
+    const config = [...manifest.config].sort(
+        (a, b) =>
+            backupConfigFamilies.indexOf(a.family) - backupConfigFamilies.indexOf(b.family) ||
+            a.sourceId.localeCompare(b.sourceId),
+    )
+    for (const rows of chunk(config, BACKUP_RESTORE_LIMITS.segmentItems, 64))
+        segments.push({ kind: "config", config: rows })
+    const xp = [...manifest.xp].sort((a, b) => (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0))
+    for (const rows of chunk(xp, BACKUP_RESTORE_LIMITS.xpPage, 64)) segments.push({ kind: "xp", xp: rows })
+    return segments
+}

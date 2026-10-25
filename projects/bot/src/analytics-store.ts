@@ -20,6 +20,8 @@ export interface AnalyticsStore {
     manage(input: AnalyticsManageRequest): Effect.Effect<AnalyticsSettings, AnalyticsStoreError>
     record(input: AnalyticsRecordRequest): Effect.Effect<AnalyticsRecordResult, AnalyticsStoreError>
     summary(input: AnalyticsSummaryRequest): Effect.Effect<AnalyticsSummary, AnalyticsStoreError>
+    /** Reads the switch the website changed and marks it read */
+    reloaded(input: AnalyticsSettingsRequest): Effect.Effect<AnalyticsSettings, AnalyticsStoreError>
 }
 export function createAnalyticsStore(config: BackendConfig): AnalyticsStore {
     const request = createBackendRequest(config)
@@ -39,5 +41,6 @@ export function createAnalyticsStore(config: BackendConfig): AnalyticsStore {
         manage: (input) => call("manage", input, AnalyticsSettings),
         record: (input) => call("record", input, AnalyticsRecordResult),
         summary: (input) => call("summary", input, AnalyticsSummary),
+        reloaded: (input) => call("reloaded", input, AnalyticsSettings),
     }
 }

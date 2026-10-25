@@ -118,6 +118,42 @@ export const manage = serviceMutation({
     },
 })
 
+/**
+ * Makes a channel a generator with these settings, or sets them on the generator it is. A backup restore uses it for a voice channel that
+ * exists already, so it carries no channel name
+ */
+export async function saveVoiceGenerator(
+    ctx: MutationCtx,
+    serverId: string,
+    channelId: string,
+    value: Pick<VoiceGenerator, "categoryId" | "template" | "userLimit" | "region">,
+    now: number,
+): Promise<VoiceManageResult> {
+    const fields = {
+            categoryId: value.categoryId,
+            template: value.template.trim(),
+            userLimit: value.userLimit,
+            region: value.region,
+        },
+        row = await generatorRow(ctx, serverId, channelId)
+    if (row) {
+        if (row.revision >= Number.MAX_SAFE_INTEGER) fail(429, "Generator revision exhausted")
+        await ctx.db.patch(row._id, { ...fields, revision: row.revision + 1, updatedAt: now })
+        return { type: "generator", generator: publicVoiceGenerator((await ctx.db.get(row._id))!) }
+    }
+    if (await roomRow(ctx, serverId, channelId)) fail(409, "This channel is a temporary room")
+    if ((await readVoiceGenerators(ctx, serverId)).length >= VOICE_GENERATOR_LIMIT)
+        fail(429, `A server can have at most ${VOICE_GENERATOR_LIMIT} generators`)
+    const id = await ctx.db.insert("voiceGenerators", {
+        serverId,
+        channelId,
+        ...fields,
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+    })
+    return { type: "generator", generator: publicVoiceGenerator((await ctx.db.get(id))!) }
+}
 // Chat and dashboard share these rules. Channel names are applied natively by the bot and are validated, never stored
 export async function applyVoiceManagement(
     ctx: MutationCtx,
@@ -128,26 +164,9 @@ export async function applyVoiceManagement(
         now = Date.now(),
         op = decode(VoiceManageOperation, value)
     if (op.type === "generator-add") {
-        const channelId = op.channelId,
-            fields = {
-                categoryId: op.categoryId,
-                template: op.template.trim(),
-                userLimit: op.userLimit,
-                region: op.region,
-            }
-        if ((await generatorRow(ctx, serverId, channelId)) || (await roomRow(ctx, serverId, channelId)))
+        if ((await generatorRow(ctx, serverId, op.channelId)) || (await roomRow(ctx, serverId, op.channelId)))
             fail(409, "This channel is already a generator or a temporary room")
-        if ((await readVoiceGenerators(ctx, serverId)).length >= VOICE_GENERATOR_LIMIT)
-            fail(429, `A server can have at most ${VOICE_GENERATOR_LIMIT} generators`)
-        const id = await ctx.db.insert("voiceGenerators", {
-            serverId,
-            channelId,
-            ...fields,
-            revision: 1,
-            createdAt: now,
-            updatedAt: now,
-        })
-        return { type: "generator", generator: publicVoiceGenerator((await ctx.db.get(id))!) }
+        return saveVoiceGenerator(ctx, serverId, op.channelId, op, now)
     }
     const row = await generatorRow(ctx, serverId, op.channelId)
     if (!row) fail(404, "This channel is not a generator")

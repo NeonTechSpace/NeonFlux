@@ -1,24 +1,32 @@
 import { dmServerHint, serverCommands, serverLabel, serverReply } from "./server-scope.ts"
 import {
-    BACKUP_CATEGORY_LIMITS,
     BACKUP_RESTORE_LIMITS,
     backupChannelSemantic,
     backupExclusions,
+    backupManifestHeader,
+    backupOverwritesJson,
+    backupSegments,
     backupSettingName,
     canonicalBackupJson,
 } from "@neonflux/contracts/backup"
+import { STRUCTURE_CHANNELS } from "@neonflux/contracts/common"
 import { permissionNames } from "@neonflux/contracts/permission-names"
 import type {
     BackupBinding,
     BackupCategory,
+    BackupChannelSummary,
+    BackupConfigObject,
     BackupContext,
     BackupDisposition,
     BackupGrant,
     BackupItem,
     BackupItemState,
+    BackupManifest,
     BackupNativeProof,
     BackupPlan,
     BackupPreviewFailedRequest,
+    BackupPreviewFailure,
+    BackupPreviewJob,
     BackupStructureObject,
 } from "@neonflux/contracts/backup"
 import {
@@ -37,15 +45,19 @@ import {
 import { Cause, Clock, Data, Effect, Exit, Semaphore } from "effect"
 import { createHash, randomUUID } from "node:crypto"
 import type { BotConfig } from "./config.ts"
-import { encryptBackupManifest, decryptBackupEnvelope } from "./backup-crypto.ts"
+import type { RolesPanel } from "@neonflux/contracts/roles"
+import { syncPanelReactions } from "./roles.ts"
+import { BackupCryptoError, backupArchiveDigest, decryptBackupParts, encryptBackupManifest } from "./backup-crypto.ts"
 import { backupHelp, type BackupCommand } from "./backup-command.ts"
-import { BackupAttachmentError, downloadBackupAttachment, uploadBackupAttachment } from "./backup-attachments.ts"
+import { BackupAttachmentError, downloadBackupAttachments, uploadBackupAttachments } from "./backup-attachments.ts"
 import {
     BackupPermissionError,
+    backupReferenceKeys,
     captureBackupStructure,
     readBackupContext,
     readBackupEvidence,
     readBackupNativeProof,
+    freshBackupProof,
     type BackupEvidence,
     snapshotBackupChannel,
 } from "./backup-permissions.ts"
@@ -57,12 +69,18 @@ import {
     type BackupStore,
 } from "./backup-store.ts"
 import { sourceTimestamp } from "./responses.ts"
+import { places } from "@neonflux/contracts/structure"
+import { sorted } from "./structure.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
-import { serverReplyStyle } from "./general-settings.ts"
+import { applyNativeNickname, createGeneralSettingsStore, serverReplyStyle } from "./general-settings.ts"
+import { reloadServerRuntime } from "./runtime-reload.ts"
 import { ago, at, code, notSetUp, renderCard, type Card, type RenderedReply } from "./reply-style.ts"
 
+/** version is an archive of an older format and parts an archive whose parts are not all attached, of partCount parts */
 class BackupHandlingError extends Data.TaggedError("BackupHandlingError")<{
-    readonly reason: "binding" | "expired" | "grant" | "snapshot" | "claim" | "capacity" | "archive"
+    readonly reason:
+        "binding" | "expired" | "grant" | "snapshot" | "claim" | "capacity" | "archive" | "version" | "parts"
+    readonly partCount?: number
 }> {}
 const locks = new WeakMap<Client, Map<string, Semaphore.Semaphore>>()
 const serial = (client: Client, serverId: string) => {
@@ -136,8 +154,8 @@ export function nativeBackupCreate(channel: BackupStructureObject): ChannelCreat
         ...(channel.userLimit !== undefined ? { userLimit: channel.userLimit } : {}),
     }
 }
-/** The Owner and DM check of a page is the caller's `known` one, which renews itself as it ages. Without it every page reads them again */
-function readPlanItems(
+/** Up to 20 items of a plan that still wait to run, in item order. The caller's `known` check renews itself as it ages */
+function readOpenItems(
     store: BackupStore,
     config: BotConfig,
     client: Client,
@@ -146,32 +164,46 @@ function readPlanItems(
     known?: Effect.Effect<BackupContext, BackupPermissionError>,
 ) {
     return Effect.gen(function* () {
-        let cursor: string | undefined
-        const items: BackupItem[] = [],
-            cursors = new Set<string>()
-        for (let page = 0; page < 25; page++) {
-            const context = yield* known ?? readBackupContext(client, config.serverId, plan.ownerId, dm)
-            const result = yield* store.query({
-                serverId: config.serverId,
-                context,
-                operation: { type: "items", binding: backupBinding(plan), ...(cursor ? { cursor } : {}) },
-            })
-            if (result.type !== "items") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-            items.push(...result.items)
-            if (!result.nextCursor) {
-                if (items.length !== plan.itemCount || new Set(items.map((i) => i.itemNo)).size !== items.length)
-                    return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-                return items.sort((a, b) => a.itemNo - b.itemNo)
-            }
-            if (cursors.has(result.nextCursor))
-                return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-            cursors.add(result.nextCursor)
-            cursor = result.nextCursor
-        }
-        return yield* Effect.fail(new BackupHandlingError({ reason: "capacity" }))
+        const result = yield* store.query({
+            serverId: config.serverId,
+            context: yield* known ?? readBackupContext(client, config.serverId, plan.ownerId, dm),
+            operation: { type: "open", binding: backupBinding(plan) },
+        })
+        if (result.type !== "open") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+        return result.items
     })
 }
-function readOriginMappings(
+/** Ten items of a plan in the order a page lists them, problems first, and the cursor of the next page */
+function readPage(
+    store: BackupStore,
+    config: BotConfig,
+    client: Client,
+    plan: BackupPlan,
+    dm: string,
+    cursor: string | undefined,
+) {
+    return Effect.gen(function* () {
+        const result = yield* store.query({
+            serverId: config.serverId,
+            context: yield* readBackupContext(client, config.serverId, plan.ownerId, dm),
+            operation: { type: "page", binding: backupBinding(plan), ...(cursor ? { cursor } : {}) },
+        })
+        if (result.type !== "page") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+        return { items: result.items, next: result.nextCursor }
+    })
+}
+/** The archive channel IDs an object names that an earlier restore may have made again: its own and its category's, or those its settings name */
+const originIds = (object: BackupConfigObject | BackupStructureObject) =>
+    "family" in object
+        ? backupReferenceKeys(object).flatMap((key) =>
+              key.startsWith("channel:") ? [key.slice("channel:".length)] : [],
+          )
+        : [object.sourceId, ...(object.parentId ? [object.parentId] : [])]
+/**
+ * Where earlier restores put archive channels. Only the channels the objects at hand name are looked up, up to 100 a request, so a
+ * server may keep any number of mappings. A mapping already known, such as one an item of the plan holds, stays as it is
+ */
+function originMappings(
     store: BackupStore,
     config: BotConfig,
     client: Client,
@@ -180,28 +212,29 @@ function readOriginMappings(
     provider: string,
     known?: Effect.Effect<BackupContext, BackupPermissionError>,
 ) {
-    return Effect.gen(function* () {
-        const mappings = new Map<string, string>(),
-            cursors = new Set<string>()
-        let cursor: string | undefined
-        for (let page = 0; page < 250; page++) {
-            const context = yield* known ?? readBackupContext(client, config.serverId, ownerId, dm)
-            const result = yield* store.query({
-                serverId: config.serverId,
-                context,
-                operation: { type: "origins", provider, ...(cursor ? { cursor } : {}) },
-            })
-            if (result.type !== "origins") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-            for (const origin of result.origins)
-                if (origin.category === "structure" && origin.mappedId) mappings.set(origin.sourceId, origin.mappedId)
-            if (!result.nextCursor) return mappings
-            if (cursors.has(result.nextCursor))
-                return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-            cursors.add(result.nextCursor)
-            cursor = result.nextCursor
-        }
-        return yield* Effect.fail(new BackupHandlingError({ reason: "capacity" }))
-    })
+    const mappings = new Map<string, string>(),
+        asked = new Set<string>()
+    const load = (objects: readonly (BackupConfigObject | BackupStructureObject)[], ids: readonly string[] = []) =>
+        Effect.gen(function* () {
+            const wanted = [...new Set([...objects.flatMap(originIds), ...ids])].filter(
+                (id) => !asked.has(id) && !mappings.has(id),
+            )
+            for (let start = 0; start < wanted.length; start += BACKUP_RESTORE_LIMITS.originLookup) {
+                const sourceIds = wanted.slice(start, start + BACKUP_RESTORE_LIMITS.originLookup)
+                const result = yield* store.query({
+                    serverId: config.serverId,
+                    context: yield* known ?? readBackupContext(client, config.serverId, ownerId, dm),
+                    operation: { type: "origins", provider, sourceIds },
+                })
+                if (result.type !== "origins") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+                for (const origin of result.origins)
+                    if (origin.category === "structure" && origin.mappedId && !mappings.has(origin.sourceId))
+                        mappings.set(origin.sourceId, origin.mappedId)
+                for (const id of sourceIds) asked.add(id)
+            }
+            return mappings
+        })
+    return { mappings, load }
 }
 function checkPlan(
     store: BackupStore,
@@ -221,10 +254,8 @@ function checkPlan(
         })
         if (result.type !== "plan" || result.plan.ownerId !== plan.ownerId || result.plan.forgotten)
             return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-        if (
-            work &&
-            (result.plan.confirmedAt === undefined || (yield* Clock.currentTimeMillis) >= result.plan.expiresAt)
-        )
+        // A confirmed plan runs until it is done, whenever its check would have stopped being confirmable
+        if (work && result.plan.confirmedAt === undefined)
             return yield* Effect.fail(new BackupHandlingError({ reason: "expired" }))
         return result.plan
     })
@@ -294,7 +325,8 @@ const partly = (from: BackupStructureObject, read: BackupStructureObject, wanted
 }
 /**
  * One exact channel write: a create reserves, claims and creates, while an update and a delete claim and write. Unknown transport never triggers
- * discovery or replay. The first proof reuses the caller's reads of the server's authority, and a fresh Owner check after its reads backs the claim.
+ * discovery or replay. The first proof reuses the caller's reads of the server's authority while they are fresh, and a fresh Owner check after its
+ * reads backs the claim.
  * After the claim the write waits for a fresh proof and a last Owner check. An update and a delete are judged by reading the channel back, which says what applied
  */
 function executeBackupNativeItem(
@@ -371,6 +403,7 @@ function executeBackupNativeItem(
             // Another executor holds this claim, and its grant is not ours to write with
             if (unclaimed && !unclaimed.claimed) return yield* Effect.fail(new BackupHandlingError({ reason: "claim" }))
             const grant = granted ?? (unclaimed as { grant: BackupGrant }).grant
+            if (grant.action === "order") return yield* Effect.fail(new BackupHandlingError({ reason: "grant" }))
             const sound =
                 grant.provider === plan.provider &&
                 grant.serverId === config.serverId &&
@@ -378,7 +411,6 @@ function executeBackupNativeItem(
                 grant.botId === context.botId &&
                 grant.sourceId === object.sourceId &&
                 grant.action === item.disposition &&
-                grant.dispatchExpiresAt <= plan.expiresAt &&
                 (item.disposition === "delete" || sameChannel(grant.channel, desiredIn(native)))
             if (creates) {
                 if (!sound) return yield* Effect.fail(new BackupHandlingError({ reason: "grant" }))
@@ -634,17 +666,166 @@ function executeBackupNativeItem(
         )
     })
 }
+/**
+ * The order item: one claim on the server's channel list as it is now, one reorder request with the moves the claim granted, and a read of the
+ * list that says which moves landed. Like a channel write it is never sent again, and a request whose outcome is unknown ends not confirmed
+ */
+function executeBackupOrderItem(
+    store: BackupStore,
+    config: BotConfig,
+    client: Client,
+    plan: BackupPlan,
+    item: BackupItem,
+    dm: string,
+    mappings: ReadonlyMap<string, string>,
+    evidence: BackupEvidence,
+) {
+    return Effect.suspend(() => {
+        const binding = backupItemBinding(item),
+            claimToken = randomUUID().replaceAll("-", "")
+        let ownsClaim = false,
+            invoked = false,
+            settled: { outcome: "updated" | "failed" | "uncertain"; reason?: string; noDispatch?: true } | undefined
+        const work = Effect.gen(function* () {
+            const native = yield* readBackupNativeProof(client, config.serverId, evidence, [], mappings, [], true)
+            const context = yield* readBackupContext(client, config.serverId, plan.ownerId, dm)
+            const claimed = yield* store.work({
+                serverId: config.serverId,
+                operation: { type: "claim", binding, claimToken, context, native },
+            })
+            if (claimed.type === "item") return claimed.item
+            if (!claimed.claimed || claimed.grant.action !== "order")
+                return yield* Effect.fail(new BackupHandlingError({ reason: "claim" }))
+            const grant = claimed.grant
+            ownsClaim = true
+            if (
+                grant.provider !== plan.provider ||
+                grant.serverId !== config.serverId ||
+                grant.ownerId !== plan.ownerId ||
+                grant.botId !== context.botId
+            )
+                return yield* Effect.fail(new BackupHandlingError({ reason: "grant" }))
+            // The Owner and the DM are read again right before the request, which must leave before the grant runs out
+            const allowed = Exit.isSuccess(
+                yield* Effect.exit(readBackupContext(client, config.serverId, plan.ownerId, dm)),
+            )
+            const left = Math.min(5000, grant.dispatchExpiresAt - (yield* Clock.currentTimeMillis))
+            if (!allowed || left <= 0) {
+                settled = {
+                    outcome: "failed",
+                    reason: `Nothing was written: ${allowed ? "the step ran out of time" : "the Owner or the DM check failed"}`,
+                    noDispatch: true,
+                }
+                return undefined
+            }
+            invoked = true
+            const exit = yield* Effect.exit(
+                client.channels.reorder(config.serverId, grant.moves, { timeoutMs: left, auditReason: AUDIT }),
+            )
+            if (Exit.isFailure(exit) && errors.outcome(exit.cause) === "notDispatched") {
+                invoked = false
+                settled = {
+                    outcome: "failed",
+                    reason: "Fluxer was not reached, so nothing was written",
+                    noDispatch: true,
+                }
+                return undefined
+            }
+            // Reading the list back says which moves landed, whether or not the request was answered
+            const back = yield* Effect.exit(client.channels.fetchAll(config.serverId, { timeoutMs: 5000 }))
+            if (Exit.isFailure(back)) {
+                settled = { outcome: "uncertain" }
+                return undefined
+            }
+            const at = places(
+                sorted(back.value.filter((c) => c.guildId === config.serverId)).map(({ channel, parentId }) => ({
+                    id: channel.id,
+                    parentId,
+                })),
+            )
+            const missed = grant.moves.filter((move) => {
+                const place = at.get(move.id)
+                return place?.parentId !== move.parentId || place.afterId !== move.precedingSiblingId
+            })
+            settled = !missed.length
+                ? { outcome: "updated" }
+                : Exit.isSuccess(exit) || errors.outcome(exit.cause) === "rejected"
+                  ? {
+                        outcome: "failed",
+                        reason: `${plural(missed.length, "channel")} of ${grant.moves.length} did not move. Check again to see the order now`,
+                    }
+                  : { outcome: "uncertain" }
+            return undefined
+        })
+        const outcome = (result: { outcome: "updated" | "failed" | "uncertain"; reason?: string; noDispatch?: true }) =>
+            store.work({
+                serverId: config.serverId,
+                operation: {
+                    type: "outcome",
+                    binding,
+                    claimToken,
+                    outcome: result.outcome,
+                    ...(result.noDispatch ? { noDispatch: true as const } : {}),
+                    channel: null,
+                    mappedId: null,
+                    ...(result.reason ? { reason: result.reason } : {}),
+                },
+            })
+        const finish = Effect.gen(function* () {
+            const result = yield* Effect.exit(work)
+            if (!ownsClaim)
+                return {
+                    item: Exit.isSuccess(result) && result.value ? result.value : item,
+                    recorded: Exit.isSuccess(result),
+                    outcome: "blocked" as const,
+                }
+            const final =
+                settled ??
+                (invoked
+                    ? { outcome: "uncertain" as const }
+                    : { outcome: "failed" as const, noDispatch: true as const })
+            const ack = yield* outcome(final).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            return { item: ack?.item ?? item, recorded: !!ack, outcome: final.outcome }
+        })
+        return finish.pipe(
+            Effect.onInterrupt(() =>
+                ownsClaim
+                    ? outcome(invoked ? { outcome: "uncertain" } : { outcome: "failed", noDispatch: true }).pipe(
+                          Effect.interruptible,
+                          Effect.timeout("5 seconds"),
+                          Effect.catchCause(() => Effect.void),
+                          Effect.asVoid,
+                      )
+                    : Effect.void,
+            ),
+        )
+    })
+}
+/** Applies a nickname a restore recorded and not yet applied. A later nickname change replaces it, and its result is then not recorded */
+function applyRestoredNickname(config: BotConfig, client: Client) {
+    return Effect.gen(function* () {
+        const store = createGeneralSettingsStore(config.backend!, config.serverId),
+            current = yield* store.nickname()
+        if (current.result?.state !== "pending" || current.result.nickname !== current.nickname) return
+        yield* store.recordNickname(
+            current.revision,
+            current.nickname,
+            yield* applyNativeNickname(client, config.serverId, current.nickname),
+        )
+    })
+}
 /** How old the pass's Owner and DM check or the proof of its identical channels may get before it is read again. The backend refuses them after 60 seconds */
 const PASS_READ_MS = 30_000
 /**
- * The members that identical channels collected together may name in their permissions between them. Each is a read of its own that waits at
- * most 5 seconds, so a group stays inside the 30 seconds. A single channel that names more is collected alone and can take longer
+ * The members that identical channels collected together may name in their permissions between them. They are read a hundred to a request,
+ * and one Fluxer leaves out, such as a member who left, is read by its own read that waits at most 5 seconds, so a group stays inside the 30
+ * seconds even when every member it names left. A single channel that names more is collected alone and can take longer
  */
 const BATCH_MEMBERS = 4
 /** How old the pass's Owner and DM check may be when the identical channels are collected, so that the proof and the check are applied together */
 const BATCH_CONTEXT_MS = 10_000
 /**
- * One pass of a confirmed plan, up to 20 items. One Owner and DM check opens the pass, and its reads feed the plan check, the plan's items, the
+ * One pass of a confirmed plan, the next 20 items that wait to run. One Owner and DM check opens the pass, and its reads feed the plan check, the plan's items, the
  * origin mappings and the opening proof of every item, so that no item reads the server's authority again only to look. It is read again once it
  * is 30 seconds old, also between pages. An identical setting or XP profile, a blocked item and a channel a match restore leaves alone write
  * nothing and settle from the plan with no read of Fluxer. The identical archive channels of the pass are observed together from one read of the
@@ -660,6 +841,8 @@ export function processBackupPlanPass(
     privateChannelId: string,
     /** Filled as items settle, so a caller that sees the pass fail still knows how many it recorded */
     results: { item: BackupItem; recorded: boolean; outcome: string }[] = [],
+    /** Clears the reactions of a restored posted role panel whose roles changed, as after a staff edit */
+    syncPanel: (panel: RolesPanel) => Effect.Effect<unknown, unknown> = (panel) => syncPanelReactions(client, panel),
 ) {
     return serial(client, config.serverId).withPermit(
         Effect.gen(function* () {
@@ -674,16 +857,17 @@ export function processBackupPlanPass(
             const renewed = renew(PASS_READ_MS)
             const renewedContext = renewed.pipe(Effect.map((e) => e.context))
             plan = yield* checkPlan(store, config, client, plan, evidence.context, true)
-            const items = yield* readPlanItems(store, config, client, plan, privateChannelId, renewedContext)
-            const mappings = yield* readOriginMappings(
-                store,
-                config,
-                client,
-                plan.ownerId,
-                privateChannelId,
-                plan.provider,
-                renewedContext,
-            )
+            const items = yield* readOpenItems(store, config, client, plan, privateChannelId, renewedContext)
+            const origins = originMappings(
+                    store,
+                    config,
+                    client,
+                    plan.ownerId,
+                    privateChannelId,
+                    plan.provider,
+                    renewedContext,
+                ),
+                mappings = origins.mappings
             for (const i of items) if (i.category === "structure" && i.mappedId) mappings.set(i.sourceId, i.mappedId)
             const open = (i: BackupItem) => ["planned", "reserved"].includes(i.state)
             const identicalChannel = (i: BackupItem) =>
@@ -728,6 +912,7 @@ export function processBackupPlanPass(
                         // The Owner and DM check is renewed right before the read when it is 10 seconds old. The read is bounded, and its
                         // proof is applied at once, so both are well inside the backend's 60 seconds. Every observation is at least as new as
                         // the moment the read started, which is what ages the proof
+                        yield* origins.load(objects)
                         yield* renew(BATCH_CONTEXT_MS)
                         const startedAt = yield* Clock.currentTimeMillis
                         identical = {
@@ -744,6 +929,8 @@ export function processBackupPlanPass(
                             startedAt,
                             covered,
                         }
+                        // A channel that names many members takes a while to read, so a check that got old meanwhile is renewed for its proof
+                        yield* renew(PASS_READ_MS)
                     }
                     const applied = yield* store.work({
                         serverId: config.serverId,
@@ -757,6 +944,23 @@ export function processBackupPlanPass(
                     results.push({ item: applied.item, recorded: true, outcome: applied.item.state })
                     continue
                 }
+                if (item.order) {
+                    // The order item reads the channel list itself, so it needs no archived object
+                    results.push(
+                        yield* executeBackupOrderItem(
+                            store,
+                            config,
+                            client,
+                            plan,
+                            item,
+                            privateChannelId,
+                            mappings,
+                            evidence,
+                        ),
+                    )
+                    identical = undefined
+                    continue
+                }
                 const value = yield* store.query({
                     serverId: config.serverId,
                     context: evidence.context,
@@ -765,6 +969,8 @@ export function processBackupPlanPass(
                 if (value.type !== "item" || !value.object)
                     return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
                 let result: { item: BackupItem; recorded: boolean; outcome: string }
+                if ("family" in value.object || "type" in value.object)
+                    yield* origins.load([value.object], value.resumed)
                 if (item.category === "structure" && "type" in value.object)
                     result = yield* executeBackupNativeItem(
                         store,
@@ -778,11 +984,8 @@ export function processBackupPlanPass(
                         evidence,
                     )
                 else {
-                    // Turning the cleanup module on resumes the archive's policies, so the proof reads their channels too
-                    const resumed =
-                        "family" in value.object && value.object.family === "cleanup"
-                            ? items.filter((i) => i.family === "cleanupPolicy").map((i) => i.sourceId)
-                            : []
+                    // Turning the cleanup module on resumes the policies that are on, so the proof reads their channels too
+                    const resumed = value.resumed ?? []
                     const native =
                         "family" in value.object
                             ? yield* readBackupNativeProof(
@@ -804,6 +1007,34 @@ export function processBackupPlanPass(
                         },
                     })
                     result = { item: applied.item, recorded: true, outcome: applied.item.state }
+                    // The restore is saved, so a failed reaction update leaves the panel's reactions to update, which the next
+                    // reaction on the panel or !roles reactions finishes
+                    if (applied.type === "item" && applied.panel) {
+                        const panel = applied.panel
+                        yield* syncPanel(panel).pipe(
+                            Effect.catchCause((cause) =>
+                                Cause.hasInterrupts(cause)
+                                    ? Effect.failCause(cause)
+                                    : Effect.logWarning(`Reactions of role panel ${panel.name} are not updated yet`),
+                            ),
+                        )
+                    }
+                    // The backend recorded the archived nickname, so the bot applies it as itself and reports what Fluxer kept, as a
+                    // dashboard change does
+                    if (
+                        "family" in value.object &&
+                        value.object.family === "general" &&
+                        (applied.item.state === "created" || applied.item.state === "updated") &&
+                        config.backend
+                    )
+                        yield* applyRestoredNickname(config, client).pipe(Effect.catch(() => Effect.void))
+                    // Features that keep settings in memory, such as sticky messages, the help desk and security alerts, pick up
+                    // a restored item at once, as they do a dashboard change
+                    if (
+                        "family" in value.object &&
+                        (applied.item.state === "created" || applied.item.state === "updated")
+                    )
+                        yield* reloadServerRuntime(client, config.serverId, value.object.family)
                 }
                 results.push(result)
                 if (item.category === "structure") {
@@ -812,12 +1043,7 @@ export function processBackupPlanPass(
                     if (result.item.mappedId) mappings.set(item.sourceId, result.item.mappedId)
                 }
             }
-            return {
-                results,
-                remaining:
-                    items.filter((i) => ["planned", "reserved"].includes(i.state)).length -
-                    results.filter((r) => r.recorded).length,
-            }
+            return { results }
         }),
     )
 }
@@ -838,27 +1064,18 @@ export function reconcileBackupPlan(
                 yield* readBackupContext(client, config.serverId, plan.ownerId, privateChannelId),
                 false,
             )
-            const items = yield* readPlanItems(store, config, client, plan, privateChannelId),
+            const listed = yield* store.query({
+                serverId: config.serverId,
+                context: yield* readBackupContext(client, config.serverId, plan.ownerId, privateChannelId),
+                operation: { type: "unconfirmed", binding: backupBinding(plan) },
+            })
+            if (listed.type !== "unconfirmed") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+            const items = listed.items,
                 results: BackupItem[] = []
-            const mappings = yield* readOriginMappings(
-                store,
-                config,
-                client,
-                plan.ownerId,
-                privateChannelId,
-                plan.provider,
-            )
-            for (const i of items) if (i.category === "structure" && i.mappedId) mappings.set(i.sourceId, i.mappedId)
+            const origins = originMappings(store, config, client, plan.ownerId, privateChannelId, plan.provider),
+                mappings = origins.mappings
+            for (const i of items) if (i.mappedId) mappings.set(i.sourceId, i.mappedId)
             for (const item of items) {
-                if (results.length >= 20) break
-                if (
-                    item.category !== "structure" ||
-                    item.disposition !== "create" ||
-                    !item.mappedId ||
-                    item.resolution === "match" ||
-                    !["claimed", "uncertain", "failed"].includes(item.state)
-                )
-                    continue
                 const evidence = yield* readBackupEvidence(client, config.serverId, plan.ownerId, privateChannelId)
                 const found = yield* store.query({
                     serverId: config.serverId,
@@ -866,6 +1083,7 @@ export function reconcileBackupPlan(
                     operation: { type: "item", binding: backupItemBinding(item) },
                 })
                 if (found.type !== "item" || !found.object || !("type" in found.object)) continue
+                yield* origins.load([found.object])
                 const native = yield* readBackupNativeProof(client, config.serverId, evidence, [found.object], mappings)
                 const context = yield* readBackupContext(client, config.serverId, plan.ownerId, privateChannelId)
                 const result = yield* store.work({
@@ -890,61 +1108,55 @@ export function markManagedChannels(
     objects: readonly BackupStructureObject[],
 ) {
     return Effect.gen(function* () {
-        if (!objects.length) return objects
-        const result = yield* store.query({
-            serverId: config.serverId,
-            context: yield* readBackupContext(client, config.serverId, message.author.id, message.channelId),
-            operation: { type: "managed", channelIds: objects.map((o) => o.sourceId) },
-        })
-        if (result.type !== "managed") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-        const kinds = new Map(result.channels.map((x) => [x.id, x.managed] as const))
+        const kinds = new Map<string, "ticket" | "voiceRoom">()
+        // The backend looks up at most 100 channels a request
+        for (let start = 0; start < objects.length; start += 100) {
+            const result = yield* store.query({
+                serverId: config.serverId,
+                context: yield* readBackupContext(client, config.serverId, message.author.id, message.channelId),
+                operation: { type: "managed", channelIds: objects.slice(start, start + 100).map((o) => o.sourceId) },
+            })
+            if (result.type !== "managed") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+            for (const x of result.channels) kinds.set(x.id, x.managed)
+        }
         return objects.map((o) => (kinds.has(o.sourceId) ? { ...o, managed: kinds.get(o.sourceId)! } : o))
     })
 }
 const keyMissing =
     "Backups are off because NeonFlux has no NEONFLUX_BACKUP_KEY. Set one in the bot's configuration and keep a copy offline. Never send keys in chat"
-function readArchive(config: BotConfig, bytes: Uint8Array, provider: string) {
+/** Decrypts every part of an archive and checks that it belongs to this server. An older format and a missing part each have their reason */
+function readArchive(config: BotConfig, parts: readonly Uint8Array[], provider: string) {
     return Effect.gen(function* () {
-        const manifest = yield* Effect.try({
-            try: () => validateBackupManifest(decryptBackupEnvelope(bytes, config.backupKey!)),
-            catch: () => new BackupHandlingError({ reason: "archive" }),
+        const read = yield* Effect.try({
+            try: () => {
+                const { manifest, parts: ordered } = decryptBackupParts(parts, config.backupKey!)
+                return { manifest: validateBackupManifest(manifest), archiveDigest: backupArchiveDigest(ordered) }
+            },
+            catch: (error) =>
+                error instanceof BackupCryptoError && (error.reason === "version" || error.reason === "parts")
+                    ? new BackupHandlingError({
+                          reason: error.reason,
+                          ...(error.partCount !== undefined ? { partCount: error.partCount } : {}),
+                      })
+                    : new BackupHandlingError({ reason: "archive" }),
         })
-        if (manifest.provider !== provider || manifest.serverId !== config.serverId)
+        if (read.manifest.provider !== provider || read.manifest.serverId !== config.serverId)
             return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-        return manifest
+        return read
     })
 }
-/** The archive attached to an owner's DM message, and fresh native evidence of the server for every item a restore plan decides */
-function readRestoreEvidence(store: BackupStore, config: BotConfig, client: Client, message: Message) {
-    return Effect.gen(function* () {
-        const provider = yield* providerFor(client),
-            bytes = yield* downloadBackupAttachment(client, { serverId: config.serverId, message })
-        const manifest = yield* readArchive(config, bytes, provider)
-        // An archive that holds channels, or none at all after saving them, also reads the server's channel list
-        const structure = manifest.selected.includes("structure")
-        const mappings =
-            structure || manifest.config.length
-                ? yield* readOriginMappings(store, config, client, message.author.id, message.channelId, provider)
-                : new Map<string, string>()
-        const native =
-            manifest.config.length || structure
-                ? yield* readBackupNativeProof(
-                      client,
-                      config.serverId,
-                      yield* readBackupEvidence(client, config.serverId, message.author.id, message.channelId),
-                      [...manifest.config, ...manifest.structure],
-                      mappings,
-                      [],
-                      structure,
-                  )
-                : null
-        const context = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
-        return { manifest, archiveDigest: createHash("sha256").update(bytes).digest("hex"), native, context }
-    })
-}
+/** A channel as a category's decision reads it, with the digest of its overwrites in ID order */
+const summarize = (channel: BackupStructureObject): BackupChannelSummary => ({
+    sourceId: channel.sourceId,
+    parentId: channel.parentId,
+    overwrites: createHash("sha256").update(backupOverwritesJson(channel.overwrites)).digest("hex"),
+    ...(channel.managed ? { managed: channel.managed } : {}),
+    ...(channel.position !== undefined ? { position: channel.position } : {}),
+})
 /**
  * The restore plan of an archive made now. A preview and a plan are the same thing: The backend stores the plan, replacing the earlier one
- * that was never confirmed, and the owner confirms exactly what was shown
+ * that was never confirmed, and the owner confirms exactly what was shown. The archive goes in segments, each read against the server
+ * right before it is sent, and the first request binds every segment by its digest
  */
 function makeBackupPlan(
     store: BackupStore,
@@ -955,17 +1167,59 @@ function makeBackupPlan(
     requestedAt?: number,
 ) {
     return Effect.gen(function* () {
-        const { manifest, archiveDigest, native, context } = yield* readRestoreEvidence(store, config, client, message)
-        const { plan } = yield* store.preview({
+        const provider = yield* providerFor(client),
+            parts = yield* downloadBackupAttachments(client, { serverId: config.serverId, message })
+        const { manifest, archiveDigest } = yield* readArchive(config, parts, provider)
+        const owner = message.author.id,
+            dm = message.channelId
+        const mappings = yield* originMappings(store, config, client, owner, dm, provider).load([
+            ...manifest.structure,
+            ...manifest.config,
+        ])
+        const segments = backupSegments(manifest, summarize, (object) => backupReferenceKeys(object, mappings))
+        const started = yield* store.previewStart({
             serverId: config.serverId,
             ...(requestedAt !== undefined ? { requestedAt } : {}),
-            context,
-            manifest,
+            context: yield* readBackupContext(client, config.serverId, owner, dm),
+            header: backupManifestHeader(manifest),
+            segmentDigests: segments.map((segment) =>
+                createHash("sha256").update(canonicalBackupJson(segment)).digest("hex"),
+            ),
             archiveDigest,
-            native,
-            archive: { channelId: message.channelId, messageId: message.id },
+            archive: { channelId: dm, messageId: message.id },
             match,
         })
+        let plan = started.plan
+        for (const [segmentNo, segment] of segments.entries()) {
+            // Channels and the deletions of a match restore read the server's channel list, and settings read what they name
+            const native =
+                segment.kind === "xp"
+                    ? null
+                    : yield* readBackupNativeProof(
+                          client,
+                          config.serverId,
+                          yield* readBackupEvidence(client, config.serverId, owner, dm),
+                          segment.kind === "config"
+                              ? segment.config
+                              : segment.kind === "structure"
+                                ? []
+                                : segment.structure,
+                          mappings,
+                          [],
+                          segment.kind !== "config",
+                          // A check takes its channels from the one listing it reads, while a restore reads each channel fresh
+                          segment.kind !== "config",
+                      )
+            const context = yield* readBackupContext(client, config.serverId, owner, dm)
+            plan = (yield* store.previewSegment({
+                serverId: config.serverId,
+                context,
+                planId: started.plan.planId,
+                segmentNo,
+                segment,
+                native: native && freshBackupProof(native, yield* Clock.currentTimeMillis),
+            })).plan
+        }
         return plan
     })
 }
@@ -975,6 +1229,22 @@ const familyNames: Partial<Record<string, string>> = {
     panel: "Role panel",
     ticketCategory: "Ticket category",
     metadata: "Metadata logs",
+    general: "Prefix, reply style and nickname",
+    rolepicker: "Role picker",
+    temproles: "Temporary role defaults",
+    onboarding: "Newcomer checklist",
+    alerts: "Security alerts",
+    helpdesk: "Help desk",
+    helpdeskAnswer: "Saved answer",
+    lfg: "Looking for group",
+    showcase: "Showcases",
+    profile: "Profiles",
+    youtube: "YouTube alerts for",
+}
+const accessNames: Partial<Record<string, string>> = {
+    rolepicker: "Role picker access",
+    showcase: "Showcase access",
+    profile: "Profile access",
 }
 /**
  * What an archive item is, by name where it has one. Responses, drafts and templates are kept as their kind and name, such as custom_hello.
@@ -986,11 +1256,17 @@ function itemTarget(i: {
     sourceId: string
     name?: string
     mappedId?: string | null
+    order?: true
 }) {
+    if (i.order) return "Channel order"
     if (i.category === "structure")
         return i.name ? `Channel **${i.name}**` : `Channel ${format.channelMention(i.mappedId ?? i.sourceId)}`
-    if (i.category === "xp") return `XP of ${format.userMention(i.sourceId)}`
+    // An XP item is a page of members, such as XP of 100 members, from @a to @b
+    if (i.category === "xp") return i.name ? `XP of ${i.name}` : `XP of ${format.userMention(i.sourceId)}`
     if (i.family === "cleanupPolicy") return `Message cleanup in ${format.channelMention(i.sourceId)}`
+    if (i.family === "voiceGenerator") return `Voice generator ${format.channelMention(i.sourceId)}`
+    if (i.family === "sticky") return `Sticky message in ${format.channelMention(i.sourceId)}`
+    if (i.family === "access") return accessNames[i.sourceId] ?? `${capital(i.sourceId)} access`
     if (i.family === "milestoneRoute") return `${capital(i.sourceId)} posts`
     const kind = i.sourceId.slice(0, i.sourceId.indexOf("_")),
         name = i.sourceId.slice(i.sourceId.indexOf("_") + 1)
@@ -1011,8 +1287,6 @@ const exclusionNames: Partial<Record<string, string>> = {
     claims: "live state",
     "live-ownership": "live state",
     "effective-defcon": "the DEFCON level",
-    "event-definitions": "events",
-    "schedule-definitions": "scheduled posts",
 }
 const dispositions: Record<BackupDisposition, string> = {
     create: "Will be created",
@@ -1048,30 +1322,41 @@ const deletions = (counts: BackupPlan["counts"]) =>
           ]
         : []
 /**
- * The items that start to delete messages or post logs, counted where the owner reads first, since their own lines may sit on a later page.
+ * The items with a warning, such as messages they delete or post, counted where the owner reads first, since their own lines may sit on a later page.
  * A channel delete has the line above, so it does not count here
  */
-const effects = (items: readonly BackupItem[]) => {
-    const n = items.filter((i) => i.warning && i.disposition !== "delete").length
-    return n
+const effects = (plan: BackupPlan) =>
+    plan.warned
         ? [
-              `${n} ${n === 1 ? "item starts" : "items start"} to delete messages or post logs, see ${n === 1 ? "its" : "their"} line`,
+              `${plan.warned} ${plan.warned === 1 ? "item has a warning" : "items have a warning"}, such as messages it deletes or posts, see ${plan.warned === 1 ? "its" : "their"} line`,
           ]
         : []
-}
 /** What an item will do, with its changed fields, the permissions or switches it adds and its reason */
 const planLine = (i: BackupItem) =>
     `${itemTarget(i)}: ${i.disposition === "skip" && i.reason ? "Left alone" : dispositions[i.disposition]}${i.disposition === "update" && i.changed?.length ? ` (${i.changed.map(backupSettingName).join(", ")})` : ""}${i.gain ? ", more permissions than now" : ""}${i.on ? ", turns a setting on" : ""}${i.reason ? `. ${i.reason}` : ""}${i.warning ? `. ${i.warning}` : ""}`
 /**
  * The website's work for the bot, always as the bot and never with the owner's sign-in. A refresh reads the stored archive message and the
- * server again, and a restore the owner confirmed runs its next items, one pass of 20 at a time
+ * server again, and a confirmed restore runs its next items, one pass of 20 at a time, until the backend says it ended
  */
-export function processBackupJobPass(store: BackupStore, config: BotConfig, client: Client) {
+export function processBackupJobPass(
+    store: BackupStore,
+    config: BotConfig,
+    client: Client,
+    syncPanel?: (panel: RolesPanel) => Effect.Effect<unknown, unknown>,
+) {
     return Effect.gen(function* () {
         const { job } = yield* store.previewReady(config.serverId)
         if (!job) return
+        // A run from chat that ended for lack of progress is told once, and runs nothing more
+        if (job.ended && job.plan) {
+            const plan = job.plan,
+                failure = job.ended.failure
+            if ((yield* store.outcomeClaim(config.serverId, job.requestedAt)).claimed)
+                yield* postOutcome(store, config, client, job, plan, failure).pipe(Effect.catch(() => Effect.void))
+            return
+        }
         if (job.plan) {
-            yield* runBackupJob(store, config, client, job.requestedAt, job.plan, job.channelId)
+            yield* runBackupJob(store, config, client, job, job.plan, syncPanel)
             return
         }
         if (!config.backupKey) {
@@ -1093,21 +1378,29 @@ export function processBackupJobPass(store: BackupStore, config: BotConfig, clie
     })
 }
 /**
- * One pass over the confirmed plan. The pass checks the Owner and the private DM as a chat confirmation does, and the
- * backend decides from what it recorded whether another pass follows. A sender who no longer owns the server stops the restore. Any other
- * failure still reports what the pass recorded before it, and the backend ends the job only when a pass records nothing
+ * One pass over the confirmed plan. The pass checks the Owner and the private DM as a chat confirmation does, and the backend decides from
+ * what it recorded whether another pass follows. A sender who no longer owns the server stops the restore. Any other failure still reports
+ * what the pass recorded before it. A run started from chat posts its outcome in the DM when the backend says it ended
  */
 function runBackupJob(
     store: BackupStore,
     config: BotConfig,
     client: Client,
-    requestedAt: number,
+    job: BackupPreviewJob,
     plan: BackupPlan,
-    channelId: string,
+    syncPanel?: (panel: RolesPanel) => Effect.Effect<unknown, unknown>,
 ) {
     return Effect.gen(function* () {
         const results: Parameters<typeof processBackupPlanPass>[5] = []
-        const stopped = yield* processBackupPlanPass(store, config, client, plan, channelId, results).pipe(
+        const stopped = yield* processBackupPlanPass(
+            store,
+            config,
+            client,
+            plan,
+            job.channelId,
+            results,
+            syncPanel,
+        ).pipe(
             Effect.as(undefined),
             Effect.catch((error) =>
                 Effect.succeed(
@@ -1118,32 +1411,65 @@ function runBackupJob(
             ),
         )
         const pass = { recorded: results.filter((r) => r.recorded).length, ...stopped }
-        yield* store.runStep({ serverId: config.serverId, requestedAt, ...pass })
+        const step = yield* store.runStep({ serverId: config.serverId, requestedAt: job.requestedAt, ...pass })
+        // A sender who no longer owns the server is not told anything about it
+        if (step.ended && job.notify && step.ended.failure !== "owner")
+            yield* postOutcome(store, config, client, job, plan, step.ended.failure).pipe(
+                Effect.catch(() => Effect.void),
+            )
+    })
+}
+/** The outcome card of a run started from chat, posted in the owner's DM after the Owner and DM check */
+function postOutcome(
+    store: BackupStore,
+    config: BotConfig,
+    client: Client,
+    job: BackupPreviewJob,
+    plan: BackupPlan,
+    failure: BackupPreviewFailure | undefined,
+) {
+    return Effect.gen(function* () {
+        const context = yield* readBackupContext(client, config.serverId, job.ownerId, job.channelId)
+        const found = yield* store.query({
+            serverId: config.serverId,
+            context,
+            operation: { type: "plan", binding: backupBinding(plan) },
+        })
+        if (found.type !== "plan") return
+        const label = config.scope?.mode === "multi" ? yield* serverLabel(client, config.serverId) : undefined
+        for (const body of renderCard(outcomeCard(found.plan, failure, config), serverReplyStyle(config.serverId))) {
+            yield* readBackupContext(client, config.serverId, job.ownerId, job.channelId)
+            yield* client.messages.send(
+                job.channelId,
+                { ...(label ? serverReply(body, label) : body) },
+                { timeoutMs: 5000 },
+            )
+        }
     })
 }
 function previewFailure(error: unknown): BackupPreviewFailedRequest["failure"] {
     if (error instanceof BackupPermissionError)
         return error.reason === "owner" || error.reason === "private" ? "owner" : "error"
     if (error instanceof BackupAttachmentError) return error.reason === "transport" ? "error" : "archive"
-    if (error instanceof BackupStoreError) return error.status === 413 ? "refused" : "error"
+    if (error instanceof BackupStoreError) return error.status === 413 || error.status === 400 ? "refused" : "error"
     if (error instanceof BackupHandlingError || errors.isNotFound(error)) return "archive"
     return "error"
 }
 // NeonFlux accepts only the name pattern of the archives it sends, so a renamed copy is refused
 const attachmentName =
-    "Attach the .nfb file as NeonFlux sent it, with its name unchanged, such as neonflux-backup-archive.nfb. After neonflux-backup- a name may hold only letters, digits, - and _, so rename a copy such as neonflux-backup-archive (1).nfb first"
+    "Attach every .nfb part as NeonFlux sent it to one message, with its name unchanged, such as neonflux-backup-0123abcd-1of2.nfb. After neonflux-backup- a name may hold only letters, digits, - and _, so rename a copy such as neonflux-backup-0123abcd-1of2 (1).nfb first"
 const previewFailureText: Record<BackupPreviewFailedRequest["failure"], string> = {
     owner: "Only the current server Owner can preview a restore, in a one-to-one DM with NeonFlux",
     archive: `The archive could not be read. Check that it belongs to this server and was made with the current backup key. ${attachmentName}`,
     key: keyMissing,
-    refused:
-        "A restore refuses this archive as a whole because it exceeds restore limits. Export fewer categories at a time",
+    refused: "A restore refuses this archive as a whole, because it does not hold what its header says",
     error: "The preview could not be made right now. Try again shortly",
 }
-const restoreRunning = "A restore started on the dashboard is running. Preview again when it ends"
-const planCapacity = `This server already keeps ${BACKUP_RESTORE_LIMITS.plans} restore plans, the most it may keep. Every confirmed plan counts, forgotten ones too, for at least seven days after it expires, and longer while a created channel's outcome is unknown. A preview nobody confirmed is replaced by the next one. Preview again once an older plan is removed`
-const matchTooBig =
-    "Match would make a plan of more than 500 items with the channels and categories it deletes. Preview without match, or delete some of them first"
+const olderArchive =
+    "This backup was made by an older NeonFlux and can no longer be restored. Make a new one with !backup export"
+const allParts = (count: number) => `Attach all ${count} parts of this backup to one message`
+const restoreRunning = "A restore is running. Preview again when it ends"
+const planCapacity = `This server already has ${BACKUP_RESTORE_LIMITS.plans} restore plans that are not finished, the most it may have. A plan nobody confirmed is replaced by the next check, and a plan frees its place when its restore finishes or you forget it with !backup forget`
 const itemStates: Record<BackupItemState, string> = {
     planned: "Waiting",
     reserved: "Starting",
@@ -1168,12 +1494,6 @@ function itemLine(i: BackupItem) {
     if (i.state === "planned") return planLine(i)
     return `${itemTarget(i)}: ${itemStates[i.state]}${i.reason ? `. ${i.reason}` : ""}`
 }
-/** Whether an item needs the owner's attention: A blocked, conflicting or failed item, or a channel whose write was not confirmed */
-const problem = (i: BackupItem) =>
-    i.disposition === "blocked" ||
-    ["conflict", "blocked", "failed"].includes(i.state) ||
-    (i.state === "uncertain" && i.resolution !== "match")
-const unconfirmed = (i: BackupItem) => i.state === "uncertain" && !i.resolution
 const stages = [
     "created",
     "updated",
@@ -1185,23 +1505,30 @@ const stages = [
     "not confirmed",
     "still to do",
 ] as const
-/** Where an item stands. A checked channel counts as what the check found */
-function stage(i: BackupItem): (typeof stages)[number] {
-    if (i.resolution) return i.resolution === "match" ? "created" : i.resolution === "absent" ? "failed" : "conflict"
-    return i.state === "created" || i.state === "updated" || i.state === "deleted"
-        ? i.state
-        : i.state === "skipped"
-          ? "identical"
-          : i.state === "conflict" || i.state === "blocked" || i.state === "failed"
-            ? i.state
-            : i.state === "uncertain"
-              ? "not confirmed"
-              : "still to do"
+/** Where items in a state stand */
+const stageOf: Record<BackupItemState, (typeof stages)[number]> = {
+    created: "created",
+    updated: "updated",
+    deleted: "deleted",
+    skipped: "identical",
+    conflict: "conflict",
+    blocked: "blocked",
+    failed: "failed",
+    uncertain: "not confirmed",
+    planned: "still to do",
+    reserved: "still to do",
+    claimed: "still to do",
 }
-/** Where items stand in one line, such as 12 created, 1 failed, 20 still to do */
-function progress(items: readonly BackupItem[]) {
+/** How many of a plan's items are at each stage, from its count of items by state */
+function stageCounts(plan: BackupPlan) {
     const counts = new Map<string, number>()
-    for (const item of items) counts.set(stage(item), (counts.get(stage(item)) ?? 0) + 1)
+    for (const [state, n] of Object.entries(plan.states) as [BackupItemState, number | undefined][])
+        if (n) counts.set(stageOf[state], (counts.get(stageOf[state]) ?? 0) + n)
+    return counts
+}
+/** Where a plan's items stand in one line, such as 12 created, 1 failed, 20 still to do */
+function progress(plan: BackupPlan) {
+    const counts = stageCounts(plan)
     return (
         stages
             .filter((name) => counts.get(name))
@@ -1209,50 +1536,51 @@ function progress(items: readonly BackupItem[]) {
             .join(", ") || "No items"
     )
 }
-const RESTORE_ITEMS_PAGE = 10
-/** The items in the order a page lists them, problems first, then deletions, each group in plan order */
-const byProblem = (items: readonly BackupItem[]) =>
-    [...items].sort(
-        (a, b) =>
-            Number(problem(b)) - Number(problem(a)) ||
-            Number(b.disposition === "delete") - Number(a.disposition === "delete") ||
-            a.itemNo - b.itemNo,
-    )
+/** Whether a plan has items that need the owner's attention: blocked, conflicting or failed, or a channel write not confirmed */
+const problems = (plan: BackupPlan) =>
+    plan.counts.blocked > 0 ||
+    ["conflict", "blocked", "failed", "uncertain"].some((s) => plan.states[s as BackupItemState])
 /**
- * A restore plan in two lines: Its decisions or progress, then whether it waits, runs or expired. The note names at most two next steps.
- * items are read only for a confirmed plan, since an unconfirmed plan's counts say everything
+ * A restore plan in two lines: Its decisions or progress, then whether it waits, runs or expired. The note names at most two next steps. A
+ * confirmed plan runs until it is done, so only a plan nobody confirmed expires
  */
-function planCard(plan: BackupPlan, items: readonly BackupItem[] | undefined, now: number, config: BotConfig): Card {
+function planCard(plan: BackupPlan, now: number, config: BotConfig): Card {
     const command = (text: string) => code(serverCommands(text, config)),
-        open = !plan.forgotten && now < plan.expiresAt,
-        confirmed = plan.confirmedAt !== undefined
+        confirmed = plan.confirmedAt !== undefined,
+        open = !plan.forgotten && (confirmed || now < plan.expiresAt),
+        toDo = stageCounts(plan).get("still to do") ?? 0
     const state = plan.forgotten
         ? "Forgotten"
-        : !open
-          ? `Expired ${ago(plan.expiresAt)}`
-          : `${confirmed ? `Confirmed ${ago(plan.confirmedAt!)}` : "Waiting for your confirmation"}. Expires ${at(plan.expiresAt)}`
-    const waiting = !confirmed || items?.some((i) => stage(i) === "still to do")
+        : plan.state === "building"
+          ? "NeonFlux is still checking the archive"
+          : confirmed
+            ? `Confirmed ${ago(plan.confirmedAt!)}${toDo ? "" : ". Every item is done"}`
+            : !open
+              ? `Expired ${ago(plan.expiresAt)}`
+              : `Waiting for your confirmation. Expires ${at(plan.expiresAt)}`
     const steps = [
-        ...(!waiting
+        ...(plan.forgotten || plan.state === "building" || (confirmed && !toDo)
             ? []
             : open
-              ? [`Send ${command("!backup confirm")} to ${confirmed ? "continue" : "start"}`]
-              : plan.forgotten
-                ? []
-                : [`Attach the archive to ${command("!backup preview")} again to make a new plan`]),
-        ...(items?.some(unconfirmed)
+              ? [
+                    confirmed
+                        ? `If it stopped, ${command("!backup confirm")} continues it`
+                        : `Send ${command("!backup confirm")} to start`,
+                ]
+              : [`Attach the archive to ${command("!backup preview")} again to make a new plan`]),
+        ...(plan.states.uncertain
             ? [`${command("!backup reconcile")} checks the channels that were not confirmed`]
             : []),
         ...(!confirmed
             ? [`${command("!backup items")} lists each item, problems first`]
-            : items?.some(problem)
+            : problems(plan)
               ? [`${command("!backup items")} lists problems first`]
               : []),
     ]
     return {
         title: "Restore plan",
         description: [
-            confirmed && items ? progress(items) : decisions(plan.counts),
+            confirmed ? progress(plan) : decisions(plan.counts),
             ...(confirmed ? [] : [...grants(plan.gain), ...deletions(plan.counts)]),
             state,
         ].join("\n"),
@@ -1263,17 +1591,20 @@ function planCard(plan: BackupPlan, items: readonly BackupItem[] | undefined, no
     }
 }
 /** One page of a restore preview, which is the plan a confirmation runs, problems first, with the command for the next page */
-function previewCard(plan: BackupPlan, items: readonly BackupItem[], start: number, config: BotConfig) {
-    const shown = byProblem(items).slice(start, start + RESTORE_ITEMS_PAGE),
-        next = start + RESTORE_ITEMS_PAGE < items.length ? start + RESTORE_ITEMS_PAGE : undefined
-    const card: Card = {
+function previewCard(
+    plan: BackupPlan,
+    items: readonly BackupItem[],
+    next: string | undefined,
+    config: BotConfig,
+): Card {
+    return {
         title: "Restore preview",
         description: [
             `Checked ${ago(plan.createdAt)}, ${plan.confirmedAt === undefined ? "nothing changed yet" : `confirmed ${ago(plan.confirmedAt)}`}. ${decisions(plan.counts)}`,
             ...grants(plan.gain),
             ...deletions(plan.counts),
-            ...effects(items),
-            ...shown.map(itemLine),
+            ...effects(plan),
+            ...items.map(itemLine),
         ].join("\n"),
         fields: next === undefined ? [] : [["Next", code(serverCommands("!backup preview next", config))]],
         ...(plan.confirmedAt === undefined
@@ -1282,53 +1613,43 @@ function previewCard(plan: BackupPlan, items: readonly BackupItem[], start: numb
               }
             : {}),
     }
-    return { card, next }
 }
-/** One page of a plan's items, problems first, and where the next page starts */
-function itemsCard(items: readonly BackupItem[], start: number, config: BotConfig) {
-    const sorted = byProblem(items),
-        shown = sorted.slice(start, start + RESTORE_ITEMS_PAGE)
-    const next = start + RESTORE_ITEMS_PAGE < sorted.length ? start + RESTORE_ITEMS_PAGE : undefined
-    const card: Card = {
+/** One page of a plan's items, problems first */
+function itemsCard(plan: BackupPlan, items: readonly BackupItem[], next: string | undefined, config: BotConfig): Card {
+    return {
         title: "Restore items",
-        description: shown.map(itemLine).join("\n") || "This plan has no items",
+        description: items.map(itemLine).join("\n") || "This plan has no items",
         fields: next === undefined ? [] : [["Next", code(serverCommands("!backup items next", config))]],
-        ...(shown.some(unconfirmed)
+        ...(items.some((i) => i.state === "uncertain" && !i.resolution)
             ? {
                   note: `${code(serverCommands("!backup reconcile", config))} checks the channels that were not confirmed`,
               }
             : {}),
-        ...(sorted.some(problem) ? { footer: "Items that need attention come first" } : {}),
+        ...(problems(plan) ? { footer: "Items that need attention come first" } : {}),
     }
-    return { card, next }
 }
-/** What one confirmation did, in two lines, with at most two next steps */
-function progressCard(
-    pass: { results: readonly { item: BackupItem; recorded: boolean }[]; remaining: number },
-    config: BotConfig,
-): Card {
-    const command = (text: string) => code(serverCommands(text, config)),
-        recorded = pass.results.filter((r) => r.recorded).map((r) => r.item),
-        unrecorded = pass.results.length - recorded.length
-    const done = [
-        ...(recorded.length ? [progress(recorded)] : []),
-        ...(unrecorded ? [`${unrecorded} not recorded yet`] : []),
-    ].join(", ")
+/** Why a run stopped before every item settled */
+const stoppedWhy: Partial<Record<BackupPreviewFailure, string>> = {
+    paused: "DEFCON 1 pauses restores. Send !backup confirm once DEFCON is lower to continue",
+    expired:
+        "The restore stopped because NeonFlux made no progress for 10 minutes. Send !backup confirm to continue it",
+    error: "The restore could not go on. Send !backup confirm to continue it",
+}
+/** What a run did, posted in the DM when it ends, with at most two next steps */
+function outcomeCard(plan: BackupPlan, failure: BackupPreviewFailure | undefined, config: BotConfig): Card {
+    const command = (text: string) => code(serverCommands(text, config))
     const steps = [
-        ...(pass.remaining > 0 ? [`Send ${command("!backup confirm")} again to continue`] : []),
-        ...(unrecorded || recorded.some(unconfirmed)
+        ...(failure && stoppedWhy[failure] ? [serverCommands(stoppedWhy[failure]!, config)] : []),
+        ...(plan.states.uncertain
             ? [
                   `${command("!backup reconcile")} checks the channels that were not confirmed, a few minutes after they were tried`,
               ]
             : []),
-        ...(recorded.some(problem) ? [`${command("!backup items")} lists problems first`] : []),
+        ...(problems(plan) ? [`${command("!backup items")} lists problems first`] : []),
     ]
     return {
-        title: "Restore progress",
-        description: [
-            done ? `This run: ${done}` : "Nothing was left to do in this run",
-            pass.remaining > 0 ? `${pass.remaining} still to do` : "Every item is done",
-        ].join("\n"),
+        title: failure ? "Restore stopped" : "Restore finished",
+        description: progress(plan),
         ...(steps.length ? { note: steps.slice(0, 2).join(". ") } : {}),
         footer: "Finished items stay in place. Nothing is rolled back",
     }
@@ -1389,9 +1710,29 @@ export function handleBackupCommand(
             const provider = yield* providerFor(client)
             if (command.type === "export") {
                 const categories = command.selected.filter((c): c is "config" | "xp" => c !== "structure")
-                const snapshot = categories.length
-                    ? yield* store.snapshot({ serverId: config.serverId, context: fresh, selected: categories })
-                    : undefined
+                // The database is read in pages, each with a fresh Owner check, until the backend says there is no next page
+                const config_: BackupManifest["config"] = [],
+                    xp: BackupManifest["xp"] = [],
+                    cursors = new Set<string>()
+                let databaseAt: number | null = null,
+                    cursor: string | undefined
+                while (categories.length) {
+                    const page = yield* store.snapshotPage({
+                        serverId: config.serverId,
+                        context: fresh,
+                        selected: categories,
+                        ...(cursor ? { cursor } : {}),
+                    })
+                    databaseAt ??= page.capturedAt
+                    config_.push(...page.config)
+                    xp.push(...page.xp)
+                    if (page.cursor === null) break
+                    if (cursors.has(page.cursor))
+                        return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+                    cursors.add(page.cursor)
+                    cursor = page.cursor
+                    fresh = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
+                }
                 const captured = command.selected.includes("structure")
                     ? yield* captureBackupStructure(client, config.serverId, message.author.id, message.channelId)
                     : undefined
@@ -1399,54 +1740,50 @@ export function handleBackupCommand(
                     ...captured,
                     objects: yield* markManagedChannels(store, config, client, message, captured.objects),
                 }
-                const items =
-                    (snapshot?.config.length ?? 0) + (snapshot?.xp.length ?? 0) + (native?.objects.length ?? 0)
-                if (items > BACKUP_RESTORE_LIMITS.planItems) {
-                    yield* send(
-                        `This backup has ${items} items, more than one restore plan accepts (${BACKUP_RESTORE_LIMITS.planItems}). Export fewer categories at a time`,
-                    )
-                    return
-                }
                 const capturedAt = yield* Clock.currentTimeMillis
                 const draft = {
-                    version: 1,
+                    version: 2,
                     backupId: randomUUID().replaceAll("-", ""),
                     provider,
                     serverId: config.serverId,
                     selected: command.selected,
                     capturedAt,
                     observations: {
-                        databaseAt: snapshot?.capturedAt ?? null,
+                        databaseAt,
                         structureStartedAt: native?.startedAt ?? null,
                         structureFinishedAt: native?.finishedAt ?? null,
                     },
                     counts: {
-                        config: snapshot?.config.length ?? 0,
-                        xp: snapshot?.xp.length ?? 0,
+                        config: config_.length,
+                        xp: xp.length,
                         structure: native?.objects.length ?? 0,
                         overwrites: native?.objects.reduce((n, c) => n + c.overwrites.length, 0) ?? 0,
                     },
                     exclusions: [...backupExclusions],
-                    config: snapshot?.config ?? [],
-                    xp: snapshot?.xp ?? [],
+                    config: config_,
+                    xp,
                     structure: native?.objects ?? [],
-                }
-                if (Buffer.byteLength(canonicalBackupJson(draft), "utf8") > BACKUP_RESTORE_LIMITS.planBytes) {
-                    yield* send(
-                        `This backup is larger than the ${BACKUP_RESTORE_LIMITS.planBytes / 1024} KiB one restore plan accepts. Export fewer categories at a time`,
-                    )
-                    return
                 }
                 const manifest = yield* Effect.try({
                     try: () => validateBackupManifest(draft),
                     catch: () => new BackupHandlingError({ reason: "capacity" }),
                 })
-                const bytes = yield* Effect.try({
+                const parts = yield* Effect.try({
                     try: () => encryptBackupManifest(manifest, config.backupKey!),
-                    catch: () => new BackupHandlingError({ reason: "snapshot" }),
+                    catch: (error) =>
+                        new BackupHandlingError({
+                            reason:
+                                error instanceof BackupCryptoError && error.reason === "size" ? "capacity" : "snapshot",
+                        }),
                 })
-                yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
-                yield* uploadBackupAttachment(client, message.channelId, bytes, label)
+                yield* uploadBackupAttachments(
+                    client,
+                    message.channelId,
+                    parts,
+                    manifest.backupId,
+                    readBackupContext(client, config.serverId, message.author.id, message.channelId),
+                    label,
+                )
                 return
             }
             // The owner never types a plan's ID and hashes. The bot remembers the plan it showed this owner last, delivered in full, and every later
@@ -1462,10 +1799,10 @@ export function handleBackupCommand(
                         ),
                     )
                 })
-            // A plan that a newer preview replaced is deleted, so the backend no longer finds it
+            // A plan that a newer check replaced is forgotten, and retention removes it later, so the backend may no longer find it
             const readPlan = (binding: BackupBinding) =>
                 store.query({ serverId: config.serverId, context: fresh, operation: { type: "plan", binding } }).pipe(
-                    Effect.map((found) => (found.type === "plan" ? found.plan : undefined)),
+                    Effect.map((found) => (found.type === "plan" && !found.plan.forgotten ? found.plan : undefined)),
                     Effect.catch((error) =>
                         error instanceof BackupStoreError && error.status === 404
                             ? Effect.succeed(undefined)
@@ -1475,20 +1812,20 @@ export function handleBackupCommand(
             if (command.type === "preview") {
                 // A preview is a plan, so the first page of it and each next page read the plan the owner can confirm
                 const key = pageKey(config.serverId, message, "backup", "preview")
-                const shown = (plan: BackupPlan, items: readonly BackupItem[], start: number) =>
+                const shown = (plan: BackupPlan, cursor: string | undefined) =>
                     Effect.gen(function* () {
-                        const page = previewCard(plan, items, start, config)
-                        yield* card(page.card)
+                        const page = yield* readPage(store, config, client, plan, message.channelId, cursor)
+                        yield* card(previewCard(plan, page.items, page.next, config))
                         rememberPosition(
                             key,
-                            page.next === undefined ? undefined : { planId: plan.planId, start: page.next },
+                            page.next === undefined ? undefined : { planId: plan.planId, cursor: page.next },
                         )
                         rememberPosition(planKey, backupBinding(plan))
                     })
                 if (command.match && !message.attachments.length) {
                     yield* send(
                         serverCommands(
-                            "Match needs the archive. Attach the encrypted .nfb archive to !backup preview match",
+                            "Match needs the archive. Attach every part of the encrypted .nfb archive to !backup preview match",
                             config,
                         ),
                     )
@@ -1497,8 +1834,8 @@ export function handleBackupCommand(
                 if (command.next || !message.attachments.length) {
                     const binding = nextPosition<BackupBinding>(planKey),
                         start = command.next
-                            ? nextPosition<{ planId: string; start: number }>(key)
-                            : { planId: binding?.planId, start: 0 }
+                            ? nextPosition<{ planId: string; cursor: string }>(key)
+                            : { planId: binding?.planId, cursor: undefined }
                     if (!binding || start?.planId !== binding.planId) {
                         yield* send(
                             serverCommands(
@@ -1515,11 +1852,7 @@ export function handleBackupCommand(
                         yield* replaced()
                         return
                     }
-                    yield* shown(
-                        plan,
-                        yield* readPlanItems(store, config, client, plan, message.channelId),
-                        start.start,
-                    )
+                    yield* shown(plan, start.cursor)
                     return
                 }
                 if (!config.backupKey) {
@@ -1528,19 +1861,21 @@ export function handleBackupCommand(
                 }
                 const made = yield* makeBackupPlan(store, config, client, message, !!command.match).pipe(
                     Effect.map((plan) => ({ plan })),
-                    // A file with the wrong name, size or type has its own reply
+                    // A file with the wrong name, size or type has its own reply, and so do an older archive and missing parts
                     Effect.catch((error) =>
                         error instanceof BackupAttachmentError && error.reason === "metadata"
                             ? Effect.fail(error)
                             : Effect.succeed({
                                   failure:
-                                      command.match && error instanceof BackupStoreError && error.status === 413
-                                          ? matchTooBig
-                                          : error instanceof BackupStoreError && error.status === 409
-                                            ? restoreRunning
-                                            : error instanceof BackupStoreError && error.status === 429
-                                              ? planCapacity
-                                              : previewFailureText[previewFailure(error)],
+                                      error instanceof BackupHandlingError && error.reason === "version"
+                                          ? serverCommands(olderArchive, config)
+                                          : error instanceof BackupHandlingError && error.reason === "parts"
+                                            ? allParts(error.partCount ?? 1)
+                                            : error instanceof BackupStoreError && error.status === 409
+                                              ? restoreRunning
+                                              : error instanceof BackupStoreError && error.status === 429
+                                                ? serverCommands(planCapacity, config)
+                                                : previewFailureText[previewFailure(error)],
                               }),
                     ),
                 )
@@ -1548,16 +1883,18 @@ export function handleBackupCommand(
                     yield* send(made.failure)
                     return
                 }
-                yield* shown(made.plan, yield* readPlanItems(store, config, client, made.plan, message.channelId), 0)
+                yield* shown(made.plan, undefined)
                 return
             }
             if (command.type === "inspect") {
-                if (message.attachments.length !== 1) {
-                    yield* send(serverCommands("Attach one encrypted .nfb archive to !backup inspect", config))
+                if (!message.attachments.length || message.attachments.length > BACKUP_RESTORE_LIMITS.parts) {
+                    yield* send(
+                        serverCommands("Attach every part of one encrypted .nfb archive to !backup inspect", config),
+                    )
                     return
                 }
-                const bytes = yield* downloadBackupAttachment(client, { serverId: config.serverId, message })
-                const manifest = yield* readArchive(config, bytes, provider)
+                const parts = yield* downloadBackupAttachments(client, { serverId: config.serverId, message })
+                const { manifest } = yield* readArchive(config, parts, provider)
                 yield* card({
                     title: "Backup archive",
                     fields: [
@@ -1572,6 +1909,7 @@ export function handleBackupCommand(
                         ["Settings", String(manifest.counts.config)],
                         ["XP profiles", String(manifest.counts.xp)],
                         ["Channels", String(manifest.counts.structure)],
+                        ["Parts", String(parts.length)],
                         ["Made", ago(manifest.capturedAt)],
                         [
                             "Not included",
@@ -1586,13 +1924,13 @@ export function handleBackupCommand(
                 })
                 return
             }
-            const showPlan = (plan: BackupPlan, items?: readonly BackupItem[]) =>
+            const showPlan = (plan: BackupPlan) =>
                 Effect.gen(function* () {
-                    yield* card(planCard(plan, items, yield* Clock.currentTimeMillis, config))
+                    yield* card(planCard(plan, yield* Clock.currentTimeMillis, config))
                     rememberPosition(planKey, backupBinding(plan))
                 })
             if (command.type === "status") {
-                // The owner's newest plan that is not forgotten. A server holds at most 10 plans, so the first page has them all
+                // The owner's newest plan that is not forgotten. A server holds at most 10 unfinished plans, and the first page holds 20
                 const result = yield* store.query({
                     serverId: config.serverId,
                     context: fresh,
@@ -1613,12 +1951,7 @@ export function handleBackupCommand(
                     )
                     return
                 }
-                yield* showPlan(
-                    latest,
-                    latest.confirmedAt !== undefined
-                        ? yield* readPlanItems(store, config, client, latest, message.channelId)
-                        : undefined,
-                )
+                yield* showPlan(latest)
                 return
             }
             if (
@@ -1648,21 +1981,17 @@ export function handleBackupCommand(
             if (command.type === "items") {
                 const key = pageKey(config.serverId, message, "backup", "items")
                 const start = command.next
-                    ? nextPosition<{ planId: string; start: number }>(key)
-                    : { planId: binding.planId, start: 0 }
+                    ? nextPosition<{ planId: string; cursor: string }>(key)
+                    : { planId: binding.planId, cursor: undefined }
                 if (start?.planId !== binding.planId) {
                     yield* send(serverCommands(noNextPage("!backup items"), config))
                     return
                 }
-                const page = itemsCard(
-                    yield* readPlanItems(store, config, client, found, message.channelId),
-                    start.start,
-                    config,
-                )
-                yield* card(page.card)
+                const page = yield* readPage(store, config, client, found, message.channelId, start.cursor)
+                yield* card(itemsCard(found, page.items, page.next, config))
                 rememberPosition(
                     key,
-                    page.next === undefined ? undefined : { planId: binding.planId, start: page.next },
+                    page.next === undefined ? undefined : { planId: binding.planId, cursor: page.next },
                 )
                 return
             }
@@ -1690,26 +2019,54 @@ export function handleBackupCommand(
                 })
                 return
             }
-            if (
-                command.type === "confirm" &&
-                (found.forgotten || (yield* Clock.currentTimeMillis) >= found.expiresAt)
-            ) {
-                yield* send(
-                    serverCommands(
-                        `This restore plan ${found.forgotten ? "was forgotten" : `expired ${ago(found.expiresAt)}`}. Attach the archive to !backup preview again to make a new one`,
-                        config,
+            if (command.type === "confirm") {
+                if (found.state === "building") {
+                    yield* send(
+                        serverCommands(
+                            "NeonFlux is still checking this archive. Send !backup status in a moment",
+                            config,
+                        ),
+                    )
+                    return
+                }
+                // A check nobody confirmed stays confirmable for a day, and a confirmed plan runs again until it is done
+                if (
+                    found.forgotten ||
+                    (found.confirmedAt === undefined && (yield* Clock.currentTimeMillis) >= found.expiresAt)
+                ) {
+                    yield* send(
+                        serverCommands(
+                            `This restore plan ${found.forgotten ? "was forgotten" : `expired ${ago(found.expiresAt)}`}. Attach the archive to !backup preview again to make a new one`,
+                            config,
+                        ),
+                    )
+                    return
+                }
+            }
+            fresh = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
+            const result = yield* store
+                .manage({
+                    serverId: config.serverId,
+                    messageId: message.id,
+                    createdAt: yield* sourceTimestamp(message),
+                    context: fresh,
+                    operation: { type: command.type, binding },
+                })
+                .pipe(
+                    Effect.map((value) => ({ value })),
+                    // Another plan's restore is running, so this one waits for it
+                    Effect.catch((error) =>
+                        command.type === "confirm" && error instanceof BackupStoreError && error.status === 409
+                            ? Effect.succeed({ running: true as const })
+                            : Effect.fail(error),
                     ),
+                )
+            if ("running" in result) {
+                yield* send(
+                    serverCommands("Another restore is running. Send !backup confirm again when it ends", config),
                 )
                 return
             }
-            fresh = yield* readBackupContext(client, config.serverId, message.author.id, message.channelId)
-            const result = yield* store.manage({
-                serverId: config.serverId,
-                messageId: message.id,
-                createdAt: yield* sourceTimestamp(message),
-                context: fresh,
-                operation: { type: command.type, binding },
-            })
             if (command.type === "forget") {
                 rememberPosition(planKey, undefined)
                 yield* send(
@@ -1717,33 +2074,45 @@ export function handleBackupCommand(
                 )
                 return
             }
-            if (result.type !== "confirmed") return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
-            const pass = yield* processBackupPlanPass(store, config, client, result.plan, message.channelId)
-            yield* card(progressCard(pass, config))
+            if (result.value.type !== "confirmed")
+                return yield* Effect.fail(new BackupHandlingError({ reason: "binding" }))
+            // The run goes on in the background, since this command sits in the message pipeline
+            yield* send(
+                serverCommands(
+                    result.value.run === "running"
+                        ? "This restore is running. NeonFlux posts the outcome here when it ends. !backup status shows progress"
+                        : `Restore started: ${plural(result.value.plan.itemCount, "item")}. NeonFlux runs it to the end and posts the outcome here. !backup status shows progress`,
+                    config,
+                ),
+            )
         })
         yield* run.pipe(
             Effect.catch((error) =>
                 error instanceof BackupAttachmentError && error.reason === "metadata"
                     ? send(`NeonFlux cannot use the attached file. Check its name, size and type. ${attachmentName}`)
-                    : error instanceof BackupPermissionError && error.reason === "limit"
-                      ? send(
-                            `This server has more than the ${BACKUP_CATEGORY_LIMITS.structure} channels or ${BACKUP_RESTORE_LIMITS.overwrites} permission overwrites an archive holds. Export config or XP only`,
-                        )
-                      : error instanceof BackupStoreError && error.operation === "snapshot" && error.status === 413
-                        ? send(
-                              `This server has more settings or XP than an archive holds. An archive holds at most ${BACKUP_CATEGORY_LIMITS.config} settings items, counting each draft, template, response, automod rule and role panel, and XP for at most ${BACKUP_CATEGORY_LIMITS.xp} members`,
-                          )
-                        : error instanceof BackupHandlingError && error.reason === "archive"
+                    : error instanceof BackupHandlingError && error.reason === "version"
+                      ? send(serverCommands(olderArchive, config))
+                      : error instanceof BackupHandlingError && error.reason === "parts"
+                        ? send(allParts(error.partCount ?? 1))
+                        : error instanceof BackupPermissionError && error.reason === "limit"
                           ? send(
-                                "NeonFlux cannot read that file as a backup. Send an archive that NeonFlux made, with the current backup key",
+                                `This server lists more than ${STRUCTURE_CHANNELS} channels, more than Fluxer allows in a server, so NeonFlux cannot read them as one structure. Export config or XP only`,
                             )
-                          : send(
-                                serverCommands(
-                                    "The backup command was refused or could not be checked. Make sure you still own the server, this is a one-to-one DM, and the archive is within limits and made with the current backup key. " +
-                                        "Run !backup status to see where a restore stands. A channel whose creation was not confirmed is never created again",
-                                    config,
+                          : error instanceof BackupHandlingError && error.reason === "capacity"
+                            ? send(
+                                  "This backup is larger than an archive holds, 40 MiB in at most 10 parts. Export fewer categories at a time",
+                              )
+                            : error instanceof BackupHandlingError && error.reason === "archive"
+                              ? send(
+                                    "NeonFlux cannot read that file as a backup. Send an archive that NeonFlux made, with the current backup key",
+                                )
+                              : send(
+                                    serverCommands(
+                                        "The backup command was refused or could not be checked. Make sure you still own the server, this is a one-to-one DM, and the archive was made with the current backup key. " +
+                                            "Run !backup status to see where a restore stands. A channel whose creation was not confirmed is never created again",
+                                        config,
+                                    ),
                                 ),
-                            ),
             ),
         )
     })

@@ -53,12 +53,17 @@ export type AlertSettings = typeof AlertSettings.Type
 const set = Schema.Struct({ type: Schema.Literal("set"), alert: AlertKind, enabled: Schema.Boolean })
 /** Turning an action on needs the server owner or an Administrator, turning it off any alerts manager */
 const action = Schema.Struct({ type: Schema.Literal("action"), action: AlertAction, enabled: Schema.Boolean })
+const expectedKind = Schema.Literals(["bot", "webhook"]),
+    expectedIds = Ids(ALERT_EXPECTED_LIMIT)
+/** Marks several bots or webhooks expected at once, or stops expecting them */
 const expect = Schema.Struct({
     type: Schema.Literal("expect"),
-    kind: Schema.Literals(["bot", "webhook"]),
-    id: Id,
+    kind: expectedKind,
+    ids: expectedIds.check(Schema.isMinLength(1)),
     expected: Schema.Boolean,
 })
+/** The website replaces one whole expected list, which also adds, removes or clears many IDs in one save */
+const expectedSet = Schema.Struct({ type: Schema.Literal("expected-set"), kind: expectedKind, ids: expectedIds })
 export const AlertsOperation = Schema.Union([set, action, expect])
 export type AlertsOperation = typeof AlertsOperation.Type
 /** Chat changes carry the server manager's fresh native authority, like sticky messages */
@@ -114,6 +119,7 @@ export const AlertsDashboardOperation = Schema.Union([
     set,
     action,
     expect,
+    expectedSet,
     Schema.Struct({ type: Schema.Literal("invites-refresh"), offset: inviteOffset }),
     Schema.Struct({ type: Schema.Literal("invite-revoke"), ref: AlertInvite.fields.ref, offset: inviteOffset }),
 ])

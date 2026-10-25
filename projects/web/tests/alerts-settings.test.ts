@@ -75,26 +75,44 @@ async function clickOnce(form: ReturnType<typeof within>, name: string) {
     })
 }
 
-test("Each alert has its own switch, and expected bots and webhooks are added by ID and removed on the first click", async () => {
+test("Each alert has its own switch, and expected bots and webhooks are pasted many at once, replaced or cleared in one save", async () => {
     const { ui, calls } = setup({ settings, invites: null })
     const privileges = section(ui, "Privilege changes")
     fireEvent.click(privileges.getByLabelText("Privilege changes on"))
     await submit(privileges)
-    const expect = section(ui, "Mark a bot or webhook expected")
-    // Only Convex's 8,192 values in one array bound the lists, so the form names no count
-    assert.ok(expect.getByText("An expected bot or webhook raises no alert"))
-    fireEvent.change(expect.getByLabelText("Kind"), { target: { value: "webhook" } })
-    fireEvent.change(expect.getByLabelText("ID"), { target: { value: "not an id" } })
-    await submit(expect)
-    assert.equal(calls.length, 1)
-    fireEvent.change(expect.getByLabelText("ID"), { target: { value: "88" } })
-    await submit(expect)
-    const unexpect = section(ui, "Bot 77")
-    await clickOnce(unexpect, "No longer expected")
+    // Only Convex's 8,192 values in one array bound each list
+    const webhooks = section(ui, "Expected webhooks")
+    assert.ok(
+        webhooks.getByText("An expected webhook raises no alert. Saving replaces the whole list, up to 8,192 IDs"),
+    )
+    const hooks = Array.from({ length: 60 }, (_, index) => String(9000 + index))
+    const box = webhooks.getByLabelText(
+        "Add several expected webhooks, apart or split by commas or lines",
+    ) as HTMLTextAreaElement
+    fireEvent.change(box, {
+        target: { value: `${hooks.slice(0, 30).join(", ")}\n${hooks.slice(30).join(" ")} not-an-id` },
+    })
+    fireEvent.click(webhooks.getByRole("button", { name: "Add IDs", hidden: true }))
+    assert.equal(box.value, "not-an-id")
+    fireEvent.change(box, { target: { value: "" } })
+    await submit(webhooks)
+    // A replacement and a clear change the whole bot list before one save
+    const bots = section(ui, "Expected bots")
+    const listed = () =>
+        bots.queryAllByLabelText(/^Expected bots \d+$/).map((input) => (input as HTMLInputElement).value)
+    assert.deepEqual(listed(), ["77"])
+    fireEvent.change(bots.getByLabelText("Add several expected bots, apart or split by commas or lines"), {
+        target: { value: "90, 91" },
+    })
+    fireEvent.click(bots.getByRole("button", { name: "Replace the list with these IDs", hidden: true }))
+    assert.deepEqual(listed(), ["90", "91"])
+    fireEvent.click(bots.getByRole("button", { name: "Remove all expected bots", hidden: true }))
+    assert.deepEqual(listed(), [])
+    await submit(bots)
     assert.deepEqual(calls, [
         { type: "set", alert: "privileges", enabled: true },
-        { type: "expect", kind: "webhook", id: "88", expected: true },
-        { type: "expect", kind: "bot", id: "77", expected: false },
+        { type: "expected-set", kind: "webhook", ids: hooks },
+        { type: "expected-set", kind: "bot", ids: [] },
     ])
 })
 

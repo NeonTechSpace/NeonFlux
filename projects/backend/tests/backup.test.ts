@@ -1,11 +1,16 @@
 import assert from "node:assert/strict"
 import { test, type TestContext } from "node:test"
 import {
-    BACKUP_CATEGORY_LIMITS,
+    BACKUP_PLAN_MS,
     BackupManifest,
+    BackupManifestHeader,
+    BackupQueryResult,
+    type BackupPlan,
     type BackupConfigObject,
-    type BackupItem,
-    type BackupNativeProof,
+    BackupItem,
+    BACKUP_RESTORE_LIMITS,
+    BackupNativeProof,
+    type BackupStructureObject,
 } from "@neonflux/contracts/backup"
 import {
     backupNormalized,
@@ -18,11 +23,16 @@ import {
 import { decode } from "../convex/validation.ts"
 import { defaultLevelingSettings } from "../convex/levelingDomain.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
+import type { AutomodRule } from "@neonflux/contracts/moderation"
+import { TICKET_CANNED_BYTES, ticketCannedBytes } from "@neonflux/contracts/tickets"
+import type { RolesPanel } from "@neonflux/contracts/roles"
 import { state as moderationState } from "../convex/moderationStore.ts"
 import { levelingState } from "../convex/levelingStore.ts"
 import { allPermissions, binding, fixture, installBackupEnv, read, secret, status } from "./backup-fixture.ts"
 import { backupImports } from "../convex/backupImports.ts"
+import { projectBackupConfig } from "../convex/backupProjections.ts"
 import { backupRewriteConfig } from "../convex/backupStore.ts"
+import { memberDataDelete } from "../convex/memberData.ts"
 
 installBackupEnv()
 
@@ -74,7 +84,7 @@ test("A level-up channel in a leveling backup is a checked channel reference tha
 test("Backup authenticates every route and requires current exact Owner, provider and private DM", async (t) => {
     const f = await fixture(t)
     await status(
-        await f.http("/backup/snapshot", { serverId: "1", context: f.context(), selected: ["xp"] }, false),
+        await f.http("/backup/snapshot-page", { serverId: "1", context: f.context(), selected: ["xp"] }, false),
         401,
     )
     for (const patch of [
@@ -323,11 +333,11 @@ test("Selected snapshot uses every indexed configuration family and excludes pri
     assert.deepEqual(onlyXp.config, [])
 })
 
-test("XP snapshot refuses 501 profiles as one transaction and never returns a partial category", async (t) => {
+test("1,200 XP profiles export in pages, plan as twelve pages of members and restore, and a member changed since the check is left", async (t) => {
     const f = await fixture(t)
     await f.db.run(async (ctx) => {
         await levelingState(ctx, "1")
-        for (let n = 1; n <= 501; n++)
+        for (let n = 1; n <= 1200; n++)
             await ctx.db.insert("levelingProfiles", {
                 serverId: "1",
                 userId: String(n),
@@ -337,24 +347,199 @@ test("XP snapshot refuses 501 profiles as one transaction and never returns a pa
                 digests: [],
             })
     })
-    await status(await f.snapshot(["xp"]), 413)
+    // Every profile comes out, 500 to a page, and settings come out apart from XP
+    const pages = []
+    for (let cursor: string | undefined, page = 0; page < 10; page++) {
+        const body = await read(await f.snapshotPage(["xp"], cursor))
+        pages.push(body.xp.length)
+        if (body.cursor === null) break
+        cursor = body.cursor
+    }
+    assert.deepEqual(pages, [500, 500, 200])
+    const xp = (await read(await f.snapshot(["xp"]))).xp as BackupManifest["xp"]
+    assert.equal(xp.length, 1200)
     assert.deepEqual((await read(await f.snapshot(["config"]))).xp, [])
+    // The archive gives every member one more XP than now
+    const planned = await f.plan(
+        f.manifest(
+            [],
+            xp.map((x) => ({ ...x, xp: x.xp + 1 })),
+        ),
+    )
+    // A page holds 100 members, so applying one stays within a function's reads
+    assert.equal(planned.plan.itemCount, 12)
+    const items: BackupItem[] = []
+    for (let cursor: string | undefined, page = 0; page < 5; page++) {
+        const body = await read(
+            await f.query({ type: "items", binding: binding(planned.plan), ...(cursor ? { cursor } : {}) }),
+        )
+        items.push(...body.items)
+        if (!body.nextCursor) break
+        cursor = body.nextCursor
+    }
+    assert.deepEqual(
+        [...new Set(items.map((x) => `${x.category} ${x.disposition} ${x.name?.split(",")[0]}`))],
+        ["xp update 100 members"],
+    )
+    // One member's XP changes after the check, so the restore leaves that member and says so
+    await f.db.run(async (ctx) => {
+        const row = (await ctx.db.query("levelingProfiles").collect()).find((x) => x.userId === "7")!
+        await ctx.db.patch(row._id, { xp: 70000 })
+    })
+    await f.confirm(planned.plan)
+    const applied = []
+    for (const item of items) applied.push((await read(await f.apply(item))).item as BackupItem)
+    assert.deepEqual([...new Set(applied.map((x) => x.state))], ["updated"])
+    assert.deepEqual(
+        applied.flatMap((x) => (x.reason ? [x.reason] : [])),
+        ["1 member was left alone, since their XP changed after the check"],
+    )
+    const after = new Map(
+        ((await read(await f.snapshot(["xp"]))).xp as BackupManifest["xp"]).map((x) => [x.userId, x.xp]),
+    )
+    assert.equal(after.get("7"), 70000)
+    assert.equal(after.get("1"), 2)
+    assert.equal(after.get("1200"), 1201)
 })
 
-test("Manifest validation rejects unknown fields, duplicate identity and invalid counts before persistence", async (t) => {
+test("A restore gives XP to new members of a server that already has 50,000 members with a score", async (t) => {
+    const f = await fixture(t)
+    await f.db.run(async (ctx) => {
+        const state = await levelingState(ctx, "1")
+        await ctx.db.patch(state._id, { profiles: 50000 })
+    })
+    const archive = f.manifest(
+        [],
+        [
+            { sourceId: "21", userId: "21", xp: 100 },
+            { sourceId: "22", userId: "22", xp: 200 },
+        ],
+    )
+    // An archive may hold more than 50,000 members with XP
+    const { config: _config, xp: _xp, structure: _structure, ...header } = archive
+    assert.equal(
+        decode(BackupManifestHeader, { ...header, counts: { ...header.counts, xp: 600000 } }).counts.xp,
+        600000,
+    )
+    const planned = await f.plan(archive)
+    assert.deepEqual(
+        planned.items.map((x) => ({ name: x.name, disposition: x.disposition, reason: x.reason })),
+        [{ name: "2 members, from <@21> to <@22>", disposition: "create", reason: null }],
+    )
+    await f.confirm(planned.plan)
+    assert.equal(((await read(await f.apply(planned.items[0]!))).item as BackupItem).state, "created")
+    const after = await f.db.run(async (ctx) => ({
+        xp: Object.fromEntries((await ctx.db.query("levelingProfiles").collect()).map((x) => [x.userId, x.xp])),
+        profiles: (await ctx.db.query("levelingSettings").first())!.profiles,
+    }))
+    assert.deepEqual(after, { xp: { "21": 100, "22": 200 }, profiles: 50002 })
+})
+
+test("A restore leaves out the XP of a member who deleted their data after the backup was made, and keeps only when they did", async (t) => {
+    const f = await fixture(t)
+    await f.db.run(async (ctx) => {
+        const state = await levelingState(ctx, "1")
+        await ctx.db.patch(state._id, { config: { ...state.config, enabled: true } })
+    })
+    const xp = (await read(await f.snapshot(["xp"]))).xp as BackupManifest["xp"]
+    assert.deepEqual(xp, [])
+    // Members 20 and 21 have XP, and the backup is made now
+    const first = await f.plan(
+        f.manifest(
+            [],
+            [
+                { sourceId: "20", userId: "20", xp: 100 },
+                { sourceId: "21", userId: "21", xp: 200 },
+            ],
+        ),
+    )
+    await f.confirm(first.plan)
+    await read(await f.apply(first.items[0]!))
+    const archive = f.manifest(
+        [],
+        [
+            { sourceId: "20", userId: "20", xp: 100 },
+            { sourceId: "21", userId: "21", xp: 200 },
+            { sourceId: "22", userId: "22", xp: 300 },
+        ],
+    )
+    // Member 20 deletes their data afterwards, and the check of the older backup leaves them out without naming them
+    f.advance(1000)
+    await f.db.run((ctx) => memberDataDelete(ctx, { userId: "20" }, "1", null))
+    const profiles = () =>
+        f.db.run(async (ctx) =>
+            Object.fromEntries((await ctx.db.query("levelingProfiles").collect()).map((x) => [x.userId, x.xp])),
+        )
+    assert.deepEqual(await profiles(), { "21": 200 })
+    await f.db.run(async (ctx) => {
+        const row = (await ctx.db.query("levelingProfiles").collect()).find((x) => x.userId === "21")!
+        await ctx.db.patch(row._id, { xp: 150 })
+    })
+    const planned = await f.plan(archive)
+    assert.deepEqual(
+        planned.items.map((x) => ({ name: x.name, reason: x.reason })),
+        [
+            {
+                name: "2 members, from <@21> to <@22>",
+                reason: "1 member is left out, since they deleted their data with !mydata after the backup was made",
+            },
+        ],
+    )
+    // Member 22 deletes their data between the check and the restore, so the step leaves them out too
+    f.advance(1000)
+    await f.db.run((ctx) => memberDataDelete(ctx, { userId: "22" }, "1", null))
+    await f.confirm(planned.plan)
+    const applied = (await read(await f.apply(planned.items[0]!))).item as BackupItem
+    assert.equal(
+        applied.reason,
+        "1 member was left out, since they deleted their data with !mydata after the backup was made",
+    )
+    assert.deepEqual(await profiles(), { "21": 200 })
+    // Only who deleted and when is kept
+    assert.deepEqual(
+        (await f.db.run((ctx) => ctx.db.query("memberDataDeletions").collect())).map(
+            ({ _id, _creationTime, ...row }) => row,
+        ),
+        [
+            { serverId: "1", userId: "20", deletedAt: f.now() - 1000 },
+            { serverId: "1", userId: "22", deletedAt: f.now() },
+        ],
+    )
+    // A check of only that member names no one, and a backup made after the deletion restores their XP as usual
+    const only = await f.plan({
+        ...archive,
+        backupId: "f".repeat(32),
+        xp: archive.xp.slice(0, 1),
+        counts: { ...archive.counts, xp: 1 },
+    })
+    assert.deepEqual(
+        only.items.map((x) => ({ name: x.name, disposition: x.disposition })),
+        [{ name: "1 member", disposition: "blocked" }],
+    )
+    f.advance(1000)
+    const later = await f.plan(f.manifest([], [{ sourceId: "20", userId: "20", xp: 400 }]))
+    await f.confirm(later.plan)
+    assert.equal(((await read(await f.apply(later.items[0]!))).item as BackupItem).state, "created")
+    assert.deepEqual(await profiles(), { "20": 400, "21": 200 })
+})
+
+test("A check refuses a header or segment that does not hold the archive, and no such check becomes a plan", async (t) => {
     const f = await fixture(t),
         c = f.channel(),
         original = f.manifest([], [], [c])
     for (const bad of [
-        { ...original, version: 2 },
+        { ...original, version: 1 },
         { ...original, key: "synthetic-never-stored" },
         { ...original, structure: [c, c], counts: { ...original.counts, structure: 2, overwrites: 2 } },
         { ...original, counts: { ...original.counts, structure: 2 } },
         { ...original, structure: [{ ...c, overwrites: [c.overwrites[0], c.overwrites[0]] }] },
     ] as BackupManifest[])
         await status(await f.preview(bad, f.proof([c])), 400)
-    assert.equal((await f.db.run((ctx) => ctx.db.query("backupPlans").collect())).length, 0)
+    const ready = () =>
+        f.db.run(async (ctx) => (await ctx.db.query("backupPlans").collect()).filter((x) => x.state === "ready"))
+    assert.equal((await ready()).length, 0)
     await read(await f.preview(original, f.proof([c])))
+    assert.equal((await ready()).length, 1)
     assert.equal(canonicalBackupJson({ b: 1, a: 2 }), canonicalBackupJson({ a: 2, b: 1 }))
     assert.throws(() => backupConfig({ family: "unknown", sourceId: "x", value: {} }))
 })
@@ -542,7 +727,7 @@ test("XP restore sets the current season, moves the rank counts, queues no rewar
     )
 })
 
-test("Plan confirmations bind archive, provider, owner, revision and fifteen minute expiry", async (t) => {
+test("Plan confirmations bind archive, provider, owner and revision, a check confirms for a day and a confirmed plan runs past it", async (t) => {
     const f = await fixture(t),
         archive = f.manifest([], [{ sourceId: "20", userId: "20", xp: 1 }])
     const first = await f.plan(archive)
@@ -564,8 +749,16 @@ test("Plan confirmations bind archive, provider, owner, revision and fifteen min
     )
     await f.confirm(first.plan)
     assert.equal((await f.confirm(first.plan)).duplicate, true)
-    f.advance(900000)
-    await status(await f.apply(first.items[0]!), 409)
+    // A confirmed plan runs whenever its check would have stopped being confirmable
+    f.advance(BACKUP_PLAN_MS + 1)
+    assert.equal((await read(await f.apply(first.items[0]!))).item.state, "created")
+    // Confirming it again past that day continues its run, as `!backup confirm` does for a run that stopped
+    const again = await f.confirm(first.plan)
+    assert.deepEqual([again.duplicate, again.run], [true, "started"])
+    // A check nobody confirmed for a day is no longer confirmed
+    const second = await f.plan(f.manifest([], [{ sourceId: "21", userId: "21", xp: 1 }]))
+    f.advance(BACKUP_PLAN_MS)
+    await status(await f.manage({ type: "confirm", binding: binding(second.plan) }), 409)
 })
 
 test("Native creation reserves once, claims once and blocks origin across different archive IDs", async (t) => {
@@ -650,6 +843,22 @@ test("Unknown creation survives aging and accepts only original late response-bo
     assert.equal(deleted.items[0]!.disposition, "create")
 })
 
+test("A channel NeonFlux could not read is blocked instead of created, while a deleted one beside it is created", async (t) => {
+    const f = await fixture(t),
+        hidden = f.channel("100"),
+        deleted = f.channel("101")
+    const proof = f.proof(
+        [deleted],
+        [],
+        [{ sourceId: "100", observedAt: f.now(), status: "unknown", channel: null, botPermissions: "0" }],
+    )
+    const planned = await f.plan(f.manifest([], [], [hidden, deleted]), proof)
+    assert.deepEqual(planned.items.map((x) => [x.sourceId, x.disposition, x.reason]).sort(), [
+        ["100", "blocked", "NeonFlux could not tell whether this channel still exists"],
+        ["101", "create", null],
+    ])
+})
+
 test("Missing overwrite audience and parent references block creates without dropping private restrictions", async (t) => {
     const f = await fixture(t),
         object = {
@@ -695,13 +904,13 @@ test("Configuration revisions changing after preview conflict without overwritin
 
 test("Retention bounds settled detail erasure, takes the changes of a plan with it and preserves body-free durable origin maps", async (t) => {
     const f = await fixture(t),
-        profiles = Array.from({ length: 25 }, (_, n) => ({
-            sourceId: String(n + 1),
-            userId: String(n + 1),
-            xp: n + 1,
+        drafts: BackupConfigObject[] = Array.from({ length: 25 }, (_, n) => ({
+            family: "draft",
+            sourceId: `draft_d${n}`,
+            value: { kind: "draft", name: `d${n}`, content: { content: "Synthetic draft" } },
         })),
         object = f.channel(),
-        planned = await f.plan(f.manifest([], profiles, [object]), f.proof([object]))
+        planned = await f.plan(f.manifest(drafts, [], [object]), f.proof([object]))
     assert.equal(planned.items.length, 20)
     assert(planned.nextCursor)
     const next = await read(
@@ -719,30 +928,48 @@ test("Retention bounds settled detail erasure, takes the changes of a plan with 
         f.db.run(async (ctx) => (await ctx.db.query(table).collect()).length)
     // Every create brings its changes, and every item, change row and plan goes in passes of twenty rows
     assert.equal(await count("backupChanges"), 26)
-    f.advance(604800000 + 900001)
+    f.advance(604800000 + BACKUP_PLAN_MS + 1)
     assert.equal((await f.clean()).removed, 20)
     assert.equal(await count("backupItems"), 6)
     assert.equal((await f.clean()).removed, 6 + 20)
     assert.equal(await count("backupChanges"), 6)
     assert.equal((await f.clean()).removed, 6 + 1)
     assert.deepEqual([await count("backupItems"), await count("backupChanges"), await count("backupPlans")], [0, 0, 0])
-    // XP and configuration leave no origin. Only the channel the restore created keeps its mapping
+    // Configuration leaves no origin. Only the channel the restore created keeps its mapping
     assert.equal(await count("backupOrigins"), 1)
 })
 
-test("Capacity refuses an eleventh confirmed plan and a plan of more than 500 items", async (t) => {
-    const f = await fixture(t),
-        count = () => f.db.run(async (ctx) => (await ctx.db.query("backupPlans").collect()).length)
-    for (let n = 0; n < 10; n++) await f.confirm((await f.plan(f.manifest())).plan)
-    assert.equal(await count(), 10)
+test("Only unfinished plans count toward a server's ten: forgetting a plan or finishing its run frees its place", async (t) => {
+    const f = await fixture(t)
+    // Each plan is confirmed and its run stopped, so it stays unfinished
+    const plans: BackupPlan[] = []
+    for (let n = 0; n < 10; n++) {
+        const made = (await f.plan(f.manifest())).plan
+        await f.confirm(made)
+        plans.push(made)
+    }
     await status(await f.preview(f.manifest()), 429)
-    assert.equal(await count(), 10)
-    const big = f.manifest(
-        [],
-        Array.from({ length: 501 }, (_, n) => ({ sourceId: String(n + 1), userId: String(n + 1), xp: n })),
-    )
-    await status(await f.preview(big), 413)
-    assert.equal(await count(), 10)
+    await read(await f.manage({ type: "forget", binding: binding(plans[0]!) }))
+    const eleventh = (await f.plan(f.manifest())).plan
+    // A run that settles every item finishes its plan, which frees its place at once
+    await read(await f.manage({ type: "confirm", binding: binding(eleventh) }))
+    const job = await f.db.run(async (ctx) => (await ctx.db.query("backupPreviewJobs").collect())[0]!)
+    await read(await f.http("/backup/run-step", { serverId: "1", requestedAt: job.createdAt, recorded: 0 }))
+    await read(await f.preview(f.manifest()))
+})
+
+test("A plan of 501 members' XP and 499 settings is planned and confirmed", async (t) => {
+    const f = await fixture(t),
+        config: BackupConfigObject[] = Array.from({ length: 499 }, (_, n) => ({
+            family: "draft",
+            sourceId: `template_t${n}`,
+            value: { kind: "template", name: `t${n}`, content: { content: "Synthetic template" } },
+        })),
+        xp = Array.from({ length: 501 }, (_, n) => ({ sourceId: String(n + 1), userId: String(n + 1), xp: n }))
+    const planned = await f.plan(f.manifest(config, xp))
+    // Every setting is an item, and the members are six pages of XP
+    assert.deepEqual([planned.plan.itemCount, planned.plan.counts.create], [505, 505])
+    assert.equal((await f.confirm(planned.plan)).plan.confirmedAt, f.now())
 })
 
 test("Native channel semantics preserve exact field values and canonicalize overwrite order only", async () => {
@@ -917,7 +1144,7 @@ test("Native callbacks retain exact known identity with mismatched or unavailabl
     assert.equal(reconciled.item.resolution, "conflict")
     assert.equal(reconciled.item.historicalOutcome, "uncertain")
     await read(await f.manage({ type: "forget", binding: binding(planned.plan) }))
-    f.advance(604800000 + 900001)
+    f.advance(604800000 + BACKUP_PLAN_MS + 1)
     await f.clean()
     assert.equal((await f.db.run((ctx) => ctx.db.query("backupPlans").collect())).length, 0)
     assert.equal((await f.db.run((ctx) => ctx.db.query("backupOrigins").first()))!.mappedId, "500")
@@ -1071,8 +1298,69 @@ async function samples(): Promise<Record<Family, Sample>> {
         changed,
         on,
     })
-    const switchable = (family: "publishing" | "milestones" | "cleanup" | "events" | "schedules") =>
+    const switchable = (family: "publishing" | "milestones" | "cleanup" | "events" | "schedules" | "analytics") =>
         pair(family, family, { enabled: false }, { enabled: true }, ["enabled"], true)
+    // Dates ahead of the fixture's clock, which starts on 2026-01-01
+    const day = Date.parse("2026-01-10T12:00:00Z")
+    const civil = (at: number) => ({ localMinute: new Date(at).toISOString().slice(0, 16), offsetMinutes: 0 })
+    const scheduleCalendar = (at: number) => ({
+        localMinute: new Date(at).toISOString().slice(0, 16),
+        zone: "UTC",
+        fold: "reject" as const,
+        recurrence: { type: "none" as const },
+        dates: [{ ...civil(at), dueAt: at }],
+    })
+    const event = (title: string, capacity: number | null) => ({
+        name: "probe",
+        channelId: "30",
+        title,
+        description: "",
+        capacity,
+        reminderOffsets: [1440, 60],
+    })
+    const schedule = (text: string, at: number) => ({
+        name: "probe",
+        channelId: "30",
+        calendar: scheduleCalendar(at),
+        source: { kind: "draft" as const, name: "probe", revision: 1 },
+        content: { content: text },
+        enabled: false,
+    })
+    const generator = (template: string, userLimit: number | null) => ({
+        channelId: "33",
+        categoryId: null,
+        template,
+        userLimit,
+        region: null,
+    })
+    const lfg = (enabled: boolean, channelId: string | null, maxSize: number) => ({
+        enabled,
+        channelId,
+        generatorChannelId: null,
+        expiryMinutes: 60,
+        maxSize,
+        memberGroups: 1,
+        serverGroups: 10,
+    })
+    const lists = (allowRoleIds: string[], blockRoleIds: string[], allowUserIds: string[]) => ({
+        feature: "rolepicker" as const,
+        allowRoleIds,
+        blockRoleIds,
+        allowUserIds,
+        blockUserIds: [],
+    })
+    const alerts = (invites: boolean, expectedBotIds: string[], kickBots: boolean) => ({
+        invites,
+        bots: false,
+        webhooks: false,
+        privileges: false,
+        impersonation: false,
+        kickBots,
+        deleteWebhooks: false,
+        removePermissions: false,
+        expectedBotIds,
+        expectedWebhookIds: [],
+    })
     const greeting = {
         enabled: true,
         timing: "join" as const,
@@ -1085,9 +1373,10 @@ async function samples(): Promise<Record<Family, Sample>> {
         moderation: pair(
             "moderation",
             "moderation",
-            { ...moderation, automodEnabled: false, joinThreshold: 5 },
-            { ...moderation, automodEnabled: true, joinThreshold: 6 },
-            ["automodEnabled", "joinThreshold"],
+            { ...moderation, automodEnabled: false, joinThreshold: 5, caseRetentionDays: 30 },
+            // No case period keeps cases until erased
+            { ...moderation, automodEnabled: true, joinThreshold: 6, privateDataRoleId: "43" },
+            ["automodEnabled", "caseRetentionDays", "joinThreshold", "privateDataRoleId"],
             true,
         ),
         responses: pair(
@@ -1205,13 +1494,176 @@ async function samples(): Promise<Record<Family, Sample>> {
             ["enabled", "eventRoutes", "messageChannelIds", "routes"],
             true,
         ),
-        events: switchable("events"),
+        events: pair(
+            "events",
+            "events",
+            { enabled: false, threads: false },
+            { enabled: true, threads: true },
+            ["enabled", "threads"],
+            true,
+        ),
+        event: pair("event", "probe", event("One", null), event("Two", 10), ["capacity", "title"], false),
         schedules: switchable("schedules"),
+        schedule: pair(
+            "schedule",
+            "probe",
+            schedule("One", day),
+            schedule("Two", day + 86400000),
+            ["calendar", "content"],
+            false,
+        ),
+        general: pair(
+            "general",
+            "general",
+            { prefix: "?", replyStyle: "text", nickname: "Synthetic bot" },
+            { prefix: "$", replyStyle: "embed" },
+            ["nickname", "prefix", "replyStyle"],
+            false,
+        ),
+        analytics: switchable("analytics"),
+        voiceGenerator: pair(
+            "voiceGenerator",
+            "33",
+            generator("{owner} room", null),
+            generator("Room of {owner}", 5),
+            ["template", "userLimit"],
+            false,
+        ),
+        lfg: pair("lfg", "lfg", lfg(false, null, 5), lfg(true, "30", 6), ["channelId", "enabled", "maxSize"], true),
+        rolepicker: pair(
+            "rolepicker",
+            "rolepicker",
+            { enabled: false, menus: [{ name: "probe", mode: "single", roleIds: ["40"] }] },
+            { enabled: true, menus: [{ name: "probe", mode: "multi", description: "Pick", roleIds: ["40", "41"] }] },
+            ["enabled", "menus"],
+            true,
+        ),
+        access: pair(
+            "access",
+            "rolepicker",
+            lists([], ["41"], []),
+            lists(["40"], [], ["20"]),
+            ["allowRoleIds", "allowUserIds", "blockRoleIds"],
+            false,
+        ),
+        temproles: pair(
+            "temproles",
+            "temproles",
+            { roles: [{ roleId: "40", defaultSeconds: 3600 }] },
+            { roles: [{ roleId: "41", maxSeconds: 7200 }] },
+            ["roles"],
+            false,
+        ),
+        onboarding: pair(
+            "onboarding",
+            "onboarding",
+            { enabled: false, delivery: "welcome", steps: [{ type: "rules" }], completionRoleId: null },
+            {
+                enabled: true,
+                delivery: "dm",
+                steps: [{ type: "rules" }, { type: "link", channelId: "30", text: "Read the guide" }],
+                completionRoleId: "40",
+            },
+            ["completionRoleId", "delivery", "enabled", "steps"],
+            true,
+        ),
+        sticky: pair(
+            "sticky",
+            "30",
+            { channelId: "30", content: "One", intervalSeconds: 30 },
+            { channelId: "30", content: "Two", intervalSeconds: 60 },
+            ["content", "intervalSeconds"],
+            false,
+        ),
+        alerts: pair(
+            "alerts",
+            "alerts",
+            alerts(false, ["22"], false),
+            alerts(true, ["21"], true),
+            ["expectedBotIds", "invites", "kickBots"],
+            true,
+        ),
+        helpdesk: pair(
+            "helpdesk",
+            "helpdesk",
+            {
+                forumIds: [],
+                greeting: null,
+                solvedTag: "Solved",
+                nudgeHours: null,
+                guardChannelId: null,
+                autoArchive: false,
+            },
+            {
+                forumIds: ["31"],
+                greeting: "Welcome",
+                solvedTag: "Done",
+                nudgeHours: 24,
+                guardChannelId: "32",
+                autoArchive: true,
+            },
+            ["autoArchive", "forumIds", "greeting", "guardChannelId", "nudgeHours", "solvedTag"],
+            false,
+        ),
+        helpdeskAnswer: pair(
+            "helpdeskAnswer",
+            "probe",
+            { name: "probe", title: "One", content: "First answer" },
+            { name: "probe", title: "Two", content: "Second answer" },
+            ["content", "title"],
+            false,
+        ),
+        showcase: pair(
+            "showcase",
+            "showcase",
+            { enabled: false, channelId: null, maxPerMember: null, intervalMinutes: null },
+            { enabled: true, channelId: "30", maxPerMember: 3, intervalMinutes: 60 },
+            ["channelId", "enabled", "intervalMinutes", "maxPerMember"],
+            true,
+        ),
+        profile: pair(
+            "profile",
+            "profile",
+            { enabled: false, cooldownSeconds: null },
+            { enabled: true, cooldownSeconds: 30 },
+            ["cooldownSeconds", "enabled"],
+            true,
+        ),
+        youtube: pair(
+            "youtube",
+            youtubeChannel,
+            { youtubeChannelId: youtubeChannel, channelId: "30" },
+            { youtubeChannelId: youtubeChannel, channelId: "31" },
+            ["channelId"],
+            false,
+        ),
     }
 }
+/** A YouTube channel ID of the right shape, which the tests never contact */
+const youtubeChannel = "UCsyntheticBackupChannel"
 
 async function restoration(t: TestContext) {
     const f = await fixture(t)
+    // YouTube alerts need a hub, and a channel NeonFlux follows already with its title known needs no request to it
+    const env = { hub: process.env.NEONFLUX_WEBSUB_HUB_URL, base: process.env.NEONFLUX_WEBSUB_CALLBACK_BASE }
+    process.env.NEONFLUX_WEBSUB_HUB_URL = "https://hub.synthetic.invalid/subscribe"
+    process.env.NEONFLUX_WEBSUB_CALLBACK_BASE = "https://alerts.synthetic.invalid"
+    t.after(() => {
+        if (env.hub === undefined) delete process.env.NEONFLUX_WEBSUB_HUB_URL
+        else process.env.NEONFLUX_WEBSUB_HUB_URL = env.hub
+        if (env.base === undefined) delete process.env.NEONFLUX_WEBSUB_CALLBACK_BASE
+        else process.env.NEONFLUX_WEBSUB_CALLBACK_BASE = env.base
+    })
+    await f.db.run((ctx) =>
+        ctx.db.insert("youtubeSources", {
+            youtubeChannelId: youtubeChannel,
+            mode: "subscribe",
+            title: "Synthetic channel",
+            dueAt: f.now() + 86400000,
+            failures: 0,
+            createdAt: f.now(),
+        }),
+    )
     const reference = (id: string, type: BackupNativeProof["references"][number]["type"], permissions = "0") => ({
         id,
         type,
@@ -1233,6 +1685,7 @@ async function restoration(t: TestContext) {
                 reference("30", "text", channelPermissions),
                 reference("31", "text", channelPermissions),
                 reference("32", "text", channelPermissions),
+                reference("33", "voice", channelPermissions),
                 reference("10", "member"),
             ],
         )
@@ -1246,9 +1699,14 @@ async function restoration(t: TestContext) {
         await wipe()
         const planned = await f.plan(f.manifest(config), proof())
         await f.confirm(planned.plan)
-        const applied = []
-        for (const item of planned.items) applied.push((await read(await f.apply(item, proof()))).item as BackupItem)
-        return { planned, items: planned.items, applied }
+        const applied = [],
+            panels = []
+        for (const item of planned.items) {
+            const body = await read(await f.apply(item, proof()))
+            applied.push(body.item as BackupItem)
+            panels.push(body.panel as RolesPanel | undefined)
+        }
+        return { planned, items: planned.items, applied, panels }
     }
     const projected = async (config: BackupConfigObject) =>
         ((await read(await f.snapshot(["config"]))).config as BackupConfigObject[]).find(
@@ -1259,6 +1717,93 @@ async function restoration(t: TestContext) {
 
 // A role setting without its optional values reads the same as one with them at their defaults
 const normalized = (config: BackupConfigObject | undefined) => config && backupNormalized(config)
+
+test("Alert settings written before the action switches existed back up with every action off", () => {
+    const projected = projectBackupConfig("alerts", {
+        serverId: "1",
+        invites: true,
+        bots: false,
+        webhooks: false,
+        privileges: false,
+        impersonation: false,
+        expectedBotIds: [],
+        expectedWebhookIds: [],
+        updatedAt: 0,
+        updatedBy: "10",
+    })
+    assert.deepEqual(projected.value, {
+        invites: true,
+        bots: false,
+        webhooks: false,
+        privileges: false,
+        impersonation: false,
+        kickBots: false,
+        deleteWebhooks: false,
+        removePermissions: false,
+        expectedBotIds: [],
+        expectedWebhookIds: [],
+    })
+})
+
+test("Alert settings with full lists of expected bots and webhooks restore in one write, and the same IDs in another order change nothing", async (t) => {
+    const r = await restoration(t)
+    // 8,192 expected IDs in each list, the most Convex keeps in one array, restore without reading the settings row once for each,
+    // and the check shows each list as one row of the IDs it adds, so the item stays small enough to show
+    const ids = (from: number) =>
+        Array.from({ length: 8192 }, (_, index) => String(BigInt("1456074443980800000") + BigInt(from + index)))
+    const sample = {
+        family: "alerts",
+        sourceId: "alerts",
+        value: {
+            invites: false,
+            bots: true,
+            webhooks: true,
+            privileges: false,
+            impersonation: false,
+            kickBots: false,
+            deleteWebhooks: true,
+            removePermissions: false,
+            expectedBotIds: ids(100000),
+            expectedWebhookIds: ids(200000),
+        },
+    } as BackupConfigObject
+    const restored = await r.restore(sample)
+    assert.deepEqual([restored.items[0]!.disposition, restored.applied[0]!.state], ["create", "created"])
+    assert.deepEqual(normalized(await r.projected(sample)), normalized(sample))
+    const changes = await r.db.run(async (ctx) => (await ctx.db.query("backupChanges").first())!.changes)
+    assert.deepEqual(
+        changes
+            .flatMap((change) => (change.kind === "field" ? [change] : []))
+            .filter((change) => change.path.startsWith("expected"))
+            .map((change) => [change.path, "before" in change, (change.after as string[]).length]),
+        [
+            ["expectedBotIds", false, 8192],
+            ["expectedWebhookIds", false, 8192],
+        ],
+    )
+    // The server's lists in another order are the same lists, so the archive restores nothing and writes nothing
+    const reversed = async () =>
+        r.db.run(async (ctx) => {
+            const row = (await ctx.db.query("alertSettings").first())!
+            await ctx.db.patch(row._id, {
+                expectedBotIds: [...row.expectedBotIds].reverse(),
+                expectedWebhookIds: [...row.expectedWebhookIds].reverse(),
+            })
+        })
+    await reversed()
+    const audited = await r.db.run(async (ctx) => (await ctx.db.query("auditLogEntries").collect()).length)
+    const same = await r.restore(sample)
+    assert.deepEqual([same.items[0]!.disposition, same.applied[0]!.state], ["skip", "skipped"])
+    assert.equal(await r.db.run(async (ctx) => (await ctx.db.query("auditLogEntries").collect()).length), audited)
+    // A changed switch writes the switch, and lists that differ only in order keep their stored order
+    const switched = await r.restore({ ...sample, value: { ...sample.value, invites: true } } as BackupConfigObject)
+    assert.deepEqual([switched.items[0]!.disposition, switched.applied[0]!.state], ["update", "updated"])
+    const stored = await r.db.run(async (ctx) => (await ctx.db.query("alertSettings").first())!)
+    assert.deepEqual(
+        [stored.invites, stored.expectedBotIds[0], stored.expectedWebhookIds[0]],
+        [true, ids(100000).at(-1), ids(200000).at(-1)],
+    )
+})
 
 test("A milestone route that was cleared is restored from an archive that held it switched off", async (t) => {
     const r = await restoration(t),
@@ -1514,46 +2059,168 @@ test("A ticket category moves its support roles' protection with it and takes th
     assert.deepEqual(await protections(), [])
 })
 
-test("A panel that is published or withdrawing belongs to its message, so a restore leaves it alone", async (t) => {
-    const r = await restoration(t),
-        all = await samples(),
-        panel = all.panel.after
-    const row = {
-        serverId: "1",
-        name: "probe",
+test("A restore step fits the proof of the setting that names the most references beside the server's 500 channels", async (t) => {
+    const f = await fixture(t)
+    const id = (n: number) => String(1456074443980800000n + BigInt(n))
+    const proof = decode(
+        BackupNativeProof,
+        {
+            originServerId: id(0),
+            observedAt: 1792857037676,
+            serverId: id(0),
+            ownerId: id(1),
+            botId: id(2),
+            actorPermissions: "18446744073709551615",
+            botPermissions: "18446744073709551615",
+            actorCanManageChannels: true,
+            botCanManageChannels: true,
+            references: Array.from({ length: BACKUP_RESTORE_LIMITS.proofReferences }, (_, n) => ({
+                originServerId: id(0),
+                id: id(1000 + n),
+                type: "category",
+                serverId: id(0),
+                observedAt: 1792857037676,
+                exists: true,
+                actorCanAccess: true,
+                botCanAccess: true,
+                actorCanManage: true,
+                botCanManage: true,
+                permissions: "18446744073709551615",
+            })),
+            observations: [],
+            channels: Array.from({ length: 500 }, (_, n) => ({
+                originServerId: id(0),
+                id: id(10000 + n),
+                type: "announcement",
+                name: "x".repeat(100),
+                parentId: id(20000),
+                botCanManage: true,
+                synced: true,
+            })),
+        },
+        "Invalid proof",
+    )
+    // The route takes it, whatever the step then finds of its plan
+    const response = await f.work({ type: "apply", binding: {}, context: {}, native: proof })
+    assert.notEqual(response.status, 413)
+    assert.ok(JSON.stringify(proof).length > 1000000)
+})
+
+test("A posted panel backs up its definition only, returns unposted when missing and changes in place when posted", async (t) => {
+    const r = await restoration(t)
+    // The longest name a panel may have, so every warning below is shown whole within the bot's 256 characters
+    const name = "probe".padEnd(32, "x")
+    const mapping = (emoji: string, roleId = "42") => ({ emoji, roleId, prerequisiteRoleIds: [], exclusionRoleIds: [] })
+    const value = (mappings: ReturnType<typeof mapping>[]) => ({
+        name,
         kind: "reaction" as const,
-        revision: 1,
         enabled: true,
         exclusive: false,
-        mappings: [{ emoji: "✅", roleId: "42", prerequisiteRoleIds: [], exclusionRoleIds: [] }],
-        withdrawing: false,
+        mappings,
+    })
+    const panel = (mappings: ReturnType<typeof mapping>[]): BackupConfigObject => ({
+        family: "panel",
+        sourceId: name,
+        value: value(mappings),
+    })
+    const published = {
+        revision: 1,
+        publishedAt: 1,
+        postNo: 1,
+        postGeneration: 1,
+        channelId: "30",
+        messageId: "500",
+        botId: "999",
+        content: { content: "Synthetic" },
+        mappings: [mapping("✅")],
+        exclusive: false,
     }
-    for (const patch of [
-        {
-            published: {
-                revision: 1,
-                publishedAt: 1,
-                postNo: 1,
-                postGeneration: 1,
-                channelId: "30",
-                messageId: "500",
-                botId: "999",
-                content: { content: "Synthetic" },
-                mappings: row.mappings,
-                exclusive: false,
-            },
-        },
-        { withdrawing: true },
-    ]) {
-        await r.db.run(async (ctx) => {
+    const post = (patch: Record<string, unknown> = {}) =>
+        r.db.run(async (ctx) => {
             for (const old of await ctx.db.query("rolePanels").collect()) await ctx.db.delete(old._id)
-            await ctx.db.insert("rolePanels", { ...row, ...patch })
+            await ctx.db.insert("rolePanels", {
+                serverId: "1",
+                revision: 1,
+                ...value([mapping("✅")]),
+                published,
+                withdrawing: false,
+                ...patch,
+            })
         })
-        const planned = await r.plan(r.manifest([panel]), r.proof())
-        assert.deepEqual(
-            [planned.items[0]!.disposition, planned.items[0]!.reason],
-            ["blocked", "Withdraw this role panel first, then check again"],
-        )
+    const stored = () => r.db.run(async (ctx) => (await ctx.db.query("rolePanels").collect())[0])
+    const memberRoles = () =>
+        r.db.run(async (ctx) => ({
+            attempts: (await ctx.db.query("roleAttempts").collect()).length,
+            ownership: (await ctx.db.query("roleOwnership").collect()).length,
+        }))
+    await post()
+    // The archive holds what staff authored, never the message, its publication or its reactions to clear
+    const exported = await r.projected(panel([mapping("✅")]))
+    assert.deepEqual(exported, panel([mapping("✅")]))
+    assert(!JSON.stringify(exported).includes("500"))
+    // Restored into a server without it, it returns unposted, says how to post it and gives no member a role
+    await r.db.run(async (ctx) => {
+        for (const old of await ctx.db.query("rolePanels").collect()) await ctx.db.delete(old._id)
+    })
+    const missing = await r.restore(panel([mapping("✅")]))
+    // The bot reads each item through the contract, which holds a warning or reason of at most 256 characters
+    decode(BackupItem, missing.items[0], "Invalid item")
+    assert.deepEqual(
+        [missing.items[0]!.disposition, missing.items[0]!.warning, missing.applied[0]!.state],
+        [
+            "create",
+            `Returns unposted, so members cannot use it until staff post it with !roles publish ${name} #channel <draft-name>`,
+            "created",
+        ],
+    )
+    const created = (await stored())!
+    assert.deepEqual([created.published, created.withdrawing, created.mappings], [undefined, false, [mapping("✅")]])
+    // An unposted panel has no reactions for the bot to clear
+    assert.deepEqual(missing.panels, [undefined])
+    assert.deepEqual(await memberRoles(), { attempts: 0, ownership: 0 })
+    // Over the posted panel, the archived roles change under its message as a staff edit does: The emoji whose role changed waits
+    // for its reactions to clear, and the message, revision and post stay
+    await post()
+    const changed = await r.restore(panel([mapping("✅", "43"), mapping("🎉")]))
+    decode(BackupItem, changed.items[0], "Invalid item")
+    assert.deepEqual([changed.items[0]!.disposition, changed.applied[0]!.state], ["update", "updated"])
+    assert.equal(
+        changed.items[0]!.warning,
+        `Changes its posted message in place. NeonFlux clears reactions whose role changed now, so members react again, and takes back roles it gave that the panel no longer gives. If clearing fails, !roles reactions ${name} finishes it`,
+    )
+    const edited = (await stored())!
+    assert.deepEqual(
+        [edited.revision, edited.published?.messageId, edited.published?.mappings, edited.published?.pendingClear],
+        [1, "500", [mapping("✅", "43"), mapping("🎉")], ["✅", "🎉"]],
+    )
+    assert.equal(edited.published?.clearGeneration, 1)
+    // The step answers with the panel, so the bot clears those reactions in the same pass
+    assert.deepEqual(
+        [changed.panels[0]?.name, changed.panels[0]?.published?.messageId, changed.panels[0]?.published?.pendingClear],
+        [name, "500", ["✅", "🎉"]],
+    )
+    // A panel being withdrawn, a switch to one choice and more reactions to clear than a change may hold are left alone with why
+    for (const [patch, archived, reason] of [
+        [
+            { withdrawing: true },
+            panel([mapping("🎉")]),
+            "This role panel is being withdrawn, so a restore leaves it alone. Check again once that finished",
+        ],
+        [
+            {},
+            { ...panel([mapping("✅")]), value: { ...value([mapping("✅")]), exclusive: true } },
+            "Switching a posted role panel to one choice needs a new panel message. Withdraw it first, then check again",
+        ],
+        [
+            { published: { ...published, pendingClear: Array.from({ length: 40 }, (_, i) => `e${i}`) } },
+            panel([mapping("🎉")]),
+            `Panel ${name} still has reactions to update. Run !roles reactions ${name} first, then check again`,
+        ],
+    ] as const) {
+        await post(patch)
+        const planned = await r.plan(r.manifest([archived as BackupConfigObject]), r.proof())
+        decode(BackupItem, planned.items[0], "Invalid item")
+        assert.deepEqual([planned.items[0]!.disposition, planned.items[0]!.reason], ["blocked", reason])
     }
 })
 
@@ -1760,13 +2427,25 @@ test("A channel labelled as made by tickets or voice rooms is skipped by a resto
 
 test("An item whose changes are too large to show is blocked instead of shown in part", async (t) => {
     const r = await restoration(t)
-    // Twenty canned replies of 8,000 three-byte characters are about 480 KiB, which fits an archive but not its changes against the same size
-    const reply = (n: number, c: string) => ({
+    // Canned replies just under the 256 KiB a category holds fit an archive, but their changes against another such set do not fit
+    // the 512 KiB the changes of one item may take
+    const reply = (n: number, c: string, length: number) => ({
         name: `reply${n}`,
         templateName: "probe",
         templateRevision: 1,
-        content: { content: c.repeat(2000), embed: { description: c.repeat(4000) } },
+        content: {
+            content: c.repeat(Math.min(length, 2000)),
+            embed: { description: c.repeat(Math.max(1, length - 2000)) },
+        },
     })
+    const replies = (c: string) => {
+        const rows: ReturnType<typeof reply>[] = []
+        while (ticketCannedBytes([...rows, reply(rows.length, c, 6000)]) <= TICKET_CANNED_BYTES)
+            rows.push(reply(rows.length, c, 6000))
+        let length = 6000
+        while (ticketCannedBytes([...rows, reply(rows.length, c, length)]) > TICKET_CANNED_BYTES) length--
+        return [...rows, reply(rows.length, c, length)]
+    }
     const category = (c: string): BackupConfigObject => ({
         family: "ticketCategory",
         sourceId: "probe",
@@ -1778,7 +2457,7 @@ test("An item whose changes are too large to show is blocked instead of shown in
             parentId: null,
             supportRoleIds: [],
             questions: [],
-            cannedReplies: Array.from({ length: 20 }, (_, n) => reply(n, c)),
+            cannedReplies: replies(c),
         },
     })
     await r.restore(category("\u20ac"))
@@ -1813,19 +2492,24 @@ test("Forgetting a settled plan drops the archive values and changes it held and
     assert.equal((await r.db.run((ctx) => ctx.db.query("levelingProfiles").collect())).length, 1)
 })
 
-test("A plan of 500 items previews, stores its items and changes, and is replaced by the next preview within one transaction", async (t) => {
+test("A plan of 500 items previews in one segment, stores its items and changes, and the next preview replaces it", async (t) => {
     const f = await fixture(t),
-        xp = (n: number) =>
-            Array.from({ length: 500 }, (_, i) => ({ sourceId: String(10000 + i), userId: String(10000 + i), xp: n }))
-    const first = await f.plan(f.manifest([], xp(5)))
+        drafts = (text: string): BackupConfigObject[] =>
+            Array.from({ length: 500 }, (_, i) => ({
+                family: "draft",
+                sourceId: `draft_d${i}`,
+                value: { kind: "draft", name: `d${i}`, content: { content: text } },
+            }))
+    const first = await f.plan(f.manifest(drafts("one")))
     assert.equal(first.plan.itemCount, 500)
     const count = (table: "backupItems" | "backupChanges") =>
         f.db.run(async (ctx) => (await ctx.db.query(table).collect()).length)
     assert.deepEqual([await count("backupItems"), await count("backupChanges")], [500, 500])
-    // The next preview deletes the 1,000 rows of the first plan and writes 1,000 of its own, which fits a mutation
-    const second = await f.plan(f.manifest([], xp(6)))
+    // The next preview forgets the first plan, which retention removes in pages, and stores its own
+    const second = await f.plan(f.manifest(drafts("two")))
     assert.notEqual(second.plan.planId, first.plan.planId)
-    assert.deepEqual([await count("backupItems"), await count("backupChanges")], [500, 500])
+    assert.equal((await read(await f.query({ type: "plan", binding: binding(first.plan) }))).plan.forgotten, true)
+    assert.deepEqual([await count("backupItems"), await count("backupChanges")], [1000, 1000])
 })
 
 test("A backup of 100 custom commands with the longest replies previews within one transaction", async (t) => {
@@ -1893,6 +2577,121 @@ test("A rule or panel that keeps its name but has another type or kind is blocke
         [kind.items[0]!.disposition, kind.items[0]!.reason],
         ["blocked", "A panel with that name has a different kind"],
     )
+})
+
+test("Automod rules that would pass the server's pattern total are blocked by name, and the restore goes on", async (t) => {
+    const r = await restoration(t),
+        all = await samples()
+    const words = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => `${prefix}${i}`)
+    const automod = (name: string, patterns: string[]): BackupConfigObject =>
+        ({
+            family: "automod",
+            sourceId: name,
+            value: { ...(all.automod.before.value as object), name, patterns },
+        }) as never
+    const insertRule = (name: string, patterns: string[]) =>
+        r.db.run((ctx) =>
+            ctx.db.insert("automodRules", {
+                serverId: "1",
+                name,
+                rule: { ...(automod(name, patterns).value as never as AutomodRule) },
+            }),
+        )
+    const reason = "The server's automod rules would hold more than 2000 patterns together"
+    // The server has another rule of 200 patterns, so two archived rules of 1,000 do not both fit
+    await insertRule("theirs", words("t", 200))
+    const responses = all.responses.after
+    const planned = await r.restore(automod("a", words("a", 1000)), automod("b", words("b", 1000)), responses)
+    const outcome = (items: BackupItem[]) =>
+        Object.fromEntries(items.map((x) => [x.sourceId, [x.disposition, x.state, x.reason]]))
+    assert.deepEqual(outcome(planned.items), {
+        a: ["create", "planned", null],
+        b: ["blocked", "planned", reason],
+        responses: ["create", "planned", null],
+    })
+    assert.deepEqual(Object.fromEntries(planned.applied.map((x) => [x.sourceId, x.state])), {
+        a: "created",
+        b: "blocked",
+        responses: "created",
+    })
+    // A rule that fit at the check but no longer does when it runs is blocked with the same reason, and the next item still runs
+    await r.wipe()
+    await r.db.run(async (ctx) => {
+        for (const row of await ctx.db.query("automodRules").collect()) await ctx.db.delete(row._id)
+    })
+    const plan = await r.plan(r.manifest([automod("a", words("a", 1000)), automod("c", words("c", 10))]), r.proof())
+    assert.deepEqual(
+        plan.items.map((x) => x.disposition),
+        ["create", "create"],
+    )
+    await r.confirm(plan.plan)
+    await insertRule("late", words("l", 1000))
+    await insertRule("later", words("m", 500))
+    const applied: BackupItem[] = []
+    for (const item of plan.items) applied.push((await read(await r.apply(item, r.proof()))).item as BackupItem)
+    assert.deepEqual(outcome(applied), {
+        a: ["create", "blocked", reason],
+        c: ["create", "created", null],
+    })
+})
+
+test("Automod rules split across two restore segments preview the pattern total their steps will find", async (t) => {
+    const r = await restoration(t),
+        all = await samples()
+    // Patterns of 200 characters, so two rules of 1,000 fill most of a segment's 512 KiB and the third rule comes in the next segment
+    const words = (prefix: string, count: number) =>
+        Array.from({ length: count }, (_, i) => `${prefix}${i}`.padEnd(200, "z"))
+    const automod = (name: string, patterns: string[]): BackupConfigObject =>
+        ({
+            family: "automod",
+            sourceId: name,
+            value: { ...(all.automod.before.value as object), name, patterns },
+        }) as never
+    const planned = await r.restore(
+        automod("a", words("a", 1000)),
+        automod("b", words("b", 1000)),
+        automod("c", words("c", 600)),
+    )
+    const segments = (await r.db.run((ctx) => ctx.db.query("backupPlans").first()))!.segmentDigests!
+    assert.equal(segments.length, 2)
+    // The first segment's rules hold the server's 2,000 patterns, so the preview blocks the third rule as its step does
+    const reason = "The server's automod rules would hold more than 2000 patterns together"
+    const outcome = (items: BackupItem[]) =>
+        Object.fromEntries(items.map((x) => [x.sourceId, [x.disposition, x.state, x.reason]]))
+    assert.deepEqual(outcome(planned.items), {
+        a: ["create", "planned", null],
+        b: ["create", "planned", null],
+        c: ["blocked", "planned", reason],
+    })
+    assert.deepEqual(outcome(planned.applied), {
+        a: ["create", "created", null],
+        b: ["create", "created", null],
+        c: ["blocked", "blocked", reason],
+    })
+    // An update in the first segment counts what it replaces: Rule a drops from 1,000 patterns to 400 and b2 does not fit, so 200 more fit
+    await r.db.run(async (ctx) => {
+        for (const row of await ctx.db.query("automodRules").collect())
+            if (row.name === "b") await ctx.db.delete(row._id)
+    })
+    const updated = await r.restore(
+        automod("a", words("n", 400)),
+        automod("b", words("b", 1000)),
+        automod("b2", words("o", 1000)),
+        automod("c", words("c", 200)),
+    )
+    assert.equal((await r.db.run((ctx) => ctx.db.query("backupPlans").first()))!.segmentDigests!.length, 2)
+    assert.deepEqual(outcome(updated.items), {
+        a: ["update", "planned", null],
+        b: ["create", "planned", null],
+        b2: ["blocked", "planned", reason],
+        c: ["create", "planned", null],
+    })
+    assert.deepEqual(outcome(updated.applied), {
+        a: ["update", "updated", null],
+        b: ["create", "created", null],
+        b2: ["blocked", "blocked", reason],
+        c: ["create", "created", null],
+    })
 })
 
 test("A role setting restored from an archive that leaves out its optional values clears them on the server", async (t) => {
@@ -1990,15 +2789,46 @@ test("A switch-only difference of a role panel keeps its revision and its role l
     assert.ok((await state()).panel.revision > before.panel.revision)
 })
 
-test("A restore that created a ticket category after the plan cannot go past the limit", async (t) => {
+test("Role picker menus that swap roles restore whole, and the restore goes on to the next item", async (t) => {
+    const r = await restoration(t)
+    const picker = (first: string, second: string): BackupConfigObject => ({
+        family: "rolepicker",
+        sourceId: "rolepicker",
+        value: {
+            enabled: true,
+            menus: [
+                { name: "colors", mode: "single", roleIds: [first] },
+                { name: "pings", mode: "multi", description: "Pick", roleIds: [second] },
+            ],
+        },
+    })
+    const defaults: BackupConfigObject = {
+        family: "temproles",
+        sourceId: "temproles",
+        value: { roles: [{ roleId: "42", defaultSeconds: 3600 }] },
+    }
+    await r.restore(picker("40", "41"))
+    // Each menu holds the role the other one has on the server
+    const swapped = await r.restore(picker("41", "40"), defaults)
+    assert.deepEqual(
+        swapped.applied.map((x) => [x.family, x.state]),
+        [
+            ["rolepicker", "updated"],
+            ["temproles", "created"],
+        ],
+    )
+    assert.deepEqual(normalized(await r.projected(picker("41", "40"))), normalized(picker("41", "40")))
+})
+
+test("A server with 45 ticket categories backs up all of them, and a restore adds one beside a category made after the plan", async (t) => {
     const r = await restoration(t),
         all = await samples()
     await r.db.run(async (ctx) => {
-        for (let i = 0; i < 19; i++)
+        for (let i = 0; i < 45; i++)
             await ctx.db.insert("ticketCategories", {
                 serverId: "1",
                 config: {
-                    name: `old${i}`,
+                    name: `old${String(i).padStart(2, "0")}`,
                     revision: i + 1,
                     enabled: false,
                     visibility: "private",
@@ -2010,6 +2840,12 @@ test("A restore that created a ticket category after the plan cannot go past the
                 },
             })
     })
+    // Categories come 20 a page, so the last five are on the third
+    const snapshot = (await read(await r.snapshot(["config"]))).config as BackupConfigObject[]
+    assert.deepEqual(
+        snapshot.filter((x) => x.family === "ticketCategory").map((x) => x.sourceId),
+        Array.from({ length: 45 }, (_, i) => `old${String(i).padStart(2, "0")}`),
+    )
     const category = (name: string): BackupConfigObject => ({
         ...all.ticketCategory.before,
         sourceId: name,
@@ -2018,7 +2854,6 @@ test("A restore that created a ticket category after the plan cannot go past the
     const planned = await r.plan(r.manifest([category("mine")]), r.proof())
     assert.equal(planned.items[0]!.disposition, "create")
     await r.confirm(planned.plan)
-    // Another change takes the last slot after the preview
     await r.db.run((ctx) =>
         ctx.db.insert("ticketCategories", {
             serverId: "1",
@@ -2026,16 +2861,47 @@ test("A restore that created a ticket category after the plan cannot go past the
         }),
     )
     const applied = (await read(await r.apply(planned.items[0]!, r.proof()))).item
-    assert.equal(applied.state, "blocked")
-    assert.match(applied.reason!, /reached its limit/)
-    assert.equal((await r.db.run((ctx) => ctx.db.query("ticketCategories").collect())).length, 20)
+    assert.equal(applied.state, "created")
+    assert.equal((await r.db.run((ctx) => ctx.db.query("ticketCategories").collect())).length, 47)
 })
 
-test("A settings snapshot over the archive's item limit is refused like any other oversized category", async (t) => {
+test("25 ticket categories restore to an empty server, in one segment and across two", async (t) => {
+    const r = await restoration(t),
+        all = await samples()
+    const category = (name: string): BackupConfigObject => ({
+        ...all.ticketCategory.before,
+        sourceId: name,
+        value: { ...(all.ticketCategory.before.value as object), name } as never,
+    })
+    const categories = Array.from({ length: 25 }, (_, i) => category(`c${String(i).padStart(2, "0")}`))
+    // Drafts come before ticket categories, so 490 of them leave room for only ten categories in the first segment of 500
+    const drafts = Array.from({ length: 490 }, (_, i): BackupConfigObject => ({
+        family: "draft",
+        sourceId: `draft_d${i}`,
+        value: { kind: "draft", name: `d${i}`, content: { content: "x" } },
+    }))
+    // The dispositions of the plan's ticket categories, read from all of its items
+    const dispositions = (planId: string) =>
+        r.db.run(async (ctx) =>
+            (await ctx.db.query("backupItems").collect())
+                .filter((x) => x.planId === planId && x.family === "ticketCategory")
+                .sort((a, b) => a.itemNo - b.itemNo)
+                .map((x) => x.disposition),
+        )
+    for (const config of [categories, [...drafts, ...categories]]) {
+        await r.wipe()
+        const planned = await r.plan(r.manifest(config), r.proof())
+        const row = await r.db.run((ctx) => ctx.db.get(planned.plan.planId as never))
+        assert.equal((row as { segmentDigests: string[] }).segmentDigests.length, config.length > 500 ? 2 : 1)
+        assert.deepEqual(await dispositions(planned.plan.planId), Array(25).fill("create"))
+    }
+})
+
+test("600 templates export in pages and plan across two segments of settings", async (t) => {
     const f = await fixture(t)
     await f.db.run(async (ctx) => {
         await levelingState(ctx, "1")
-        for (let i = 0; i < BACKUP_CATEGORY_LIMITS.config; i++)
+        for (let i = 0; i < 600; i++)
             await ctx.db.insert("publishingDrafts", {
                 serverId: "1",
                 kind: "template",
@@ -2047,8 +2913,18 @@ test("A settings snapshot over the archive's item limit is refused like any othe
                 updatedAt: 1,
             })
     })
-    await status(await f.snapshot(["config"]), 413)
+    const config = ((await read(await f.snapshot(["config"]))).config as BackupConfigObject[]).filter(
+        (x) => x.family === "draft",
+    )
+    assert.equal(config.length, 600)
     assert.deepEqual((await read(await f.snapshot(["xp"]))).config, [])
+    const changed = config.map((x) =>
+        x.family === "draft" ? { ...x, value: { ...x.value, content: { content: "y" } } } : x,
+    )
+    const planned = await f.plan(f.manifest(changed))
+    assert.deepEqual([planned.plan.itemCount, planned.plan.counts.update], [600, 600])
+    const row = await f.db.run((ctx) => ctx.db.get(planned.plan.planId as never))
+    assert.equal((row as { segmentDigests: string[] }).segmentDigests.length, 2)
 })
 
 test("A server with more than 100 drafts and templates backs up all of them and restores another draft", async (t) => {
@@ -2171,6 +3047,14 @@ test("Turning a paused module back on warns about the policies and routes it res
         [alone.items[0]!.disposition, alone.items[0]!.warning],
         ["update", "Turns on message cleanup: messages older than 30 days in <#30> will be deleted"],
     )
+    // The module's item names the channels of the policies that are on, since turning it on resumes them, so a pass's proof reads them
+    const asked = await read(
+        await r.query({
+            type: "item",
+            binding: { ...binding(alone.items[0]!), itemNo: alone.items[0]!.itemNo, generation: 1 },
+        }),
+    )
+    assert.deepEqual(asked.resumed, ["30"])
     // A policy that changed after the preview is not the one the owner confirmed, so the module conflicts and stays off
     const fresh = await r.plan(r.manifest([module, policy]), r.proof())
     await r.confirm(fresh.plan)
@@ -2234,4 +3118,684 @@ test("Turning a paused module back on warns about the policies and routes it res
         ),
         [[true, "11"]],
     )
+})
+
+test("A restore adds a cleanup channel past 50, and the module names every channel it resumes", async (t) => {
+    const r = await restoration(t),
+        all = await samples()
+    const channels = Array.from({ length: 60 }, (_, i) => String(200 + i))
+    await r.db.run(async (ctx) => {
+        await ctx.db.insert("cleanupSettings", {
+            serverId: "1",
+            enabled: false,
+            revision: 1,
+            policies: channels.length,
+            receipts: 0,
+            nextSweepNo: 1,
+            nextTargetNo: 1,
+        })
+        for (const channelId of channels)
+            await ctx.db.insert("cleanupPolicies", {
+                serverId: "1",
+                channelId,
+                revision: 1,
+                enabled: true,
+                ageMs: 86400000,
+                ownerId: "10",
+                excludedAuthorIds: [],
+                excludedMessageIds: [],
+                nextCheckAt: r.now(),
+            })
+    })
+    const module: BackupConfigObject = { family: "cleanup", sourceId: "cleanup", value: { enabled: true } }
+    const checked = await r.plan(r.manifest([module, all.cleanupPolicy.before]), r.proof())
+    const byFamily = Object.fromEntries(checked.items.map((x) => [x.family, x]))
+    assert.deepEqual(
+        [byFamily.cleanupPolicy!.disposition, byFamily.cleanupPolicy!.reason, byFamily.cleanup!.disposition],
+        ["create", null, "update"],
+    )
+    const asked = await read(
+        await r.query({
+            type: "item",
+            binding: { ...binding(byFamily.cleanup!), itemNo: byFamily.cleanup!.itemNo, generation: 1 },
+        }),
+    )
+    assert.deepEqual(asked.resumed, channels)
+    // The bot reads the answer through the contract, which takes as many channels as a server can have cleanup in
+    assert.deepEqual(decode(BackupQueryResult, asked), asked)
+    await r.confirm(checked.plan)
+    assert.equal((await read(await r.apply(byFamily.cleanupPolicy!, r.proof()))).item.state, "created")
+    assert.equal((await r.db.run((ctx) => ctx.db.query("cleanupSettings").first()))!.policies, 61)
+})
+
+test("A restored cleanup policy keeps thousands of exclusions, up to the server's total across its channels", async (t) => {
+    const r = await restoration(t),
+        all = await samples(),
+        ids = (from: number, count: number) => Array.from({ length: count }, (_, i) => String(from + i))
+    await r.db.run(async (ctx) => {
+        await ctx.db.insert("cleanupSettings", {
+            serverId: "1",
+            enabled: false,
+            revision: 1,
+            policies: 1,
+            receipts: 0,
+            nextSweepNo: 1,
+            nextTargetNo: 1,
+        })
+        await ctx.db.insert("cleanupPolicies", {
+            serverId: "1",
+            channelId: "200",
+            revision: 1,
+            enabled: false,
+            ageMs: 86400000,
+            ownerId: "10",
+            excludedAuthorIds: ids(100000, 8192),
+            excludedMessageIds: ids(200000, 8192),
+            nextCheckAt: r.now(),
+        })
+    })
+    const archived = (authors: number): BackupConfigObject => ({
+        ...all.cleanupPolicy.before,
+        value: {
+            ...(all.cleanupPolicy.before.value as object),
+            excludedAuthorIds: ids(300000, authors),
+            excludedMessageIds: ids(400000, 1000),
+        } as never,
+    })
+    // 3,616 more IDs fit beside the 16,384 the server keeps, one more does not
+    const over = await r.plan(r.manifest([archived(2617)]), r.proof())
+    assert.deepEqual(
+        [over.items[0]!.disposition, over.items[0]!.reason],
+        ["blocked", "A server keeps at most 20000 excluded authors and messages across its cleanup channels"],
+    )
+    // The step checks again, so exclusions added after the check block it
+    const late = await r.plan(r.manifest([archived(2616)]), r.proof())
+    assert.deepEqual([late.items[0]!.disposition, late.items[0]!.reason], ["create", null])
+    await r.confirm(late.plan)
+    const extra = await r.db.run((ctx) =>
+        ctx.db.insert("cleanupPolicies", {
+            serverId: "1",
+            channelId: "201",
+            revision: 1,
+            enabled: false,
+            ageMs: 86400000,
+            ownerId: "10",
+            excludedAuthorIds: ["1"],
+            excludedMessageIds: [],
+            nextCheckAt: r.now(),
+        }),
+    )
+    const stepped = (await read(await r.apply(late.items[0]!, r.proof()))).item
+    assert.deepEqual(
+        [stepped.state, stepped.reason],
+        ["blocked", "A server keeps at most 20000 excluded authors and messages across its cleanup channels"],
+    )
+    await r.db.run((ctx) => ctx.db.delete(extra))
+    const fits = await r.plan(r.manifest([archived(2616)]), r.proof())
+    await r.confirm(fits.plan)
+    assert.equal((await read(await r.apply(fits.items[0]!, r.proof()))).item.state, "created")
+    const restored = await r.db.run(async (ctx) =>
+        (await ctx.db.query("cleanupPolicies").collect()).find((x) => x.channelId === "30"),
+    )
+    assert.deepEqual([restored!.excludedAuthorIds.length, restored!.excludedMessageIds.length], [2616, 1000])
+})
+
+const calendarAt = (at: number) => ({
+    localMinute: new Date(at).toISOString().slice(0, 16),
+    zone: "UTC",
+    fold: "reject" as const,
+    recurrence: { type: "none" as const },
+})
+const eventValue = (name: string, at: number) => ({
+    name,
+    channelId: "30",
+    title: "Synthetic event",
+    description: "",
+    capacity: null,
+    reminderOffsets: [1440, 60],
+    calendar: {
+        ...calendarAt(at),
+        durationMinutes: 60,
+        dates: [
+            {
+                localMinute: new Date(at).toISOString().slice(0, 16),
+                startsAt: at,
+                endsAt: at + 3600000,
+                offsetMinutes: 0,
+            },
+        ],
+    },
+})
+const scheduleValue = (name: string, at: number) => ({
+    name,
+    channelId: "30",
+    calendar: {
+        ...calendarAt(at),
+        dates: [{ localMinute: new Date(at).toISOString().slice(0, 16), dueAt: at, offsetMinutes: 0 }],
+    },
+    source: { kind: "draft" as const, name: "probe", revision: 1 },
+    content: { content: "Synthetic scheduled post" },
+    enabled: true,
+})
+// The fixture's clock starts on 2026-01-01, so one date lies ahead of it and the other passed
+const aheadAt = Date.parse("2026-01-10T12:00:00Z"),
+    passedAt = Date.parse("2025-12-20T12:00:00Z")
+
+test("An event restores as a draft that keeps its dates only while they are ahead, and a published event is left alone", async (t) => {
+    const r = await restoration(t)
+    const event = (value: ReturnType<typeof eventValue>): BackupConfigObject => ({
+        family: "event",
+        sourceId: value.name,
+        value,
+    })
+    const ahead = await r.restore(event(eventValue("ahead", aheadAt)))
+    assert.deepEqual([ahead.items[0]!.disposition, ahead.applied[0]!.state], ["create", "created"])
+    const passed = await r.restore(event(eventValue("passed", passedAt)))
+    assert.deepEqual(
+        [passed.items[0]!.disposition, passed.items[0]!.warning, passed.applied[0]!.state],
+        ["create", "Its dates passed, so it returns as a draft without a date", "created"],
+    )
+    const rows = await r.db.run(async (ctx) => ({
+        events: await ctx.db.query("events").collect(),
+        occurrences: await ctx.db.query("eventOccurrences").collect(),
+        rsvps: await ctx.db.query("eventRsvps").collect(),
+    }))
+    assert.deepEqual(
+        rows.events.map((row) => [row.name, row.state, row.calendar?.dates.length ?? 0, row.cardPostNo]),
+        [
+            ["ahead", "draft", 1, undefined],
+            ["passed", "draft", 0, undefined],
+        ],
+    )
+    assert.deepEqual(
+        rows.occurrences.map((row) => [row.eventNo, row.state]),
+        [[rows.events[0]!.eventNo, "draft"]],
+    )
+    assert.deepEqual(rows.rsvps, [])
+    // An event members can see and answer is not a draft, so a restore that would change it leaves it as it is
+    await r.db.run(async (ctx) => {
+        const row = (await ctx.db.query("events").first())!
+        await ctx.db.patch(row._id, { state: "open" })
+    })
+    const blocked = await r.restore(event({ ...eventValue("ahead", aheadAt), title: "Synthetic changed event" }))
+    assert.equal(blocked.items[0]!.disposition, "blocked")
+    assert.match(blocked.items[0]!.reason!, /published, cancelled or being forgotten/)
+})
+
+test("An archived event holds no live progress, such as its next or last skipped date", () => {
+    const value = eventValue("ahead", aheadAt)
+    backupConfig({ family: "event", sourceId: "ahead", value })
+    for (const extra of [
+        { lastSkipped: { localMinute: "2026-03-29T02:30", reason: "gap" } },
+        { resume: { localMinute: "2026-01-17T12:00" } },
+    ])
+        assert.throws(() =>
+            backupConfig({ family: "event", sourceId: "ahead", value: { ...value, ...extra } as never }),
+        )
+})
+
+test("A schedule restores on only while every date is ahead, paused otherwise, and a cancelled one blocks", async (t) => {
+    const r = await restoration(t)
+    const schedule = (value: ReturnType<typeof scheduleValue>): BackupConfigObject => ({
+        family: "schedule",
+        sourceId: value.name,
+        value,
+    })
+    const ahead = await r.restore(schedule(scheduleValue("ahead", aheadAt)))
+    assert.deepEqual(
+        [ahead.items[0]!.disposition, ahead.items[0]!.on, ahead.items[0]!.warning, ahead.applied[0]!.state],
+        ["create", true, "Turns on scheduled posts: they go to <#30> on its dates", "created"],
+    )
+    const passed = await r.restore(schedule(scheduleValue("passed", passedAt)))
+    assert.deepEqual(
+        [passed.items[0]!.on, passed.items[0]!.warning, passed.applied[0]!.state],
+        [undefined, "Its dates passed, so it returns paused. Give it new dates, then turn it on", "created"],
+    )
+    const rows = await r.db.run(async (ctx) => ({
+        schedules: await ctx.db.query("schedules").collect(),
+        deliveries: await ctx.db.query("scheduleDeliveries").collect(),
+    }))
+    assert.deepEqual(
+        rows.schedules.map((row) => [row.name, row.enabled, row.createdBy]),
+        [
+            ["ahead", true, "10"],
+            ["passed", false, "10"],
+        ],
+    )
+    // Only the date ahead is planned, so a paused schedule never posts for a date that passed
+    assert.deepEqual(
+        rows.deliveries.map((row) => [row.scheduleNo, row.dueAt]),
+        [[rows.schedules[0]!.scheduleNo, aheadAt]],
+    )
+    await r.db.run(async (ctx) => {
+        const row = (await ctx.db.query("schedules").first())!
+        await ctx.db.patch(row._id, { cancelled: true, enabled: false })
+    })
+    const blocked = await r.restore(schedule(scheduleValue("ahead", aheadAt)))
+    assert.equal(blocked.items[0]!.disposition, "blocked")
+    assert.match(blocked.items[0]!.reason!, /cancelled schedule stays cancelled/)
+})
+
+test("A repeating event or schedule whose first dates passed restores from its next date, and one with no date left without dates", async (t) => {
+    const r = await restoration(t)
+    // Weekly from 2025-12-20, so with the fixture's clock on 2026-01-01 two dates passed and two lie ahead, 2026-01-03 and 2026-01-10
+    const week = 7 * 86400000,
+        minute = (at: number) => new Date(at).toISOString().slice(0, 16),
+        firsts = (count: number) => Array.from({ length: count }, (_, i) => passedAt + i * week),
+        repeat = (count: number) => ({
+            ...calendarAt(passedAt),
+            recurrence: { type: "weekly" as const, interval: 1, count },
+        })
+    const event = (name: string, count: number): BackupConfigObject => ({
+            family: "event",
+            sourceId: name,
+            value: {
+                ...eventValue(name, passedAt),
+                calendar: {
+                    ...repeat(count),
+                    durationMinutes: 60,
+                    dates: firsts(count).map((at) => ({
+                        localMinute: minute(at),
+                        startsAt: at,
+                        endsAt: at + 3600000,
+                        offsetMinutes: 0,
+                    })),
+                },
+            },
+        }),
+        schedule = (name: string, count: number): BackupConfigObject => ({
+            family: "schedule",
+            sourceId: name,
+            value: {
+                ...scheduleValue(name, passedAt),
+                calendar: {
+                    ...repeat(count),
+                    dates: firsts(count).map((at) => ({ localMinute: minute(at), dueAt: at, offsetMinutes: 0 })),
+                },
+            },
+        })
+    const running = await r.restore(event("running", 4), schedule("running", 4))
+    assert.deepEqual(
+        running.items.map((x) => [x.disposition, x.warning]),
+        [
+            ["create", "Dates that passed are left out, so it returns as a draft from 2026-01-03 12:00 UTC"],
+            [
+                "create",
+                "Turns on scheduled posts: they go to <#30> from 2026-01-03 12:00 UTC, and dates that passed are left out",
+            ],
+        ],
+    )
+    assert.deepEqual(
+        running.applied.map((x) => x.state),
+        ["created", "created"],
+    )
+    const ahead = [passedAt + 2 * week, passedAt + 3 * week]
+    const rows = await r.db.run(async (ctx) => ({
+        event: (await ctx.db.query("events").first())!,
+        occurrences: await ctx.db.query("eventOccurrences").collect(),
+        rsvps: await ctx.db.query("eventRsvps").collect(),
+        schedule: (await ctx.db.query("schedules").first())!,
+        deliveries: await ctx.db.query("scheduleDeliveries").collect(),
+    }))
+    // The repeat goes on from its next date with the two dates left, as a draft event and a schedule that is on
+    assert.deepEqual(
+        [rows.event.state, rows.event.calendar?.localMinute, rows.event.calendar?.recurrence, rows.event.cardPostNo],
+        ["draft", "2026-01-03T12:00", { type: "weekly", interval: 1, count: 2 }, undefined],
+    )
+    assert.deepEqual(
+        rows.occurrences.map((x) => [x.state, x.date.startsAt]),
+        ahead.map((at) => ["draft", at]),
+    )
+    assert.deepEqual(rows.rsvps, [])
+    assert.deepEqual(
+        [rows.schedule.enabled, rows.schedule.calendar.localMinute, rows.schedule.calendar.recurrence],
+        [true, "2026-01-03T12:00", { type: "weekly", interval: 1, count: 2 }],
+    )
+    // Nothing is planned for a date that passed, so nothing is ever posted for one
+    assert.deepEqual(
+        rows.deliveries.map((x) => x.dueAt),
+        ahead,
+    )
+    // A repeat whose counted dates have all passed has nothing to go on with
+    const ended = await r.restore(event("ended", 2), schedule("ended", 2))
+    assert.deepEqual(
+        ended.items.map((x) => [x.disposition, x.warning]),
+        [
+            ["create", "Its dates passed, so it returns as a draft without a date"],
+            ["create", "Its dates passed, so it returns paused. Give it new dates, then turn it on"],
+        ],
+    )
+})
+
+test("A restored repeat leaves out a reminder further ahead than its stored dates reach and says so, as !event and the dashboard refuse it", async (t) => {
+    const r = await restoration(t)
+    const day = 86400000,
+        minute = (at: number) => new Date(at).toISOString().slice(0, 16)
+    // Daily for 40 dates stores the next 26, so a reminder comes at most 25 days before a date
+    const reach = 25 * 1440,
+        left =
+            "Reminders more than 25 days before a date are left out, since NeonFlux stores this repeat's dates only that far ahead"
+    const event = (name: string, start: number, reminderOffsets: number[]): BackupConfigObject => ({
+        family: "event",
+        sourceId: name,
+        value: {
+            ...eventValue(name, start),
+            reminderOffsets,
+            calendar: {
+                ...calendarAt(start),
+                recurrence: { type: "daily", interval: 1, count: 40 },
+                durationMinutes: 60,
+                dates: Array.from({ length: 26 }, (_, i) => start + i * day).map((at) => ({
+                    localMinute: minute(at),
+                    startsAt: at,
+                    endsAt: at + 3600000,
+                    offsetMinutes: 0,
+                })),
+            },
+        },
+    })
+    const restored = await r.restore(event("ahead", aheadAt, [60, reach, reach + 1, 50000]))
+    assert.deepEqual(
+        restored.items.map((x) => [x.disposition, x.warning, x.changed]),
+        [["create", left, undefined]],
+    )
+    assert.deepEqual(
+        restored.applied.map((x) => x.state),
+        ["created"],
+    )
+    const offsets = () =>
+        r.db.run(async (ctx) => (await ctx.db.query("events").collect()).map((x) => x.reminderOffsets))
+    assert.deepEqual(await offsets(), [[reach, 60]])
+    // Reminders the rule allows restore as they are, without a warning
+    const fits = await r.restore(event("fits", aheadAt, [60, reach]))
+    assert.deepEqual(
+        fits.items.map((x) => [x.disposition, x.warning]),
+        [["create", undefined]],
+    )
+    // A repeat whose first dates passed says both, and the dates left still store 26 ahead
+    const running = await r.restore(event("running", passedAt, [60, 50000]))
+    assert.deepEqual(
+        running.items.map((x) => [x.disposition, x.warning]),
+        [["create", `Dates that passed are left out, so it returns as a draft from 2026-01-01 12:00 UTC. ${left}`]],
+    )
+    assert.deepEqual(await offsets(), [[reach, 60], [reach, 60], [60]])
+})
+
+test("Retained cancelled events and schedules beyond fifty rows back up in pages and restore, and stay out of the archive", async (t) => {
+    const r = await restoration(t)
+    const event: BackupConfigObject = { family: "event", sourceId: "ahead", value: eventValue("ahead", aheadAt) },
+        schedule: BackupConfigObject = {
+            family: "schedule",
+            sourceId: "ahead",
+            value: scheduleValue("ahead", aheadAt),
+        }
+    await r.restore(event)
+    await r.restore(schedule)
+    // 120 more of each with distinct names and numbers, more than a snapshot page, of which the first is cancelled and the rest live
+    await r.db.run(async (ctx) => {
+        const { _id, _creationTime, ...e } = (await ctx.db.query("events").first())!,
+            { _id: _sid, _creationTime: _st, ...d } = (await ctx.db.query("schedules").first())!
+        for (let i = 0; i < 120; i++) {
+            await ctx.db.insert("events", {
+                ...e,
+                name: `e${i}`,
+                eventNo: 100 + i,
+                ...(i === 0 ? { state: "cancelled" as const } : {}),
+            })
+            await ctx.db.insert("schedules", {
+                ...d,
+                name: `s${i}`,
+                scheduleNo: 100 + i,
+                ...(i === 0 ? { cancelled: true, enabled: false } : {}),
+            })
+        }
+    })
+    const names: Record<string, string[]> = { event: [], schedule: [] }
+    for (const x of (await read(await r.snapshot(["config"]))).config as BackupConfigObject[])
+        if (x.family === "event" || x.family === "schedule") names[x.family]!.push(x.value.name)
+    assert.equal(names.event!.length, 120)
+    assert.equal(names.schedule!.length, 120)
+    assert.equal(names.event!.includes("e0"), false)
+    assert.equal(names.schedule!.includes("s0"), false)
+    // A restore compares each one with the row of its name
+    const changed = await r.restore(
+        { ...event, value: { ...(event.value as object), title: "Synthetic changed event" } as never },
+        { ...schedule, value: { ...(schedule.value as object), content: { content: "Changed" } } as never },
+    )
+    assert.deepEqual(
+        changed.items.map((x) => [x.family, x.disposition]),
+        [
+            ["event", "update"],
+            ["schedule", "update"],
+        ],
+    )
+})
+
+test("Events and schedules that ended before they stopped counting leave room for a restored one", async (t) => {
+    const r = await restoration(t)
+    const first: BackupConfigObject[] = [
+        { family: "event", sourceId: "ahead", value: eventValue("ahead", aheadAt) },
+        { family: "schedule", sourceId: "ahead", value: scheduleValue("ahead", aheadAt) },
+    ]
+    await r.restore(...first)
+    // The old rule cancelled definitions without releasing them, so 49 cancelled rows still fill the counters up to 50
+    await r.db.run(async (ctx) => {
+        const { _id, _creationTime, ...e } = (await ctx.db.query("events").first())!,
+            { _id: _sid, _creationTime: _st, ...d } = (await ctx.db.query("schedules").first())!
+        for (let i = 0; i < 49; i++) {
+            await ctx.db.insert("events", {
+                ...e,
+                name: `e${i}`,
+                eventNo: e.eventNo + 1 + i,
+                state: "cancelled" as const,
+            })
+            await ctx.db.insert("schedules", {
+                ...d,
+                name: `s${i}`,
+                scheduleNo: d.scheduleNo + 1 + i,
+                cancelled: true,
+                enabled: false,
+            })
+        }
+        for (const table of ["eventSettings", "scheduleSettings"] as const) {
+            const state = (await ctx.db.query(table).first())!
+            await ctx.db.patch(state._id, { definitions: 50 })
+        }
+    })
+    const restored = await r.restore(
+        { family: "event", sourceId: "fresh", value: eventValue("fresh", aheadAt) },
+        { family: "schedule", sourceId: "fresh", value: scheduleValue("fresh", aheadAt) },
+    )
+    assert.deepEqual(
+        restored.items.map((x) => [x.family, x.disposition]),
+        [
+            ["event", "create"],
+            ["schedule", "create"],
+        ],
+    )
+    assert.deepEqual(
+        restored.applied.map((x) => x.state),
+        ["created", "created"],
+    )
+})
+
+test("A finished schedule that a restore starts again takes a place, and one with no place left is blocked while the restore goes on", async (t) => {
+    const r = await restoration(t)
+    const schedule = (name: string, text = "Synthetic scheduled post"): BackupConfigObject => ({
+        family: "schedule",
+        sourceId: name,
+        value: { ...scheduleValue(name, aheadAt), content: { content: text } },
+    })
+    const prefix: BackupConfigObject = {
+        family: "general",
+        sourceId: "general",
+        value: { prefix: "?", replyStyle: "text" },
+    }
+    const full = "The server has reached its limit of 50 schedules"
+    await r.restore(schedule("done"), schedule("other"))
+    // Both ran out of dates and stopped counting, and live schedules hold the server's other places, which leaves free
+    const places = (free: number) =>
+        r.db.run(async (ctx) => {
+            const rows = await ctx.db.query("schedules").collect()
+            for (const row of rows)
+                if (row.name === "done" || row.name === "other") await ctx.db.patch(row._id, { released: true })
+                else await ctx.db.delete(row._id)
+            const { _id, _creationTime, released: _released, ...d } = rows[0]!
+            for (let i = 0; i < 50 - free; i++)
+                await ctx.db.insert("schedules", { ...d, name: `live${i}`, scheduleNo: 100 + i, extendAt: aheadAt })
+            const state = (await ctx.db.query("scheduleSettings").first())!
+            await ctx.db.patch(state._id, { definitions: 50 - free })
+        })
+    const counted = () => r.db.run(async (ctx) => (await ctx.db.query("scheduleSettings").first())!.definitions)
+    await places(0)
+    const none = await r.restore(schedule("done", "Again"), prefix)
+    assert.deepEqual(
+        none.applied.map((x) => [x.family, x.state, x.reason]),
+        [
+            ["schedule", "blocked", full],
+            ["general", "created", null],
+        ],
+    )
+    assert.equal(await counted(), 50)
+    // With one place free the first starts again in it, and the second has none left, in one segment and across two
+    await places(1)
+    const drafts = Array.from({ length: 499 }, (_, i): BackupConfigObject => ({
+        family: "draft",
+        sourceId: `draft_d${i}`,
+        value: { kind: "draft", name: `d${i}`, content: { content: "x" } },
+    }))
+    for (const config of [[], drafts]) {
+        await r.wipe()
+        const planned = await r.plan(
+            r.manifest([...config, schedule("done", "Again"), schedule("other", "Again")]),
+            r.proof(),
+        )
+        const row = await r.db.run((ctx) => ctx.db.get(planned.plan.planId as never))
+        assert.equal((row as { segmentDigests: string[] }).segmentDigests.length, config.length ? 2 : 1)
+        const items = await r.db.run(async (ctx) =>
+            (await ctx.db.query("backupItems").collect())
+                .filter((x) => x.planId === planned.plan.planId && x.family === "schedule")
+                .map((x) => [x.sourceId, x.disposition, x.reason]),
+        )
+        assert.deepEqual(items, [
+            ["done", "update", null],
+            ["other", "blocked", full],
+        ])
+    }
+    const restarted = await r.restore(schedule("done", "Again"), schedule("other", "Again"), prefix)
+    assert.deepEqual(
+        restarted.applied.map((x) => [x.sourceId, x.state]),
+        [
+            ["done", "updated"],
+            ["other", "blocked"],
+            ["general", "skipped"],
+        ],
+    )
+    assert.equal(await counted(), 50)
+    // A place taken after the check is found again when the step runs, which blocks the schedule and goes on
+    await places(1)
+    await r.wipe()
+    const planned = await r.plan(
+        r.manifest([schedule("done", "Later"), { ...prefix, value: { prefix: "$", replyStyle: "text" } }]),
+        r.proof(),
+    )
+    assert.deepEqual(
+        planned.items.map((x) => x.disposition),
+        ["update", "update"],
+    )
+    await r.confirm(planned.plan)
+    await r.db.run(async (ctx) => {
+        const state = (await ctx.db.query("scheduleSettings").first())!
+        await ctx.db.patch(state._id, { definitions: 50 })
+    })
+    const late = []
+    for (const item of planned.items) late.push((await read(await r.apply(item, r.proof()))).item as BackupItem)
+    assert.deepEqual(
+        late.map((x) => [x.family, x.state, x.reason]),
+        [
+            ["schedule", "blocked", full],
+            ["general", "updated", null],
+        ],
+    )
+})
+
+test("Archived channel places that differ from the server make one order item, whose claim grants the fewest moves", async (t) => {
+    const f = await fixture(t)
+    // The server lists general, rules and news in this order, and the archive had news first
+    const at = (sourceId: string, position: number): BackupStructureObject => ({
+        ...f.channel(sourceId),
+        name: { "101": "general", "102": "rules", "103": "news" }[sourceId]!,
+        position,
+    })
+    const archived = [at("101", 1), at("102", 2), at("103", 0)],
+        live = archived.map(({ position: _position, ...channel }) => channel)
+    const proof = () =>
+        f.proof(
+            [],
+            [],
+            live.map((x) => f.seen(x)),
+            live.map((x) => f.listing(x)),
+        )
+    const planned = await f.plan(f.manifest([], [], archived), proof())
+    assert.equal(planned.plan.itemCount, 4)
+    const order = planned.items.find((item) => item.order)!
+    assert.deepEqual(
+        [order.itemNo, order.disposition, order.sourceId, order.changed],
+        [4, "update", "order", ["order"]],
+    )
+    const changes = (
+        await read(
+            await f.http("/backup/query", {
+                serverId: "1",
+                context: f.context(),
+                operation: { type: "item", binding: { ...binding(order), itemNo: order.itemNo, generation: 1 } },
+            }),
+        )
+    ).item
+    assert.equal(changes.order, true)
+    await f.confirm(planned.plan)
+    for (const item of planned.items.filter((x) => !x.order))
+        assert.equal((await read(await f.apply(item, proof()))).item.state, "skipped")
+    const claimed = await read(await f.claim(order, proof()))
+    assert.deepEqual(claimed.grant.moves, [{ id: "103", parentId: null, precedingSiblingId: null }])
+    assert.equal(claimed.grant.action, "order")
+    const done = await read(await f.outcome(order, "updated"))
+    assert.equal(done.item.state, "updated")
+    // Its audit entry's Details hold the moves the restore check showed
+    const audit = await f.db.run(async (ctx) => {
+        const entry = (await ctx.db.query("auditLogEntries").order("desc").first())!,
+            detail = await ctx.db
+                .query("auditLogChanges")
+                .withIndex("by_entry", (q) => q.eq("entryId", entry._id))
+                .unique(),
+            shown = await ctx.db
+                .query("backupChanges")
+                .withIndex("by_plan", (q) => q.eq("planId", planned.plan.planId as never))
+                .collect()
+        return {
+            setting: entry.setting,
+            detail: entry.detail,
+            changes: detail?.changes,
+            shown: shown.find((x) => x.itemNo === order.itemNo)?.changes,
+        }
+    })
+    assert.deepEqual(audit, {
+        setting: "restore channel order",
+        detail: true,
+        changes: [{ path: "order.news", before: "after rules", after: "first" }],
+        shown: [{ kind: "field", path: "order.news", before: "after rules", after: "first" }],
+    })
+    // Once the server has the archive's order, a new check has nothing to move and makes no order item
+    const now = [live[2]!, live[0]!, live[1]!]
+    const again = await f.plan(
+        f.manifest([], [], archived),
+        f.proof(
+            [],
+            [],
+            now.map((x) => f.seen(x)),
+            now.map((x) => f.listing(x)),
+        ),
+    )
+    assert.equal(again.plan.itemCount, 3)
+    assert(!again.items.some((item) => item.order))
 })

@@ -216,8 +216,8 @@ function heaviestIncreasing(values: readonly number[], weight: (index: number) =
  * a fixed one is the one that moved. Channels that exist in only one of the two are neither moved nor in the way
  */
 export function movedChannels(
-    base: readonly StructureEntry[],
-    other: readonly StructureEntry[],
+    base: readonly Pick<StructureEntry, "id" | "parentId">[],
+    other: readonly Pick<StructureEntry, "id" | "parentId">[],
     fixed: (id: string) => boolean = () => false,
 ) {
     const before = new Map(base.map((entry, index) => [entry.id, { entry, index }])),

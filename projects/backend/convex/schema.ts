@@ -4,6 +4,7 @@ import {
     backupCategory,
     backupChange,
     backupDisposition,
+    backupHeader,
     backupItemState,
     backupObject,
     backupOriginState,
@@ -348,7 +349,11 @@ export default defineSchema({
         revision: v.number(),
         updatedAt: v.number(),
         updatedBy: v.string(),
-    }).index("by_server", ["serverId"]),
+        // The website changed the switch and the running bot has not read it yet, see workDispatch.ts
+        reloadDue: v.optional(v.literal(true)),
+    })
+        .index("by_server", ["serverId"])
+        .index("by_reload", ["reloadDue"]),
     // Member access lists by feature name
     memberAccessLists: defineTable({ serverId: v.string(), feature: v.string(), ...memberAccessFields }).index(
         "by_feature",
@@ -474,9 +479,14 @@ export default defineSchema({
         planId: v.optional(v.id("backupPlans")),
         // Whether the next refresh also plans the deletion of channels the archive does not hold
         match: v.boolean(),
+        // A run started from chat, whose outcome the bot posts in the DM when it ends
+        notify: v.optional(v.literal(true)),
+        // Such a run ended for lack of progress and the bot has not taken its outcome to post yet
+        outcomeDue: v.optional(v.literal(true)),
     })
         .index("by_server", ["serverId"])
-        .index("by_state", ["state", "createdAt"]),
+        .index("by_state", ["state", "createdAt"])
+        .index("by_outcome", ["outcomeDue", "createdAt"]),
     // One structure editor per manager and server: the latest read for that manager, closed threads loaded on demand and the latest save.
     // A queued row waits for the bot, and an applying row holds a save the bot claimed. The row is deleted a day after its last request, see structure.ts
     dashboardStructureJobs: defineTable({
@@ -523,8 +533,43 @@ export default defineSchema({
         gain: v.object({ items: v.number(), bits: v.string(), switches: v.number() }),
         match: v.boolean(),
         forgotten: v.boolean(),
+        // A check is building while its segments come in, then ready. A plan without state was made whole and is ready
+        state: v.optional(v.union(v.literal("building"), v.literal("ready"))),
+        segmentDigests: v.optional(v.array(v.string())),
+        // How many segments came in, the digest of each one's items for the plan hash, the archive's header and the places the plan's
+        // settings take by family, and by kind for role panels, since a family's capacity counts its creates and the finished schedules it
+        // restarts in every segment
+        built: v.optional(v.number()),
+        segmentItems: v.optional(v.array(v.string())),
+        header: v.optional(backupHeader),
+        familyCreates: v.optional(v.record(v.string(), v.number())),
+        // The automod patterns that the settings of earlier segments add to the server's rules, less those they replace
+        automodPatterns: v.optional(v.number()),
+        // The last member of the XP pages so far, so the pages come in order
+        xpAfter: v.optional(v.string()),
+        // How many items are in each state, the items with a warning other than a channel delete and the items that turn a setting on
+        stateCounts: v.optional(v.record(v.string(), v.number())),
+        warned: v.optional(v.number()),
+        turnsOn: v.optional(
+            v.array(
+                v.object({
+                    category: backupCategory,
+                    family: v.string(),
+                    sourceId: v.string(),
+                    name: v.optional(v.string()),
+                }),
+            ),
+        ),
+        // When a confirmed run ended with every item settled. Only plans without it count toward the server's ten
+        settledAt: v.optional(v.number()),
+        // The kind of the last segment, so segments come in the plan's order, the objects that came in of each category, and the plan
+        // this check replaces once it is ready, unless the two are the same plan
+        phase: v.optional(v.number()),
+        received: v.optional(v.object({ config: v.number(), xp: v.number(), structure: v.number() })),
+        replaces: v.optional(v.id("backupPlans")),
     })
         .index("by_server", ["serverId"])
+        .index("by_server_live", ["serverId", "settledAt"])
         .index("by_cleanup", ["cleanupAt"]),
     backupItems: defineTable({
         serverId: v.string(),
@@ -550,6 +595,17 @@ export default defineSchema({
         gain: v.optional(v.literal(true)),
         on: v.optional(v.literal(true)),
         warning: v.optional(v.string()),
+        // The one item that puts the channels in the archive's order, and the moves its claim granted
+        order: v.optional(v.literal(true)),
+        orderMoves: v.optional(
+            v.array(
+                v.object({
+                    id: v.string(),
+                    parentId: v.union(v.string(), v.null()),
+                    precedingSiblingId: v.union(v.string(), v.null()),
+                }),
+            ),
+        ),
         object: v.optional(backupObject),
         configMappings: v.optional(
             v.array(
@@ -565,6 +621,8 @@ export default defineSchema({
         fromChannel: v.optional(backupStructureObject),
         // An update: the channel as a category's permission change leaves it, which is also a state the update accepts
         cascadeHash: v.optional(v.string()),
+        // A category update: the channels on the server its permission change reaches, which the channels' own updates accept
+        cascaded: v.optional(v.array(v.string())),
         returnedChannel: v.optional(backupStructureObject),
         originId: v.optional(v.id("backupOrigins")),
         dispatchExpiresAt: v.optional(v.number()),
@@ -577,6 +635,10 @@ export default defineSchema({
         resolution: v.optional(backupResolution),
     })
         .index("by_plan", ["planId", "itemNo"])
+        .index("by_plan_source", ["planId", "category", "sourceId"])
+        .index("by_plan_state", ["planId", "state", "itemNo"])
+        // A plan has an item for each channel, which a server's channel count bounds, so its channels in one state are a short read however many XP items fail
+        .index("by_plan_category_state", ["planId", "category", "state", "itemNo"])
         .index("by_plan_rank", ["planId", "rank", "itemNo"])
         .index("by_number", ["serverId", "planId", "itemNo"])
         .index("by_deadline", ["state", "dispatchExpiresAt"])
@@ -604,14 +666,7 @@ export default defineSchema({
         desiredHash: v.string(),
         noDispatch: v.optional(v.literal(true)),
         resolved: v.optional(backupResolution),
-    })
-        .index("by_origin", ["serverId", "provider", "category", "family", "sourceId"])
-        .index("by_server", ["serverId", "provider"]),
-    // How many origins each server and provider holds, so restore capacity checks read one row
-    backupOriginCounts: defineTable({ serverId: v.string(), provider: v.string(), count: v.number() }).index(
-        "by_provider",
-        ["serverId", "provider"],
-    ),
+    }).index("by_origin", ["serverId", "provider", "category", "family", "sourceId"]),
     metadataLogSettings: defineTable({
         serverId: v.string(),
         enabled: v.boolean(),
@@ -2149,7 +2204,8 @@ export default defineSchema({
         .index("by_server_source", ["serverId", "sourceId"])
         .index("by_expiry", ["expiresAt"]),
     // Retained cases are nextCaseNo - 1 - casesRemoved, because retention is the only deletion before the server's purge
-    // privateDataRoleId names the role whose members may view private cases on the website. It stays outside config, so backups leave it out
+    // privateDataRoleId names the role whose members may view private cases on the website. It stays outside config, so DEFCON and the
+    // cases do not move with it, and a backup keeps it beside the moderation settings
     moderationSettings: defineTable({
         serverId: v.string(),
         config: moderationSettings,
@@ -2299,6 +2355,11 @@ export default defineSchema({
     })
         .index("by_server_user", ["serverId", "userId"])
         .index("by_member_data", ["userId", "serverId"]),
+    // When a member last deleted their data in a server with !mydata, so a restore of a backup made before cannot bring it back
+    memberDataDeletions: defineTable({ serverId: v.string(), userId: v.string(), deletedAt: v.number() }).index(
+        "by_member",
+        ["serverId", "userId"],
+    ),
     responseSettings: defineTable({
         serverId: v.string(),
         customEnabled: v.boolean(),

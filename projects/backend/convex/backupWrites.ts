@@ -6,7 +6,7 @@ import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { recordAudit } from "./auditLog.ts"
 import { canonicalBackupJson } from "./backupDomain.ts"
 import type { ValueChange } from "./valueDiff.ts"
-import type { DashboardConfigurationFamily } from "../dashboard-contracts.js"
+import type { DashboardAuditFeature, DashboardConfigurationFamily } from "../dashboard-contracts.js"
 import { applyModerationConfiguration } from "./moderation.ts"
 import { applyResponseManagement } from "./responses.ts"
 import { applyResponseConfiguration, responseConfigurationOperation } from "./configurationResponses.ts"
@@ -31,6 +31,25 @@ import { scheduleState } from "./schedulesStore.ts"
 import { cleanupState } from "./cleanupStore.ts"
 import { advanceSuggestion } from "./suggestionsDomain.ts"
 import { suggestionState } from "./suggestionsStore.ts"
+import { restoreEventDraft } from "./events.ts"
+import { restoreSchedule } from "./schedules.ts"
+import { configurationRevision } from "./configurationRevision.ts"
+import { generalView, readGeneral, writeGeneral, writeNickname } from "./generalSettings.ts"
+import { writeAnalyticsEnabled } from "./analytics.ts"
+import { saveVoiceGenerator } from "./voice.ts"
+import { applyLfgSettings } from "./lfg.ts"
+import { applyRolePickerConfiguration } from "./rolePicker.ts"
+import { readRolePicker } from "./rolePickerStore.ts"
+import { applyMemberAccess } from "./memberAccess.ts"
+import { applyTemporaryRoleConfiguration } from "./temporaryRoles.ts"
+import { readTemporaryRoleSettings } from "./temporaryRolesStore.ts"
+import { applyOnboardingConfiguration } from "./onboarding.ts"
+import { applyStickyManagement } from "./sticky.ts"
+import { applyAlertsManagement, publicAlerts, readAlerts, restoreExpectedAlerts } from "./alerts.ts"
+import { applyHelpDeskManagement, publicHelpDesk, readHelpDesk } from "./helpDesk.ts"
+import { applyShowcaseConfiguration } from "./showcases.ts"
+import { applyProfileConfiguration } from "./profiles.ts"
+import { applyYoutubeManagement } from "./youtube.ts"
 
 /** Who writes, when, and the roles the bot read, which a restored setting that names roles is checked against */
 type BackupWriter = {
@@ -61,7 +80,27 @@ const feature: Partial<Record<BackupConfigObject["family"], DashboardConfigurati
     cleanup: "cleanup",
     cleanupPolicy: "cleanup",
     events: "events",
+    event: "events",
     schedules: "schedules",
+    schedule: "schedules",
+    voiceGenerator: "voice",
+    lfg: "lfg",
+    rolepicker: "rolepicker",
+    temproles: "temproles",
+    onboarding: "onboarding",
+    sticky: "sticky",
+    alerts: "alerts",
+    helpdesk: "helpdesk",
+    helpdeskAnswer: "helpdesk",
+    showcase: "showcase",
+    profile: "profile",
+    youtube: "youtube",
+}
+/** The audit log's feature for a setting that no dashboard family owns */
+const auditFeature: Partial<Record<BackupConfigObject["family"], DashboardAuditFeature>> = {
+    metadata: "logs",
+    general: "prefix",
+    analytics: "analytics",
 }
 /**
  * Writes one archived setting the way the feature's own settings change does, so revisions, reference ledgers, activation times and worker
@@ -76,9 +115,24 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
         source: { kind: "job", jobId: `${w.key}:${step}` },
     })
     switch (item.family) {
-        case "moderation":
-            await applyModerationConfiguration(ctx, serverId, { type: "settings", patch: item.value }, now)
+        case "moderation": {
+            const { privateDataRoleId, ...settings } = item.value
+            // An archive without a case period keeps cases until erased, as the server it came from did
+            const patch = { ...settings, caseRetentionDays: settings.caseRetentionDays ?? null }
+            await applyModerationConfiguration(ctx, serverId, { type: "settings", patch }, now)
+            const row = await ctx.db
+                .query("moderationSettings")
+                .withIndex("by_server", (q) => q.eq("serverId", serverId))
+                .unique()
+            if (row?.privateDataRoleId !== privateDataRoleId)
+                await applyModerationConfiguration(
+                    ctx,
+                    serverId,
+                    { type: "private-role", roleId: privateDataRoleId ?? null },
+                    now,
+                )
             break
+        }
         case "responses": {
             const state = await ctx.db
                 .query("responseSettings")
@@ -180,16 +234,27 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
                     .withIndex("by_server_name", (q) => q.eq("serverId", serverId).eq("name", name))
                     .unique()
             if (exists) {
-                // Mappings and the exclusive flag take a new panel revision and ledger key, so only a difference is sent
+                // Mappings and the exclusive flag take a new panel revision and ledger key, unless the panel changes under its posted message, so
+                // only a difference is sent
                 const patch = {
                     ...(enabled !== exists.enabled ? { enabled } : {}),
                     ...(exclusive !== exists.exclusive ? { exclusive } : {}),
                     ...(canonicalBackupJson(mappings) !== canonicalBackupJson(exists.mappings) ? { mappings } : {}),
                 }
+                // A posted reaction panel changes under its message as a staff edit does, which clears the reactions whose role changed
+                const inPlace =
+                    exists.kind === "reaction" && exists.published && exists.published.revision === exists.revision
                 await applyRoleManagement(
                     ctx,
                     { serverId, jobId: `${w.key}:panel` },
-                    { type: "panel-update", name, expectedRevision: exists.revision, patch, roles: w.roles },
+                    {
+                        type: "panel-update",
+                        name,
+                        expectedRevision: exists.revision,
+                        patch,
+                        roles: w.roles,
+                        ...(inPlace ? { inPlace: true } : {}),
+                    },
                     now,
                 )
             } else {
@@ -355,6 +420,17 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
                 { type: "settings", expectedRevision: state.revision, enabled: item.value.enabled },
                 now,
             )
+            // Discussion threads have their own switch, which an archive without it leaves off
+            const latest = await eventState(ctx, serverId),
+                threads = item.value.threads ?? false
+            if ((latest.threads ?? false) !== threads)
+                await applyEventsManagement(
+                    ctx,
+                    identity("threads"),
+                    undefined,
+                    { type: "threads", expectedRevision: latest.revision, enabled: threads },
+                    now,
+                )
             break
         }
         case "schedules": {
@@ -368,8 +444,164 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
             )
             break
         }
+        case "event":
+            await restoreEventDraft(ctx, serverId, item.value, now)
+            break
+        case "schedule":
+            await restoreSchedule(ctx, serverId, ownerId, item.value, now)
+            break
+        case "general": {
+            // The prefix and reply style share the general revision, and the nickname has its own, which the bot applies after this step
+            const row = await readGeneral(ctx, serverId),
+                view = generalView(row),
+                replyStyle = item.value.replyStyle ?? "embed",
+                nickname = item.value.nickname ?? null
+            if (view.prefix !== item.value.prefix || view.replyStyle !== replyStyle)
+                await writeGeneral(
+                    ctx,
+                    serverId,
+                    { userId: ownerId, source: "command" },
+                    { prefix: item.value.prefix, replyStyle },
+                    row?.revision ?? 0,
+                )
+            if ((row?.nickname ?? null) !== nickname) {
+                await writeNickname(
+                    ctx,
+                    serverId,
+                    ownerId,
+                    nickname,
+                    (await configurationRevision(ctx, serverId, "nickname")) + 1,
+                )
+                await bumpConfigurationRevision(ctx, serverId, "nickname", { kind: "dashboard", createdAt: now })
+            }
+            break
+        }
+        case "analytics":
+            await writeAnalyticsEnabled(ctx, serverId, { userId: ownerId, source: "command" }, item.value.enabled)
+            break
+        case "voiceGenerator": {
+            const { channelId, ...fields } = item.value
+            await saveVoiceGenerator(ctx, serverId, channelId, fields, now)
+            break
+        }
+        case "lfg":
+            await applyLfgSettings(ctx, serverId, item.value)
+            break
+        case "rolepicker": {
+            // A role belongs to one menu, so the menus the archive does not hold go first, and a menu it holds first lets go of the
+            // roles the archive puts in another menu, such as two menus that swap roles. Then each archived menu is set whole
+            const current = await readRolePicker(ctx, serverId),
+                archived = new Map(item.value.menus.map((menu) => [menu.name, menu]))
+            for (const menu of current.menus) {
+                const kept = archived.get(menu.name)?.roleIds
+                if (!kept) await applyRolePickerConfiguration(ctx, serverId, { type: "menu-remove", name: menu.name })
+                else if (menu.roleIds.some((id) => !kept.includes(id)))
+                    await applyRolePickerConfiguration(ctx, serverId, {
+                        type: "menu-set",
+                        name: menu.name,
+                        mode: menu.mode,
+                        ...(menu.description ? { description: menu.description } : {}),
+                        roleIds: menu.roleIds.filter((id) => kept.includes(id)),
+                        roles: w.roles,
+                    })
+            }
+            for (const menu of item.value.menus)
+                await applyRolePickerConfiguration(ctx, serverId, { type: "menu-set", ...menu, roles: w.roles })
+            await applyRolePickerConfiguration(ctx, serverId, { type: "module", enabled: item.value.enabled })
+            break
+        }
+        case "access": {
+            const { feature: name, ...lists } = item.value
+            await applyMemberAccess(ctx, serverId, name, { type: "access-set", ...lists })
+            break
+        }
+        case "temproles": {
+            // A role with no durations leaves the list, so the server's roles the archive does not hold are cleared
+            const archived = new Set(item.value.roles.map((role) => role.roleId))
+            for (const role of (await readTemporaryRoleSettings(ctx, serverId)).roles)
+                if (!archived.has(role.roleId))
+                    await applyTemporaryRoleConfiguration(ctx, serverId, {
+                        type: "role",
+                        roleId: role.roleId,
+                        defaultSeconds: null,
+                        maxSeconds: null,
+                    })
+            for (const role of item.value.roles)
+                await applyTemporaryRoleConfiguration(ctx, serverId, {
+                    type: "role",
+                    roleId: role.roleId,
+                    defaultSeconds: role.defaultSeconds ?? null,
+                    maxSeconds: role.maxSeconds ?? null,
+                })
+            break
+        }
+        case "onboarding":
+            for (const operation of [
+                { type: "steps", steps: item.value.steps },
+                { type: "delivery", delivery: item.value.delivery },
+                { type: "role", roleId: item.value.completionRoleId, roles: w.roles },
+                { type: "module", enabled: item.value.enabled },
+            ])
+                await applyOnboardingConfiguration(ctx, serverId, operation)
+            break
+        case "sticky": {
+            const { channelId, content, intervalSeconds } = item.value
+            await applyStickyManagement(ctx, identity("sticky"), { type: "set", channelId, content, intervalSeconds })
+            break
+        }
+        case "alerts": {
+            const current = publicAlerts(await readAlerts(ctx, serverId))
+            for (const alert of ["invites", "bots", "webhooks", "privileges", "impersonation"] as const)
+                if (current[alert] !== item.value[alert])
+                    await applyAlertsManagement(ctx, serverId, ownerId, {
+                        type: "set",
+                        alert,
+                        enabled: item.value[alert],
+                    })
+            for (const action of ["kickBots", "deleteWebhooks", "removePermissions"] as const)
+                if (current[action] !== item.value[action])
+                    await applyAlertsManagement(ctx, serverId, ownerId, {
+                        type: "action",
+                        action,
+                        enabled: item.value[action],
+                    })
+            // The lists are sets, so the same IDs in another order need no write
+            const { expectedBotIds, expectedWebhookIds } = item.value,
+                same = (a: readonly string[], b: readonly string[]) => {
+                    const other = new Set(b)
+                    return new Set(a).size === other.size && a.every((id) => other.has(id))
+                }
+            if (!same(expectedBotIds, current.expectedBotIds) || !same(expectedWebhookIds, current.expectedWebhookIds))
+                await restoreExpectedAlerts(ctx, serverId, ownerId, { expectedBotIds, expectedWebhookIds })
+            break
+        }
+        case "helpdesk": {
+            const { forumIds, ...settings } = item.value,
+                current = publicHelpDesk(await readHelpDesk(ctx, serverId))
+            for (const channelId of current.forumIds)
+                if (!forumIds.includes(channelId))
+                    await applyHelpDeskManagement(ctx, identity("forum"), { type: "forum-remove", channelId })
+            for (const channelId of forumIds)
+                if (!current.forumIds.includes(channelId))
+                    await applyHelpDeskManagement(ctx, identity("forum"), { type: "forum-add", channelId })
+            await applyHelpDeskManagement(ctx, identity("settings"), { type: "settings", ...settings })
+            break
+        }
+        case "helpdeskAnswer":
+            await applyHelpDeskManagement(ctx, identity("answer"), { type: "answer-set", ...item.value })
+            break
+        case "showcase":
+            await applyShowcaseConfiguration(ctx, serverId, { type: "settings", ...item.value })
+            break
+        case "profile":
+            await applyProfileConfiguration(ctx, serverId, { type: "settings", ...item.value })
+            break
+        // Following again makes the YouTube subscription NeonFlux needs, with a new secret
+        case "youtube":
+            await applyYoutubeManagement(ctx, identity("youtube"), { type: "add", ...item.value })
+            break
     }
-    const family = feature[item.family]
+    const family = item.family === "access" ? item.value.feature : feature[item.family]
     if (family) await bumpConfigurationRevision(ctx, serverId, family, { kind: "dashboard", createdAt: now })
     // A restore confirmed by the owner records each written item in the audit log
     await recordAudit(
@@ -378,7 +610,7 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
         { userId: ownerId, source: "command" },
         {
             kind: "setting",
-            feature: family ?? (item.family === "metadata" ? "logs" : "roles"),
+            feature: family ?? auditFeature[item.family] ?? "roles",
             setting: `restore ${item.family}`,
             summary: `Restored ${item.sourceId} from a backup`,
             ...(w.changes ? { changes: w.changes } : {}),

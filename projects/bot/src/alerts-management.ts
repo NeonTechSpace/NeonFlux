@@ -259,7 +259,7 @@ export function handleAlertsCommand(
             yield* reply(webhook)
             return
         }
-        const id = webhook?.id ?? ("id" in command ? command.id : "")
+        const ids = webhook ? [webhook.id] : "ids" in command ? command.ids : []
         const createdAt = yield* sourceTimestamp(message)
         const manage = (operation: AlertsOperation) =>
             store.manage({
@@ -276,7 +276,7 @@ export function handleAlertsCommand(
             for (const alert of command.alerts) result = yield* manage({ type: "set", alert, enabled: command.enabled })
         else if (command.type === "action")
             result = yield* manage({ type: "action", action: command.action, enabled: command.enabled })
-        else result = yield* manage({ type: "expect", kind: command.kind, id, expected: command.expected })
+        else result = yield* manage({ type: "expect", kind: command.kind, ids, expected: command.expected })
         yield* runtime.changed(result!.settings)
         if (command.type === "action") {
             const alert = alertActions[command.action].alert
@@ -296,7 +296,9 @@ export function handleAlertsCommand(
         yield* reply(
             command.type === "set"
                 ? `${command.alerts.length > 1 ? "All alerts" : `The ${command.alerts[0]} alert`} turned ${onOff(command.enabled).toLowerCase()}`
-                : `${webhook ? webhookName(webhook) : command.kind === "bot" ? `Bot ${format.userMention(id)}` : `Webhook ${code(id)}`} ${command.expected ? "is marked expected. It raises no alert" : "is no longer expected"}`,
+                : ids.length > 1
+                  ? `${ids.length} ${command.kind}s ${command.expected ? "are marked expected. They raise no alert" : "are no longer expected"}`
+                  : `${webhook ? webhookName(webhook) : command.kind === "bot" ? `Bot ${format.userMention(ids[0]!)}` : `Webhook ${code(ids[0]!)}`} ${command.expected ? "is marked expected. It raises no alert" : "is no longer expected"}`,
         )
     }).pipe(
         Effect.catch((error) => reply(describe(error))),

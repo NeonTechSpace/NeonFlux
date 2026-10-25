@@ -8,6 +8,11 @@ import { ticketSettings, ticketCategory } from "./ticketValidators.ts"
 import { levelingSettings } from "./levelingValidators.ts"
 import { milestoneKind, milestoneFold, milestoneTemplate } from "./milestonesValidators.ts"
 import { metadataRouteValidator, metadataEventRouteValidator } from "./metadataLogsValidators.ts"
+import { eventsCalendar, eventsTemplate } from "./eventsValidators.ts"
+import { scheduleCalendar, scheduleSource } from "./schedulesValidators.ts"
+import { memberAccessFields } from "./rolePickerValidators.ts"
+import { temporaryRoleDefault } from "./temporaryRolesValidators.ts"
+import { onboardingStep } from "./onboardingValidators.ts"
 
 const { defcon: _defcon, ...moderation } = moderationSettings.fields
 const { revision: _rolesRevision, ...roles } = rolesSettings.fields
@@ -21,8 +26,11 @@ const {
 const { revision: _metadataRevision, ...metadataRoute } = metadataRouteValidator.fields
 const { revision: _metadataEventRevision, ...metadataEventRoute } = metadataEventRouteValidator.fields
 const { revision: _greetingRevision, ...greetingRoute } = greetingsSettings.fields.routes.fields.welcome.fields
+const nullString = v.union(v.string(), v.null()),
+    nullNumber = v.union(v.number(), v.null())
+const enabled = v.object({ enabled: v.boolean() })
 export const backupConfigValues = {
-    moderation: v.object(moderation),
+    moderation: v.object({ ...moderation, privateDataRoleId: v.optional(v.string()) }),
     responses: v.object({ customEnabled: v.boolean(), autoEnabled: v.boolean() }),
     response: v.object({
         kind: responseKind,
@@ -87,8 +95,100 @@ export const backupConfigValues = {
         messageChannelIds: v.array(v.string()),
         excludedChannelIds: v.array(v.string()),
     }),
-    events: v.object({ enabled: v.boolean() }),
-    schedules: v.object({ enabled: v.boolean() }),
+    events: v.object({ enabled: v.boolean(), threads: v.optional(v.boolean()) }),
+    event: v.object({
+        name: v.string(),
+        channelId: v.string(),
+        title: v.string(),
+        description: v.string(),
+        capacity: nullNumber,
+        reminderOffsets: v.array(v.number()),
+        calendar: v.optional(eventsCalendar),
+        template: v.optional(eventsTemplate),
+    }),
+    schedules: enabled,
+    schedule: v.object({
+        name: v.string(),
+        channelId: v.string(),
+        calendar: scheduleCalendar,
+        source: scheduleSource,
+        content: publishingContent,
+        enabled: v.boolean(),
+    }),
+    general: v.object({
+        prefix: v.string(),
+        replyStyle: v.optional(v.union(v.literal("embed"), v.literal("text"))),
+        nickname: v.optional(v.string()),
+    }),
+    analytics: enabled,
+    voiceGenerator: v.object({
+        channelId: v.string(),
+        categoryId: nullString,
+        template: v.string(),
+        userLimit: nullNumber,
+        region: nullString,
+    }),
+    lfg: v.object({
+        enabled: v.boolean(),
+        channelId: nullString,
+        generatorChannelId: nullString,
+        expiryMinutes: v.number(),
+        maxSize: v.number(),
+        memberGroups: v.number(),
+        serverGroups: v.number(),
+    }),
+    rolepicker: v.object({
+        enabled: v.boolean(),
+        menus: v.array(
+            v.object({
+                name: v.string(),
+                description: v.optional(v.string()),
+                mode: v.union(v.literal("single"), v.literal("multi")),
+                roleIds: v.array(v.string()),
+            }),
+        ),
+    }),
+    access: v.object({
+        feature: v.union(v.literal("rolepicker"), v.literal("showcase"), v.literal("profile")),
+        ...memberAccessFields,
+    }),
+    temproles: v.object({ roles: v.array(temporaryRoleDefault) }),
+    onboarding: v.object({
+        enabled: v.boolean(),
+        delivery: v.union(v.literal("welcome"), v.literal("dm")),
+        steps: v.array(onboardingStep),
+        completionRoleId: nullString,
+    }),
+    sticky: v.object({ channelId: v.string(), content: v.string(), intervalSeconds: v.number() }),
+    alerts: v.object({
+        invites: v.boolean(),
+        bots: v.boolean(),
+        webhooks: v.boolean(),
+        privileges: v.boolean(),
+        impersonation: v.boolean(),
+        kickBots: v.boolean(),
+        deleteWebhooks: v.boolean(),
+        removePermissions: v.boolean(),
+        expectedBotIds: v.array(v.string()),
+        expectedWebhookIds: v.array(v.string()),
+    }),
+    helpdesk: v.object({
+        forumIds: v.array(v.string()),
+        greeting: nullString,
+        solvedTag: v.string(),
+        nudgeHours: nullNumber,
+        guardChannelId: nullString,
+        autoArchive: v.boolean(),
+    }),
+    helpdeskAnswer: v.object({ name: v.string(), title: v.string(), content: v.string() }),
+    showcase: v.object({
+        enabled: v.boolean(),
+        channelId: nullString,
+        maxPerMember: nullNumber,
+        intervalMinutes: nullNumber,
+    }),
+    profile: v.object({ enabled: v.boolean(), cooldownSeconds: nullNumber }),
+    youtube: v.object({ youtubeChannelId: v.string(), channelId: v.string() }),
 }
 const entry = <K extends keyof typeof backupConfigValues>(family: K) =>
     v.object({ family: v.literal(family), sourceId: v.string(), value: backupConfigValues[family] })
@@ -112,9 +212,31 @@ const backupConfigObject = v.union(
     entry("cleanupPolicy"),
     entry("metadata"),
     entry("events"),
+    entry("event"),
     entry("schedules"),
+    entry("schedule"),
+    entry("general"),
+    entry("analytics"),
+    entry("voiceGenerator"),
+    entry("lfg"),
+    entry("rolepicker"),
+    entry("access"),
+    entry("temproles"),
+    entry("onboarding"),
+    entry("sticky"),
+    entry("alerts"),
+    entry("helpdesk"),
+    entry("helpdeskAnswer"),
+    entry("showcase"),
+    entry("profile"),
+    entry("youtube"),
 )
-const backupXpObject = v.object({ sourceId: v.string(), userId: v.string(), xp: v.number() })
+// One XP item of a plan, see BackupXpPage in the contracts
+const backupXpPage = v.object({
+    sourceId: v.string(),
+    epoch: v.number(),
+    members: v.array(v.object({ userId: v.string(), xp: v.number(), expected: v.union(v.number(), v.null()) })),
+})
 const backupOverwrite = v.object({
     id: v.string(),
     type: v.union(v.literal("role"), v.literal("member")),
@@ -147,10 +269,24 @@ export const backupStructureObject = v.object({
     layout: v.optional(v.number()),
     requireTag: v.optional(v.boolean()),
     managed: v.optional(v.union(v.literal("ticket"), v.literal("voiceRoom"))),
+    position: v.optional(v.number()),
     capturedAt: v.number(),
 })
-export const backupObject = v.union(backupConfigObject, backupXpObject, backupStructureObject)
+export const backupObject = v.union(backupConfigObject, backupXpPage, backupStructureObject)
 export const backupCategory = v.union(v.literal("config"), v.literal("xp"), v.literal("structure"))
+const nullTime = v.union(v.number(), v.null())
+/** An archive without its objects, see BackupManifestHeader in the contracts */
+export const backupHeader = v.object({
+    version: v.literal(2),
+    backupId: v.string(),
+    provider: v.string(),
+    serverId: v.string(),
+    selected: v.array(backupCategory),
+    capturedAt: v.number(),
+    observations: v.object({ databaseAt: nullTime, structureStartedAt: nullTime, structureFinishedAt: nullTime }),
+    counts: v.object({ config: v.number(), xp: v.number(), structure: v.number(), overwrites: v.number() }),
+    exclusions: v.array(v.string()),
+})
 export const backupDisposition = v.union(
     ...(["create", "update", "delete", "skip", "blocked"] as const).map((x) => v.literal(x)),
 )

@@ -4,9 +4,8 @@ import { ModerationActor, ModerationSource, RolesRoleSnapshot } from "./shared.t
 
 // Message leveling, see docs/BOT.md#message-leveling
 
-/** A server stores at most 50,000 member scores, and a score is at most 100 million XP, which is level 1,000 */
-export const LEVELING_CAP = 50000,
-    LEVELING_XP_CAP = 100000000
+/** A score is at most 100 million XP, which is level 1,000 */
+export const LEVELING_XP_CAP = 100000000
 /** Level N begins at 100 * N² XP, up to level 1000 */
 export const levelStartXp = (level: number) => 100 * level ** 2
 export const levelForXp = (xp: number) => Math.min(1000, Math.floor(Math.sqrt(xp / 100)))

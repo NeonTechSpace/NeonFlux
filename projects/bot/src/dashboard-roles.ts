@@ -230,6 +230,7 @@ export function startDashboardRolesWorker(
     profileRequests?: Effect.Effect<void, unknown>,
     structureJobs?: Effect.Effect<void, unknown>,
     syncPanel?: DashboardPanelSync,
+    analyticsReloads?: Effect.Effect<void, unknown>,
 ) {
     return Effect.gen(function* () {
         // The passes the wakes since the last run asked for. A wake that names none runs every pass
@@ -312,6 +313,14 @@ export function startDashboardRolesWorker(
                             Cause.hasInterrupts(cause)
                                 ? Effect.failCause(cause)
                                 : Effect.logWarning("Server structure requests paused"),
+                        ),
+                    )
+                if (analyticsReloads && has("analytics"))
+                    yield* analyticsReloads.pipe(
+                        Effect.catchCause((cause) =>
+                            Cause.hasInterrupts(cause)
+                                ? Effect.failCause(cause)
+                                : Effect.logWarning("Analytics switch reload paused"),
                         ),
                     )
             }

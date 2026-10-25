@@ -73,7 +73,7 @@ function memoryAlerts(initial: Partial<AlertSettings>) {
                     const key = op.kind === "bot" ? "expectedBotIds" : "expectedWebhookIds"
                     settings = {
                         ...settings,
-                        [key]: [...settings[key].filter((id) => id !== op.id), ...(op.expected ? [op.id] : [])],
+                        [key]: [...settings[key].filter((id) => !op.ids.includes(id)), ...(op.expected ? op.ids : [])],
                     }
                 }
                 return { settings }
@@ -106,7 +106,7 @@ function memoryAlerts(initial: Partial<AlertSettings>) {
                 return { uncertain: 0, admitted: false }
             }),
     }
-    return { store, calls, operations, claims, outcomes, observed: () => observed }
+    return { store, calls, operations, claims, outcomes, observed: () => observed, settings: () => settings }
 }
 /** Metadata admission that keeps the security events it receives */
 // Records every alert it is sent, and answers that metadata logs are off once disabled is set
@@ -680,7 +680,7 @@ test("managers turn alerts on and mark bots expected in chat, which applies at o
             yield* bot.idle()
             assert.deepEqual(alerts.operations, [
                 { type: "set", alert: "bots", enabled: true },
-                { type: "expect", kind: "bot", id: botAccountId, expected: true },
+                { type: "expect", kind: "bot", ids: [botAccountId], expected: true },
             ])
             yield* join(bot, botAccountId, { bot: true })
             yield* join(bot, "6101", { bot: true })
@@ -727,8 +727,18 @@ test("the alerts command takes expected with next, and a webhook by name", () =>
     assert.deepEqual(parseAlertsCommand(["expect", "webhook", "9001"]), {
         type: "expect",
         kind: "webhook",
-        id: "9001",
+        ids: ["9001"],
         expected: true,
+    })
+    // Several IDs or mentions, apart or split by commas, are one change, each ID once
+    assert.deepEqual(parseAlertsCommand(["unexpect", "bot", "<@6101>,6102", "6103", "6101"]), {
+        type: "expect",
+        kind: "bot",
+        ids: ["6101", "6102", "6103"],
+        expected: false,
+    })
+    assert.deepEqual(parseAlertsCommand(["expect", "bot", "6101", "Synthetic"]), {
+        error: "Use the bot's mention or ID",
     })
     assert.deepEqual(
         [parseAlertsCommand(["expect", "bot", "Synthetic"]), parseAlertsCommand(["expected", "2"])],
@@ -818,10 +828,21 @@ test("webhooks are marked expected by name, and without Manage webhooks they sho
                 yield* ask(bot, native, "!alerts unexpect webhook 9001"),
                 "Webhook `9001` is no longer expected",
             )
+            assert.equal(
+                yield* ask(bot, native, "!alerts expect webhook 9003, 9004 9005"),
+                "3 webhooks are marked expected. They raise no alert",
+            )
+            assert.equal(
+                yield* ask(bot, native, "!alerts unexpect webhook 9003 9005"),
+                "2 webhooks are no longer expected",
+            )
             assert.deepEqual(alerts.operations, [
-                { type: "expect", kind: "webhook", id: "9002", expected: true },
-                { type: "expect", kind: "webhook", id: "9001", expected: false },
+                { type: "expect", kind: "webhook", ids: ["9002"], expected: true },
+                { type: "expect", kind: "webhook", ids: ["9001"], expected: false },
+                { type: "expect", kind: "webhook", ids: ["9003", "9004", "9005"], expected: true },
+                { type: "expect", kind: "webhook", ids: ["9003", "9005"], expected: false },
             ])
+            assert.deepEqual(alerts.settings().expectedWebhookIds, ["9002", "9004"])
         }),
     )
 })

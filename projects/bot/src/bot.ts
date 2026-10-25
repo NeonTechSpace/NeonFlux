@@ -136,7 +136,7 @@ import {
 } from "./dashboard-roles.ts"
 import { createPanelIndex } from "./role-panel-index.ts"
 import type { AnalyticsStore } from "./analytics-store.ts"
-import { startAnalyticsWorker } from "./analytics-worker.ts"
+import { processAnalyticsReloadPass, startAnalyticsWorker } from "./analytics-worker.ts"
 import { handleStatsCommand } from "./analytics-management.ts"
 import { createWorkNotices, startWorkDispatcher } from "./work-dispatcher.ts"
 import type { VoiceStore } from "./voice-store.ts"
@@ -1385,13 +1385,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         stores.privateData
                             ? processPrivateAccessPass(stores.privateData, config.serverId, client)
                             : undefined,
-                        backups ? processBackupJobPass(backups, config, client) : undefined,
+                        backups ? processBackupJobPass(backups, config, client, syncPanel(client)) : undefined,
                         stores.showcases && publishing
                             ? processShowcasePass(stores.showcases, publishing, config.serverId, client)
                             : undefined,
                         stores.profiles ? processProfilePass(stores.profiles, config.serverId, client) : undefined,
                         stores.structure ? processStructurePass(stores.structure, config.serverId, client) : undefined,
                         syncPanel(client),
+                        stores.analytics ? processAnalyticsReloadPass(stores.analytics, config.serverId) : undefined,
                     )).notify
                 if (roles) {
                     yield* skippable(

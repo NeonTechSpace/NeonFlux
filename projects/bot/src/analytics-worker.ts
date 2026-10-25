@@ -30,7 +30,17 @@ export interface AnalyticsRecorder {
     setEnabled(enabled: boolean): Effect.Effect<void>
     /** Send the counts held in memory now, so a summary read next includes them */
     flush(): Effect.Effect<void>
+    /** Read the setting again now, after the backend changed it outside chat, as a restored backup does */
+    reload(): Effect.Effect<void>
 }
+/** The running recorder of each server, which a restore reloads */
+export const analyticsRuntimes = new Map<string, AnalyticsRecorder>()
+
+/** The dashboard pass for an analytics switch the website changed: reads it, which marks it read, and applies it to the running recorder */
+export const processAnalyticsReloadPass = (store: AnalyticsStore, serverId: string) =>
+    store
+        .reloaded({ serverId })
+        .pipe(Effect.flatMap(({ enabled }) => analyticsRuntimes.get(serverId)?.setEnabled(enabled) ?? Effect.void))
 
 type Batch = { readonly createdAt: number; readonly request: AnalyticsRecordRequest }
 
@@ -211,7 +221,20 @@ export function startAnalyticsWorker(store: AnalyticsStore, serverId: string, cl
                 if (outbox.length) yield* wake
             }
         }).pipe(Effect.forkScoped({ startImmediately: true }))
-        return {
+        const setEnabled = (value: boolean) =>
+            Clock.currentTimeMillis.pipe(
+                Effect.map((now) => {
+                    enabled = value
+                    checkedAt = now
+                    recheck = false
+                    if (!value) {
+                        hours.clear()
+                        days.clear()
+                        outbox.length = 0
+                    }
+                }),
+            )
+        const recorder = {
             message: (channelId) =>
                 Effect.gen(function* () {
                     const now = yield* admit
@@ -221,20 +244,21 @@ export function startAnalyticsWorker(store: AnalyticsStore, serverId: string, cl
                 }),
             join: () => member("joins"),
             leave: () => member("leaves"),
-            setEnabled: (value) =>
-                Clock.currentTimeMillis.pipe(
-                    Effect.map((now) => {
-                        enabled = value
-                        checkedAt = now
-                        recheck = false
-                        if (!value) {
-                            hours.clear()
-                            days.clear()
-                            outbox.length = 0
-                        }
-                    }),
-                ),
+            setEnabled,
             flush: () => flush(true).pipe(Effect.asVoid),
+            // A failed read keeps the setting the recorder had, which its next flush or recheck corrects
+            reload: () =>
+                store.settings({ serverId }).pipe(
+                    Effect.flatMap((current) => setEnabled(current.enabled)),
+                    Effect.catch(() => Effect.void),
+                ),
         } satisfies AnalyticsRecorder
+        analyticsRuntimes.set(serverId, recorder)
+        yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+                if (analyticsRuntimes.get(serverId) === recorder) analyticsRuntimes.delete(serverId)
+            }),
+        )
+        return recorder
     })
 }

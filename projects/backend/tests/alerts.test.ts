@@ -130,32 +130,40 @@ test("Every alert starts off, chat changes need manager authority, and expected 
     // Invite reads and revocations are native work, so only dashboard jobs carry them
     await f.manage({ type: "invites-refresh" }, 400)
     assert.equal((await f.manage({ type: "set", alert: "bots", enabled: true })).settings.bots, true)
-    await f.manage({ type: "expect", kind: "bot", id: "31", expected: true })
+    await f.manage({ type: "expect", kind: "bot", ids: ["31"], expected: true })
     assert.deepEqual(
-        (await f.manage({ type: "expect", kind: "bot", id: "31", expected: true })).settings.expectedBotIds,
-        ["31"],
+        (await f.manage({ type: "expect", kind: "bot", ids: ["31", "32"], expected: true })).settings.expectedBotIds,
+        ["31", "32"],
     )
     assert.deepEqual(
-        (await f.manage({ type: "expect", kind: "bot", id: "31", expected: false })).settings.expectedBotIds,
+        (await f.manage({ type: "expect", kind: "bot", ids: ["31", "32"], expected: false })).settings.expectedBotIds,
         [],
     )
-    // A 51st expected webhook is kept from chat and a 52nd from the dashboard
-    for (let index = 0; index < 51; index++)
-        await f.manage({ type: "expect", kind: "webhook", id: String(100 + index), expected: true })
+    // Many IDs change in one chat operation, and a member without Manage community changes none of them
+    const hooks = Array.from({ length: 60 }, (_, index) => String(100 + index))
+    await f.manage({ type: "expect", kind: "webhook", ids: hooks, expected: true }, 403, {
+        actor: { ...actor, nativePermissionAuthorized: false },
+    })
+    await f.manage({ type: "expect", kind: "webhook", ids: [], expected: true }, 400)
+    await f.manage({ type: "expect", kind: "webhook", ids: hooks, expected: true })
+    // The dashboard replaces the whole list in one job
     const d = await dashboard(f)
-    const more = await d.queue({ type: "expect", kind: "webhook", id: "151", expected: true })
+    const more = await d.queue({ type: "expected-set", kind: "webhook", ids: [...hooks, "160"] })
     assert.equal((await d.execute(more)).job.state, "applied")
     const expected = (await f.post("/alerts/get", { serverId: "10" })).settings.expectedWebhookIds
     assert.deepEqual(
         expected,
-        Array.from({ length: 52 }, (_, index) => String(100 + index)),
+        Array.from({ length: 61 }, (_, index) => String(100 + index)),
     )
-    // Each change moves the family revision and reaches the audit log
+    // Each change moves the family revision once and reaches the audit log
     assert.equal(
         await f.t.run(async (ctx) => (await ctx.db.query("serverConfigurationRevisions").first())?.revision),
-        56,
+        6,
     )
-    // The 51st expected webhook is exempt from deletion, while an unexpected one may still be deleted
+    const audit = await f.t.run((ctx) => ctx.db.query("auditLogEntries").collect())
+    assert.ok(audit.some((entry) => entry.feature === "alerts" && entry.summary.includes("bots: off → on")))
+    assert.equal(audit.filter((entry) => entry.setting === "expected-set webhook").length, 1)
+    // The last expected webhook is exempt from deletion, while an unexpected one may still be deleted
     clock += 1000
     await f.manage({ type: "set", alert: "webhooks", enabled: true })
     await f.manage({ type: "action", action: "deleteWebhooks", enabled: true })
@@ -167,27 +175,34 @@ test("Every alert starts off, chat changes need manager authority, and expected 
             targetId,
             actorId: "21",
         })
-    assert.deepEqual(await deletion("150"), { claimed: false })
-    assert.deepEqual(await deletion("152"), { claimed: true })
+    assert.deepEqual(await deletion("160"), { claimed: false })
+    assert.deepEqual(await deletion("161"), { claimed: true })
+    // Many are removed at once, and an empty list clears it
+    assert.deepEqual(
+        (await f.manage({ type: "expect", kind: "webhook", ids: hooks.slice(1), expected: false })).settings
+            .expectedWebhookIds,
+        ["100", "160"],
+    )
+    const clear = await d.queue({ type: "expected-set", kind: "webhook", ids: [] })
+    assert.equal((await d.execute(clear)).job.state, "applied")
+    assert.deepEqual((await f.post("/alerts/get", { serverId: "10" })).settings.expectedWebhookIds, [])
     // Only Convex's 8,192 values in one array bound a list
     const full = Array.from({ length: 8192 }, (_, index) => String(10000 + index))
-    await f.t.run(async (ctx) => {
-        const row = (await ctx.db.query("alertSettings").first())!
-        await ctx.db.patch(row._id, { expectedWebhookIds: full })
-    })
-    await f.manage({ type: "expect", kind: "webhook", id: "200", expected: true }, 429)
+    await assert.rejects(d.queue({ type: "expected-set", kind: "webhook", ids: [...full, "200"] }))
+    const whole = await d.queue({ type: "expected-set", kind: "webhook", ids: full })
+    assert.equal((await d.execute(whole)).job.state, "applied")
+    clock += 1000
+    await f.manage({ type: "expect", kind: "webhook", ids: ["200", "201"], expected: true }, 429)
     assert.equal(
-        (await f.manage({ type: "expect", kind: "webhook", id: "10000", expected: false })).settings.expectedWebhookIds
-            .length,
+        (await f.manage({ type: "expect", kind: "webhook", ids: ["10000"], expected: false })).settings
+            .expectedWebhookIds.length,
         8191,
     )
     assert.equal(
-        (await f.manage({ type: "expect", kind: "webhook", id: "200", expected: true })).settings.expectedWebhookIds
-            .length,
+        (await f.manage({ type: "expect", kind: "webhook", ids: ["200", "10001"], expected: true })).settings
+            .expectedWebhookIds.length,
         8192,
     )
-    const audit = await f.t.run((ctx) => ctx.db.query("auditLogEntries").collect())
-    assert.ok(audit.some((entry) => entry.feature === "alerts" && entry.summary.includes("bots: off → on")))
 })
 
 async function dashboard(f: Awaited<ReturnType<typeof fixture>>) {
@@ -311,7 +326,7 @@ test("Action claims dedupe by key and recheck the switches, outcomes record once
     await f.post("/alerts/claim-action", { serverId: "10", ...kick, targetId: "32" }, 400)
     await f.post("/alerts/claim-action", { serverId: "10", ...strip, permissions: undefined }, 400)
     // An expected bot is never kicked, and a change an expected bot made is never undone
-    await f.manage({ type: "expect", kind: "bot", id: "33", expected: true })
+    await f.manage({ type: "expect", kind: "bot", ids: ["33"], expected: true })
     assert.deepEqual(await claim({ ...kick, key: "join:33:2026-01-01T00:00:00.000Z", targetId: "33" }), {
         claimed: false,
     })

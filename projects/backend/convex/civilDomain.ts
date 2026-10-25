@@ -160,3 +160,31 @@ export function civilResume(
         return undefined
     }
 }
+/**
+ * A repeat whose first date, at firstAt, has started, begun again at its first date after now: The same series from there, a count
+ * reduced to the dates left, and its first dates as a new calendar stores them. Undefined when no date is left
+ */
+export function civilRestart(
+    calendar: { localMinute: string; zone: string; fold: CivilFoldPolicy; recurrence: CivilRecurrence },
+    firstAt: number,
+    now: number,
+) {
+    const resume = civilResume(calendar, firstAt, now)
+    if (!resume || resume.count === 0 || calendar.recurrence.type === "none") return undefined
+    const recurrence = { ...calendar.recurrence, ...(resume.count !== undefined ? { count: resume.count } : {}) },
+        restarted = { ...calendar, localMinute: resume.localMinute, recurrence },
+        dates: { localMinute: string; instantAt: number; offsetMinutes: number }[] = []
+    // As a new calendar does, the first dates end before a later date that names no single instant, which the feature skips when it adds it
+    for (let index = 0; index < CIVIL_WINDOW; index++) {
+        const localMinute = civilLocalAt(restarted, index)
+        if (localMinute === undefined) break
+        const resolved = resolveCivil(localMinute, calendar.zone, calendar.fold)
+        if (
+            typeof resolved === "string" ||
+            resolved.instantAt - (dates[0]?.instantAt ?? resolved.instantAt) > CIVIL_HORIZON_DAYS * CIVIL_DAY
+        )
+            break
+        dates.push({ localMinute, ...resolved })
+    }
+    return { localMinute: resume.localMinute, recurrence, dates }
+}

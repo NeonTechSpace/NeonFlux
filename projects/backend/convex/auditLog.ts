@@ -10,7 +10,7 @@ import type {
 } from "../dashboard-contracts.js"
 import { dashboardSession } from "./dashboard.ts"
 import { fail, type AuditActor } from "./validation.ts"
-import { valueDiff, type ValueChange } from "./valueDiff.ts"
+import { entryName, valueDiff, type ValueChange } from "./valueDiff.ts"
 
 // The website audit log. Every setting change records one entry, whether it came from the website or a command, and so do
 // a member's deletions of their own data. Entries are kept for 180 days, long enough to look back on a change months later, and
@@ -112,9 +112,11 @@ const BOOKKEEPING = new Set([
     "_creationTime",
     "serverId",
 ])
-// The field that names an item of a list, such as a rule's name or a policy's channel
+// The field that names an item of a list, such as a rule's name or a policy's channel. Drafts and templates, and custom commands and
+// autoresponders, may share a name, so their kind is part of it
 const IDENTITY = [
     "youtubeChannelId",
+    "kind:name",
     "name",
     "kind",
     "route",
@@ -148,9 +150,7 @@ const plain = (value: unknown) => {
     return JSON.stringify([...out].sort(([a], [b]) => a.localeCompare(b)))
 }
 function identity(row: unknown) {
-    const value = IDENTITY.map((key) => record(row)[key]).find(
-        (item) => typeof item === "string" || typeof item === "number",
-    )
+    const value = IDENTITY.map((key) => entryName(row, key)).find((item) => item !== undefined)
     return value === undefined ? undefined : clip(String(value), 40)
 }
 function listChanges(label: string, before: unknown[], after: unknown[]): string[] {

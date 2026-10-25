@@ -15,6 +15,7 @@ import type { SectionProps } from "../src/dashboard-sections.tsx"
 import { RecoverySection } from "../src/recovery-inbox.tsx"
 import { BackupSection } from "../src/backup-restore.tsx"
 import { localTime } from "../src/time.ts"
+import { BACKUP_PLAN_MS } from "@neonflux/contracts/backup"
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost:3000" })
 for (const [name, value] of Object.entries({
@@ -239,7 +240,7 @@ const plan = (
     backupId: "synthetic",
     match: false,
     createdAt: CHECKED,
-    confirmBefore: CHECKED + 600000,
+    confirmBefore: CHECKED + BACKUP_PLAN_MS,
     itemCount: 7,
     counts: { create: 3, update: 2, delete: 1, skip: 1, blocked: 1 },
     gain: { items: 1, bits: "8192", switches: 1 },
@@ -368,7 +369,7 @@ test("The restore page leads with what needs attention, lists each change with t
         "Deletes: 1 channel or category will be deleted with its messages. This cannot be undone",
         "More permission: 1 change grants more than the server has now: Manage messages",
         "Turns on: Response custom_hello",
-        "Starts work: 1 item starts to delete messages or post logs, as the rows say",
+        "Warnings: 1 item has a warning, such as messages it deletes or posts, as the rows say",
     ])
     const list = ui.container.querySelectorAll<HTMLElement>(".restore-row")
     assert.equal(list.length, 5)
@@ -448,17 +449,17 @@ test("The restore page leads with what needs attention, lists each change with t
     })
 })
 
-test("The restore button turns off when the check reaches its confirmation cutoff on an open page", async () => {
+test("The restore button turns off when the check expires a day after it was made, on an open page", async () => {
     mock.timers.enable({ apis: ["setTimeout", "Date"], now: CHECKED + 60000 })
     try {
         const { ui } = open({ "backup:restoreView": restore("done"), "backup:restoreItems": items(listing) })
         await act(async () => {})
         assert.equal(buttonLabel(ui).hasAttribute("disabled"), false)
         await act(async () => {
-            mock.timers.tick(540000)
+            mock.timers.tick(BACKUP_PLAN_MS - 60000)
         })
         assert.equal(buttonLabel(ui).hasAttribute("disabled"), true)
-        assert.ok(ui.getByText("This check is about to expire. Check again first"))
+        assert.ok(ui.getByText("This check expired. Check again first"))
     } finally {
         mock.timers.reset()
     }
@@ -489,12 +490,20 @@ test("The restore button says why it is off and shows progress, the end and the 
         const view = open({ "backup:restoreView": answer, "backup:restoreItems": items(listing) })
         return view
     }
-    // A check that is about to expire
-    mock.method(Date, "now", () => CHECKED + 600000)
+    // A check that expired
+    mock.method(Date, "now", () => CHECKED + BACKUP_PLAN_MS)
     let view = states(restore("done"))
     await act(async () => {})
     assert.equal(buttonLabel(view.ui).hasAttribute("disabled"), true)
-    assert.ok(view.ui.getByText("This check is about to expire. Check again first"))
+    assert.ok(view.ui.getByText("This check expired. Check again first"))
+    cleanup()
+    mock.method(Date, "now", () => CHECKED + 60000)
+    // A check NeonFlux is still building says so, and nothing can start until it is ready
+    view = states(restore("done", { building: true }))
+    await act(async () => {})
+    assert.equal(buttonLabel(view.ui).hasAttribute("disabled"), true)
+    assert.ok(view.ui.getByText("NeonFlux is working on this"))
+    assert.ok(view.ui.getByText(/^Building the check/))
     cleanup()
     mock.method(Date, "now", () => CHECKED + 60000)
     // Nothing that can be restored
@@ -605,6 +614,42 @@ test("The restore page pages the changes, shows identical items only when asked 
         identical: false,
         cursor: null,
     })
+})
+
+test("Each restore row names what it restores, with a channel by name and the order item as the channel order", async () => {
+    mock.method(Date, "now", () => CHECKED + 60000)
+    const config = (itemNo: number, family: string, sourceId: string) =>
+        row(itemNo, { category: "config", family: family as DashboardBackupChangedItem["family"], sourceId })
+    const { ui } = open({
+        "backup:restoreView": restore("done"),
+        "backup:restoreItems": items([
+            row(1, {
+                category: "structure",
+                family: "structure",
+                sourceId: "order",
+                name: "Channel order",
+                order: true,
+            }),
+            config(2, "voiceGenerator", "50"),
+            config(3, "sticky", "50"),
+            config(4, "access", "showcase"),
+            config(5, "helpdeskAnswer", "faq"),
+            config(6, "general", "general"),
+            config(7, "event", "launch"),
+            config(8, "youtube", "UCsyntheticBackupChannel"),
+        ]),
+    })
+    await act(async () => {})
+    assert.deepEqual([...ui.container.querySelectorAll(".restore-row strong")].map(text), [
+        "Channel order",
+        "Voice generator #news",
+        "Sticky message in #news",
+        "Showcase access",
+        "Saved answer faq",
+        "Prefix, reply style and nickname",
+        "Event launch",
+        "YouTube alerts for UCsyntheticBackupChannel",
+    ])
 })
 
 test("A check the backend does not take says to wait, and opening the page asks quietly", async () => {

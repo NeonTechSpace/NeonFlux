@@ -20,8 +20,9 @@ import type {
     BackupPlan,
     BackupQueryRequest,
     BackupQueryResult,
-    BackupSnapshot,
-    BackupSnapshotRequest,
+    BackupPreviewStartRequest,
+    BackupSnapshotPage,
+    BackupSnapshotPageRequest,
     BackupStructureObject,
     BackupWorkRequest,
     BackupWorkResult,
@@ -31,13 +32,23 @@ import type { LevelingManageOperation, LevelingManageResult } from "@neonflux/co
 import type { PublishingContent } from "@neonflux/contracts/publishing-base"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import { adapterFixture } from "./adapter-fixture.ts"
-import { backupConfigFamilies, backupExclusions } from "@neonflux/contracts/backup"
+import {
+    BACKUP_DASHBOARD_COVERAGE,
+    BACKUP_RESTORE_LIMITS,
+    backupConfigFamilies,
+    backupExclusions,
+    backupManifestHeader,
+    backupSegments,
+    canonicalBackupJson,
+} from "@neonflux/contracts/backup"
+import { summarize } from "./backup-fixture.ts"
 import { backupNormalized } from "../convex/backupDomain.ts"
 import {
-    backupEnvelopeLimit,
+    backupArchiveDigest,
+    backupPartLimit,
     parseBackupKey,
     encryptBackupManifest,
-    decryptBackupEnvelope,
+    decryptBackupParts,
 } from "../../bot/src/backup-crypto.ts"
 
 const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
@@ -103,11 +114,26 @@ async function fixture(t: TestContext) {
         ...patch,
     })
     const snapshotInput = (
-        selected: BackupSnapshotRequest["selected"] = ["config", "xp"],
+        selected: BackupSnapshotPageRequest["selected"] = ["config", "xp"],
         current = context(),
-    ): BackupSnapshotRequest => ({ serverId: "1", context: current, selected })
-    const snapshot = (selected?: BackupSnapshotRequest["selected"]) =>
-        f.run<BackupSnapshot>(store.snapshot(snapshotInput(selected)))
+    ): BackupSnapshotPageRequest => ({ serverId: "1", context: current, selected })
+    // Every page of a snapshot, as an export reads them, joined
+    const snapshot = async (selected?: BackupSnapshotPageRequest["selected"]) => {
+        const config: BackupConfigObject[] = [],
+            xp: BackupXpObject[] = []
+        let cursor: string | undefined, capturedAt: number | undefined
+        for (let page = 0; page < 1000; page++) {
+            const body = await f.run<BackupSnapshotPage>(
+                store.snapshotPage({ ...snapshotInput(selected), ...(cursor ? { cursor } : {}) }),
+            )
+            capturedAt ??= body.capturedAt
+            config.push(...body.config)
+            xp.push(...body.xp)
+            if (body.cursor === null) return { capturedAt, config, xp }
+            cursor = body.cursor
+        }
+        throw new Error("The snapshot did not end")
+    }
     const queryInput = (operation: BackupQueryRequest["operation"], current = context()): BackupQueryRequest => ({
         serverId: "1",
         context: current,
@@ -137,8 +163,8 @@ async function fixture(t: TestContext) {
             xp = values.xp ?? [],
             structure = values.structure ?? []
         return {
-            version: 1,
-            backupId: values.backupId ?? `synthetic-backup-${++backupSequence}`,
+            version: 2,
+            backupId: values.backupId ?? (++backupSequence).toString(16).padStart(32, "0"),
             provider,
             serverId: "1",
             selected: [
@@ -217,25 +243,56 @@ async function fixture(t: TestContext) {
         channels: [],
         ...patch,
     })
-    const previewInput = (archive: BackupManifest, proof: BackupNativeProof | null = null) => ({
+    const previewInput = (archive: BackupManifest): BackupPreviewStartRequest => ({
         serverId: "1",
         context: context(),
-        manifest: archive,
-        archiveDigest: createHash("sha256").update(encryptBackupManifest(archive, keyring())).digest("hex"),
-        native: proof,
+        header: backupManifestHeader(archive),
+        segmentDigests: backupSegments(archive, summarize).map((segment) =>
+            createHash("sha256").update(canonicalBackupJson(segment)).digest("hex"),
+        ),
+        archiveDigest: backupArchiveDigest(encryptBackupManifest(archive, keyring())),
         archive: { channelId: "90", messageId: String(700 + ++backupSequence) },
         match: false,
     })
+    // A check starts with the header and sends each segment with the same evidence, as the bot does
+    const preview = async (archive: BackupManifest, proof: BackupNativeProof | null = null, using = store) => {
+        let { plan } = await f.run<{ plan: BackupPlan }>(using.previewStart(previewInput(archive)))
+        const id = plan.planId
+        for (const [segmentNo, segment] of backupSegments(archive, summarize).entries())
+            plan = (
+                await f.run<{ plan: BackupPlan }>(
+                    using.previewSegment({
+                        serverId: "1",
+                        context: context(),
+                        planId: id,
+                        segmentNo,
+                        segment,
+                        native: proof,
+                    }),
+                )
+            ).plan
+        return { plan }
+    }
+    /** The status a check is refused with, or undefined when it makes a plan */
+    const refusal = (archive: BackupManifest, proof: BackupNativeProof | null = null, using = store) =>
+        preview(archive, proof, using).then(
+            () => undefined,
+            (error: { status?: number | null }) => error.status ?? null,
+        )
     // A preview is the plan a confirmation runs. It comes with the first page of its items, twenty to a page
     const plan = async (archive: BackupManifest, proof: BackupNativeProof | null = null) => {
-        const made = await f.run<{ plan: BackupPlan }>(store.preview(previewInput(archive, proof)))
+        const made = await preview(archive, proof)
         const first = await query({ type: "items", binding: binding(made.plan) })
         assert.equal(first.type, "items")
         return { type: "plan" as const, plan: made.plan, items: first.items, nextCursor: first.nextCursor }
     }
+    // The confirmation starts the plan's run in the background, which these tests end at once, since they run the items themselves
     const confirm = async (plan: BackupPlan) => {
         const result = await manage({ type: "confirm", binding: binding(plan) })
         assert.equal(result.type, "confirmed")
+        const job = await f.backend.run(async (ctx: any) => (await ctx.db.query("backupPreviewJobs").collect())[0])
+        if (job?.state === "running")
+            await f.run(store.runStep({ serverId: "1", requestedAt: job.createdAt, recorded: 0, stopped: "owner" }))
         return result.plan
     }
     const show = async (plan: BackupPlan) => {
@@ -257,8 +314,13 @@ async function fixture(t: TestContext) {
         }
         assert.fail("500-item bounded plan discovery must finish")
     }
+    // Every mapping the server keeps, looked up by the archive channels they belong to as the bot does
     const origins = async () => {
-        const result = await query({ type: "origins", provider })
+        const sourceIds = (await f.backend.run((ctx) => ctx.db.query("backupOrigins").collect())).map(
+            (row) => row.sourceId,
+        )
+        if (!sourceIds.length) return []
+        const result = await query({ type: "origins", provider, sourceIds })
         assert.equal(result.type, "origins")
         return result.origins
     }
@@ -279,6 +341,8 @@ async function fixture(t: TestContext) {
         manifest,
         native,
         previewInput,
+        preview,
+        refusal,
         plan,
         confirm,
         show,
@@ -459,17 +523,17 @@ test("backup authenticates all actual routes and rejects nonowner nonprivate and
         generation: 1,
     }
     for (const effect of [
-        f.wrongStore.snapshot(f.snapshotInput()),
+        f.wrongStore.snapshotPage(f.snapshotInput()),
         f.wrongStore.query(f.queryInput({ type: "plans" })),
         f.wrongStore.manage(f.manageInput({ type: "confirm", binding: fakeBinding })),
-        f.wrongStore.preview({
+        f.wrongStore.previewStart(f.previewInput(archive)),
+        f.wrongStore.previewSegment({
             serverId: "1",
             context: f.context(),
-            manifest: archive,
-            archiveDigest: "a".repeat(64),
+            planId: "synthetic-never-created",
+            segmentNo: 0,
+            segment: { kind: "structure" },
             native: null,
-            archive: { channelId: "90", messageId: "700" },
-            match: false,
         }),
         f.wrongStore.work({
             serverId: "1",
@@ -479,9 +543,16 @@ test("backup authenticates all actual routes and rejects nonowner nonprivate and
         await f.reject(effect, f.BackupStoreError, 401)
     assert.deepEqual(
         new Set(f.calls.filter((call) => call.status === 401).map((call) => call.path)),
-        new Set(["/backup/snapshot", "/backup/query", "/backup/manage", "/backup/preview", "/backup/work"]),
+        new Set([
+            "/backup/snapshot-page",
+            "/backup/query",
+            "/backup/manage",
+            "/backup/preview-start",
+            "/backup/preview-segment",
+            "/backup/work",
+        ]),
     )
-    await f.reject(f.store.snapshot({ ...f.snapshotInput(), serverId: "2" }), f.BackupStoreError, 403)
+    await f.reject(f.store.snapshotPage({ ...f.snapshotInput(), serverId: "2" }), f.BackupStoreError, 403)
     for (const patch of [
         { actorId: "11" },
         { recipientIds: ["10", "11"] },
@@ -490,9 +561,9 @@ test("backup authenticates all actual routes and rejects nonowner nonprivate and
         { ownerTimeoutUntil: new Date(f.now() + 10000).toISOString() },
         { botTimeoutUntil: new Date(f.now() + 10000).toISOString() },
     ])
-        await f.reject(f.store.snapshot(f.snapshotInput(["config"], f.context(patch))), f.BackupStoreError, 403)
+        await f.reject(f.store.snapshotPage(f.snapshotInput(["config"], f.context(patch))), f.BackupStoreError, 403)
     await f.reject(
-        f.store.snapshot(f.snapshotInput(["config"], f.context({ observedAt: f.now() - 60001 }))),
+        f.store.snapshotPage(f.snapshotInput(["config"], f.context({ observedAt: f.now() - 60001 }))),
         f.BackupStoreError,
         400,
     )
@@ -501,7 +572,7 @@ test("backup authenticates all actual routes and rejects nonowner nonprivate and
     assert.deepEqual(plans.plans, [])
 })
 
-test("backup selected configuration and XP come through one sideeffectfree snapshot request", async (t) => {
+test("backup selected configuration and XP come through sideeffectfree snapshot pages", async (t) => {
     const f = await fixture(t)
     const tablesBefore = await f.backend.run(async (ctx) => ({
         settings: await ctx.db.query("levelingSettings").collect(),
@@ -510,10 +581,9 @@ test("backup selected configuration and XP come through one sideeffectfree snaps
     }))
     const callCount = f.calls.length,
         snapshot = await f.snapshot()
-    assert.equal(f.calls.length, callCount + 1)
-    assert.deepEqual(f.calls.at(-1), { path: "/backup/snapshot", status: 200 })
+    assert(f.calls.length > callCount)
+    assert(f.calls.slice(callCount).every((call) => call.path === "/backup/snapshot-page" && call.status === 200))
     assert.equal(snapshot.capturedAt, f.now())
-    assert.deepEqual(snapshot.counts, { config: snapshot.config.length, xp: snapshot.xp.length })
     assert.deepEqual(snapshot.xp, [])
     const tablesAfter = await f.backend.run(async (ctx) => ({
         settings: await ctx.db.query("levelingSettings").collect(),
@@ -525,6 +595,31 @@ test("backup selected configuration and XP come through one sideeffectfree snaps
     assert.deepEqual(xpOnly.config, [])
     const configOnly = await f.snapshot(["config"])
     assert.deepEqual(configOnly.xp, [])
+})
+
+test("backup exports cleanup in more than 100 channels through pages the bot reads", async (t) => {
+    const f = await fixture(t)
+    await f.backend.run(async (ctx) => {
+        for (let i = 0; i < 150; i++)
+            await ctx.db.insert("cleanupPolicies", {
+                serverId: "1",
+                channelId: String(3000 + i),
+                revision: 1,
+                enabled: true,
+                ageMs: 86400000 * 30,
+                ownerId: "10",
+                excludedAuthorIds: [],
+                excludedMessageIds: [],
+                nextCheckAt: f.now(),
+            })
+    })
+    const channels = (await f.snapshot(["config"])).config
+        .filter((row) => row.family === "cleanupPolicy")
+        .map((row) => row.sourceId)
+    assert.deepEqual(
+        channels,
+        Array.from({ length: 150 }, (_, i) => String(3000 + i)),
+    )
 })
 
 test("backup XP exports effective current epochs and restores scores without reward work", async (t) => {
@@ -583,7 +678,7 @@ test("backup XP exports effective current epochs and restores scores without rew
     assert.equal((await f.snapshot(["xp"])).xp.find((row) => row.userId === "21")!.xp, 350)
 })
 
-test("backup XP 501 profiles fails the bounded snapshot without partial response or mutation", async (t) => {
+test("backup XP of 501 profiles exports in pages and plans without changing anything first", async (t) => {
     const f = await fixture(t)
     await f.backend.run(async (ctx) => {
         for (let i = 0; i < 501; i++)
@@ -596,13 +691,16 @@ test("backup XP 501 profiles fails the bounded snapshot without partial response
                 digests: [],
             })
     })
-    await f.reject(f.store.snapshot(f.snapshotInput(["xp"])), f.BackupStoreError, 413)
+    const exported = await f.snapshot(["xp"])
+    assert.equal(exported.xp.length, 501)
     assert.equal((await f.backend.run((ctx) => ctx.db.query("levelingProfiles").collect())).length, 501)
+    const planned = await f.plan(f.manifest({ xp: exported.xp }))
+    // Six pages of members, each identical to the server
+    assert.deepEqual([planned.plan.itemCount, planned.plan.counts.skip], [6, 6])
     assert.deepEqual(await f.origins(), [])
-    assert.deepEqual(((await f.query({ type: "plans" })) as Extract<BackupQueryResult, { type: "plans" }>).plans, [])
 })
 
-test("backup confirmation binds owner source archive digest exact plan and fifteen minute expiry", async (t) => {
+test("backup confirmation binds owner source archive digest and exact plan, and a confirmed plan runs past its check", async (t) => {
     const f = await fixture(t),
         planned = await f.plan(f.manifest({ xp: [{ sourceId: "20", userId: "20", xp: 10 }] })),
         row = planned.items[0]!
@@ -638,16 +736,10 @@ test("backup confirmation binds owner source archive digest exact plan and fifte
     const confirmed = await f.confirm(planned.plan)
     assert.equal(confirmed.confirmedAt, f.now())
     assert.equal((await f.confirm(planned.plan)).confirmedAt, confirmed.confirmedAt)
-    f.advance(900001)
-    await f.reject(
-        f.store.work({
-            serverId: "1",
-            operation: { type: "apply", binding: itemBinding(row), context: f.context(), native: null },
-        }),
-        f.BackupStoreError,
-        409,
-    )
-    assert.deepEqual((await f.snapshot(["xp"])).xp, [])
+    // A confirmed plan runs past the day its check stayed confirmable
+    f.advance(86400001)
+    const applied = await f.work({ type: "apply", binding: itemBinding(row), context: f.context(), native: null })
+    assert.equal(applied.item.state, "created")
 })
 
 function structure(
@@ -679,7 +771,7 @@ test("backup refuses unsupported identities fields and duplicate objects before 
         row = structure(f.now()),
         archive = f.manifest({ structure: [row] })
     const invalid: unknown[] = [
-        { ...archive, version: 2 },
+        { ...archive, version: 1 },
         { ...archive, serverId: "2" },
         { ...archive, structure: [{ ...row, type: "role" }] },
         { ...archive, structure: [{ ...row, extra: "Synthetic private authored content" }] },
@@ -694,21 +786,12 @@ test("backup refuses unsupported identities fields and duplicate objects before 
         },
     ]
     for (const value of invalid) {
-        const input = {
-            serverId: "1",
-            context: f.context(),
-            manifest: value as BackupManifest,
-            archiveDigest: "a".repeat(64),
-            native: f.native([row]),
-            archive: { channelId: "90", messageId: "700" },
-            match: false,
-        }
-        const { Effect, Exit } = await sdk(),
-            exit = await f.run<any>(Effect.exit(f.store.preview(input)))
-        assert(Exit.isFailure(exit))
-        assert(!JSON.stringify(exit).includes("Synthetic private authored content"))
+        const status = await f.refusal(value as BackupManifest, f.native([row]))
+        assert.notEqual(status, undefined, JSON.stringify(value).slice(0, 200))
         assert.deepEqual(
-            ((await f.query({ type: "plans" })) as Extract<BackupQueryResult, { type: "plans" }>).plans,
+            ((await f.query({ type: "plans" })) as Extract<BackupQueryResult, { type: "plans" }>).plans.filter(
+                (plan) => plan.state === "ready",
+            ),
             [],
         )
     }
@@ -794,6 +877,7 @@ test("backup native dependency plan maps category before text and voice and bloc
     })
     const ready = await f.work({ type: "reserve", binding: itemBinding(child), context: f.context(), native: proof })
     assert.equal(ready.type, "grant")
+    assert(ready.grant.action !== "order")
     assert.equal(ready.grant.channel.parentId, "130")
     assert.deepEqual(ready.grant.channel.overwrites, text.overwrites)
     const blocked = await f.plan(
@@ -879,7 +963,7 @@ test("backup config-only plans reuse retained native origin mappings before comp
     assert(actual)
     assert.deepEqual(actual.value.channelIds, ["130"])
     assert.equal(actual.value.enabled, true)
-    const newer = await f.plan(f.manifest({ config: [object], backupId: "synthetic-new-mapped-archive" }), proof),
+    const newer = await f.plan(f.manifest({ config: [object], backupId: "e".repeat(32) }), proof),
         identical = newer.items[0]!
     assert.equal(identical.disposition, "skip")
     assert.equal(identical.desiredHash, item.desiredHash)
@@ -965,7 +1049,7 @@ test("backup origin uncertainty binds across different backup IDs and exact late
         mappedId: null,
         channel: null,
     })
-    const repeated = await f.plan(f.manifest({ structure: [row], backupId: "synthetic-new-archive" }), f.native([row]))
+    const repeated = await f.plan(f.manifest({ structure: [row], backupId: "f".repeat(32) }), f.native([row]))
     assert.equal(repeated.items[0]!.disposition, "blocked")
     assert.equal((await f.origins()).length, 1)
     const created = { ...row, sourceId: "130" },
@@ -1107,13 +1191,16 @@ test("backup actual SDK owner authority stays private and administrator alone ca
 
 test("backup actual SDK private attachment binding origin redirects and length prevent arbitrary download", async (t) => {
     const f = await adapterFixture(t, {}),
-        { downloadBackupAttachment } = await import("../../bot/src/backup-attachments.ts")
+        { downloadBackupAttachments: downloadBackupAttachment } = await import("../../bot/src/backup-attachments.ts")
     await withNative(f, ({ Effect, Exit }, bot) =>
         Effect.gen(function* () {
             const instance = yield* bot.client.instance.resolve(),
                 base = instance.endpoints.media.replace(/\/$/, ""),
                 filename = "neonflux-backup-synthetic.nfb",
-                bytes = encryptBackupManifest({ content: "Synthetic private authored content" }, keyring())
+                [bytes] = encryptBackupManifest(
+                    { backupId: "0".repeat(32), content: "Synthetic private authored content" } as { backupId: string },
+                    keyring(),
+                ) as [Uint8Array]
             const url = `${base}/attachments/90/70/${filename}`,
                 attachment = {
                     id: "70",
@@ -1146,8 +1233,8 @@ test("backup actual SDK private attachment binding origin redirects and length p
                             },
                         }),
                 )
-            const read = yield* downloadBackupAttachment(bot.client, { serverId: "1", message: original })
-            assert.deepEqual(Buffer.from(read), Buffer.from(bytes))
+            const [read] = yield* downloadBackupAttachment(bot.client, { serverId: "1", message: original })
+            assert.deepEqual(Buffer.from(read!), Buffer.from(bytes))
             assert.equal(media.requests().length, 1)
             const baseline = media.requests().length
             for (const patch of [
@@ -1212,7 +1299,7 @@ test("backup actual SDK private attachment binding origin redirects and length p
 
 test("backup actual SDK structure captures explicit supported fields, skips unsupported types and refuses oversized snapshots", async (t) => {
     const f = await adapterFixture(t, {}),
-        { captureBackupStructure } = await import("../../bot/src/backup-permissions.ts")
+        { backupReferenceKeys, captureBackupStructure } = await import("../../bot/src/backup-permissions.ts")
     await withNative(f, ({ Effect, Exit }, bot) =>
         Effect.gen(function* () {
             const native = (id: string, type: number, parent: string | null = null) =>
@@ -1232,10 +1319,15 @@ test("backup actual SDK structure captures explicit supported fields, skips unsu
             assert.equal(captured.objects[0]!.type, "category")
             assert.equal(captured.startedAt, f.now())
             assert.equal(captured.finishedAt, f.now())
-            assert(
-                captured.objects.every(
-                    (o) => o.capturedAt === f.now() && !Object.hasOwn(o, "guildId") && !Object.hasOwn(o, "position"),
-                ),
+            assert(captured.objects.every((o) => o.capturedAt === f.now() && !Object.hasOwn(o, "guildId")))
+            // Each channel keeps its place among its siblings, the category at the top level and its channels inside it
+            assert.deepEqual(
+                captured.objects.map((o) => [o.sourceId, o.position]),
+                [
+                    ["30", 0],
+                    ["31", 0],
+                    ["32", 1],
+                ],
             )
             // An announcement channel keeps a text channel's settings, while a link channel stays out of the archive
             channels = [
@@ -1255,7 +1347,10 @@ test("backup actual SDK structure captures explicit supported fields, skips unsu
                 [announced[0]!.topic, announced[0]!.nsfw, announced[0]!.slowmodeSeconds],
                 ["Synthetic news", false, 0],
             )
+            // A server of more than 100 channels is captured whole, and only more than Fluxer's 500 is refused
             channels = Array.from({ length: 101 }, (_, i) => native(String(300 + i), 0))
+            assert.equal((yield* captureBackupStructure(bot.client, "1", "10", "90")).objects.length, 101)
+            channels = Array.from({ length: 501 }, (_, i) => native(String(300 + i), 0))
             assert(Exit.isFailure(yield* Effect.exit(captureBackupStructure(bot.client, "1", "10", "90"))))
             channels = [native("30", 4), native("31", 0, "39")]
             assert(Exit.isFailure(yield* Effect.exit(captureBackupStructure(bot.client, "1", "10", "90"))))
@@ -1263,15 +1358,43 @@ test("backup actual SDK structure captures explicit supported fields, skips unsu
             assert(Exit.isFailure(yield* Effect.exit(captureBackupStructure(bot.client, "1", "10", "90"))))
             channels = Array.from({ length: 6 }, (_, i) => ({
                 ...native(String(500 + i), 4),
-                permission_overwrites: Array.from({ length: 100 }, (_, j) => ({
+                permission_overwrites: Array.from({ length: i === 0 ? 255 : 69 }, (_, j) => ({
                     id: String(1000 + j),
                     type: 0,
                     allow: "0",
                     deny: "1024",
                 })),
             }))
+            // A ticket category's 250 support roles and its other overwrites are kept, beside 345 on five more categories
+            const many = (yield* captureBackupStructure(bot.client, "1", "10", "90")).objects
+            assert.equal(
+                many.reduce((n, o) => n + o.overwrites.length, 0),
+                600,
+            )
+            assert.equal(route.requests().length, 7)
+            // A channel keeps as many overwrites as one restore check proves beside its category, here every role a server may have and
+            // members for the rest, with every permission set, and its item still fits one segment
+            const crowded = (count: number) => [
+                native("40", 4),
+                {
+                    ...native("41", 0, "40"),
+                    permission_overwrites: Array.from({ length: count }, (_, j) => ({
+                        id: String(1456074443980800000n + BigInt(j)),
+                        type: j < 250 ? 0 : 1,
+                        allow: "4294967295",
+                        deny: "18446744069414584320",
+                    })),
+                },
+            ]
+            channels = crowded(BACKUP_RESTORE_LIMITS.proofReferences - 1)
+            const crowd = (yield* captureBackupStructure(bot.client, "1", "10", "90")).objects.find(
+                (o) => o.sourceId === "41",
+            )!
+            assert.equal(crowd.overwrites.length, 4019)
+            assert.equal(backupReferenceKeys(crowd).length, BACKUP_RESTORE_LIMITS.proofReferences)
+            assert(new TextEncoder().encode(canonicalBackupJson(crowd)).length < BACKUP_RESTORE_LIMITS.segmentBytes)
+            channels = crowded(BACKUP_RESTORE_LIMITS.proofReferences)
             assert(Exit.isFailure(yield* Effect.exit(captureBackupStructure(bot.client, "1", "10", "90"))))
-            assert.equal(route.requests().length, 6)
             assert(!bot.requests().some((r: any) => r.method !== "GET"))
         }),
     )
@@ -1428,10 +1551,203 @@ async function authoredConfig(): Promise<BackupConfigObject[]> {
                 excludedChannelIds: [],
             },
         },
-        { family: "events", sourceId: "events", value: { enabled: true } },
+        { family: "events", sourceId: "events", value: { enabled: true, threads: true } },
+        {
+            family: "event",
+            sourceId: "backup",
+            value: {
+                name: "backup",
+                channelId: "31",
+                title: "Synthetic event",
+                description: "",
+                capacity: null,
+                reminderOffsets: [1440, 60],
+                calendar: {
+                    localMinute: ahead.slice(0, 16),
+                    zone: "UTC",
+                    fold: "reject",
+                    recurrence: { type: "none" },
+                    durationMinutes: 60,
+                    dates: [
+                        {
+                            localMinute: ahead.slice(0, 16),
+                            startsAt: Date.parse(ahead),
+                            endsAt: Date.parse(ahead) + 3600000,
+                            offsetMinutes: 0,
+                        },
+                    ],
+                },
+                template: { name: "backup", revision: 1, content },
+            },
+        },
         { family: "schedules", sourceId: "schedules", value: { enabled: true } },
+        {
+            family: "schedule",
+            sourceId: "backup",
+            value: {
+                name: "backup",
+                channelId: "31",
+                calendar: {
+                    localMinute: ahead.slice(0, 16),
+                    zone: "UTC",
+                    fold: "reject",
+                    recurrence: { type: "none" },
+                    dates: [{ localMinute: ahead.slice(0, 16), dueAt: Date.parse(ahead), offsetMinutes: 0 }],
+                },
+                source: { kind: "template", name: "backup", revision: 1 },
+                content,
+                enabled: true,
+            },
+        },
+        {
+            family: "general",
+            sourceId: "general",
+            value: { prefix: "?", replyStyle: "text", nickname: "Synthetic bot" },
+        },
+        { family: "analytics", sourceId: "analytics", value: { enabled: false } },
+        {
+            family: "voiceGenerator",
+            sourceId: "33",
+            value: { channelId: "33", categoryId: "30", template: "{owner} room", userLimit: null, region: null },
+        },
+        {
+            family: "lfg",
+            sourceId: "lfg",
+            value: {
+                enabled: true,
+                channelId: "31",
+                generatorChannelId: "33",
+                expiryMinutes: 60,
+                maxSize: 5,
+                memberGroups: 1,
+                serverGroups: 10,
+            },
+        },
+        {
+            family: "rolepicker",
+            sourceId: "rolepicker",
+            value: { enabled: true, menus: [{ name: "backup", mode: "single", roleIds: ["40"] }] },
+        },
+        {
+            family: "access",
+            sourceId: "showcase",
+            value: {
+                feature: "showcase",
+                allowRoleIds: ["40"],
+                blockRoleIds: [],
+                allowUserIds: ["10"],
+                blockUserIds: [],
+            },
+        },
+        {
+            family: "temproles",
+            sourceId: "temproles",
+            value: { roles: [{ roleId: "40", defaultSeconds: 3600, maxSeconds: 7200 }] },
+        },
+        {
+            family: "onboarding",
+            sourceId: "onboarding",
+            value: {
+                enabled: true,
+                delivery: "welcome",
+                steps: [
+                    { type: "panel", name: "backup" },
+                    { type: "menu", name: "backup" },
+                    { type: "link", channelId: "31", text: "Read the guide" },
+                ],
+                completionRoleId: "40",
+            },
+        },
+        {
+            family: "sticky",
+            sourceId: "31",
+            value: { channelId: "31", content: "Synthetic sticky", intervalSeconds: 30 },
+        },
+        {
+            family: "alerts",
+            sourceId: "alerts",
+            value: {
+                invites: true,
+                bots: false,
+                webhooks: true,
+                privileges: false,
+                impersonation: false,
+                kickBots: true,
+                deleteWebhooks: false,
+                removePermissions: false,
+                expectedBotIds: ["21"],
+                expectedWebhookIds: [],
+            },
+        },
+        {
+            family: "helpdesk",
+            sourceId: "helpdesk",
+            value: {
+                forumIds: ["31"],
+                greeting: "Synthetic greeting",
+                solvedTag: "Solved",
+                nudgeHours: 24,
+                guardChannelId: "31",
+                autoArchive: true,
+            },
+        },
+        {
+            family: "helpdeskAnswer",
+            sourceId: "backup",
+            value: { name: "backup", title: "Synthetic answer", content: "Synthetic saved answer" },
+        },
+        {
+            family: "showcase",
+            sourceId: "showcase",
+            value: { enabled: true, channelId: "31", maxPerMember: 3, intervalMinutes: 60 },
+        },
+        { family: "profile", sourceId: "profile", value: { enabled: true, cooldownSeconds: 30 } },
+        {
+            family: "youtube",
+            sourceId: youtubeChannel,
+            value: { youtubeChannelId: youtubeChannel, channelId: "31" },
+        },
     ]
 }
+/** A YouTube channel ID of the right shape, which the tests never contact */
+const youtubeChannel = "UCsyntheticBackupChannel"
+/**
+ * The archive's dates, two days after the fixture's clock, so an event keeps its calendar and a schedule turns on. Following a YouTube channel
+ * needs a hub, and one NeonFlux follows already with its title known sends no request
+ */
+const ahead = "2023-11-17T12:00:00.000Z"
+async function followed(f: Awaited<ReturnType<typeof adapterFixture>>, t: TestContext) {
+    const env = { hub: process.env.NEONFLUX_WEBSUB_HUB_URL, base: process.env.NEONFLUX_WEBSUB_CALLBACK_BASE }
+    process.env.NEONFLUX_WEBSUB_HUB_URL = "https://hub.synthetic.invalid/subscribe"
+    process.env.NEONFLUX_WEBSUB_CALLBACK_BASE = "https://alerts.synthetic.invalid"
+    t.after(() => {
+        if (env.hub === undefined) delete process.env.NEONFLUX_WEBSUB_HUB_URL
+        else process.env.NEONFLUX_WEBSUB_HUB_URL = env.hub
+        if (env.base === undefined) delete process.env.NEONFLUX_WEBSUB_CALLBACK_BASE
+        else process.env.NEONFLUX_WEBSUB_CALLBACK_BASE = env.base
+    })
+    await f.backend.run((ctx: any) =>
+        ctx.db.insert("youtubeSources", {
+            youtubeChannelId: youtubeChannel,
+            mode: "subscribe",
+            title: "Synthetic channel",
+            dueAt: f.now() + 86400000,
+            failures: 0,
+            createdAt: f.now(),
+        }),
+    )
+}
+test("every dashboard family is backed up or excluded with a reason", async () => {
+    const { DashboardConfigurationFamily } = await import("@neonflux/contracts/dashboard")
+    assert.deepEqual(Object.keys(BACKUP_DASHBOARD_COVERAGE).sort(), [...DashboardConfigurationFamily.literals].sort())
+    for (const [family, coverage] of Object.entries(BACKUP_DASHBOARD_COVERAGE))
+        if (Array.isArray(coverage))
+            assert(
+                coverage.length > 0 && coverage.every((name) => backupConfigFamilies.includes(name)),
+                `${family} names configuration families an archive holds`,
+            )
+        else assert(coverage.excluded.length > 0, `${family} says why it stays out`)
+})
 test("backup complete authored config projection restores every family as archived and preserves domain ownership", async (t) => {
     const f = await fixture(t),
         config = await authoredConfig(),
@@ -1443,6 +1759,7 @@ test("backup complete authored config projection restores every family as archiv
                         [
                             ["30", "category"],
                             ["31", "text"],
+                            ["33", "voice"],
                             ["40", "role"],
                             ["10", "member"],
                         ] as const
@@ -1457,11 +1774,12 @@ test("backup complete authored config projection restores every family as archiv
                         actorCanManage: true,
                         botCanManage: true,
                         // The bot's own permissions in a channel, and a role's own for a role
-                        permissions: type === "text" ? allPermissions : "0",
+                        permissions: type === "text" || type === "voice" ? allPermissions : "0",
                     })),
                 ],
             })
     assert.deepEqual(new Set(config.map((row) => row.family)), new Set(backupConfigFamilies))
+    await followed(f, t)
     const planned = await f.plan(f.manifest({ config }), proof())
     assert.equal(planned.plan.itemCount, config.length)
     const items = await f.items(planned.plan)
@@ -1572,6 +1890,8 @@ function nativeChannels(
             ? { body: channels.get(id) }
             : { status: 404, body: { code: "UNKNOWN_CHANNEL", message: "Synthetic exact channel absence" } }
     })
+    // A setting's channels and a channel's category come from one listing of the server's channels
+    bot.rest.respond("GET /guilds/1/channels", () => ({ body: [...channels.values()] }))
     const create = bot.rest.respond("POST /guilds/1/channels", (request: any) => {
         const input = request.body,
             id = String(130 + created.length)
@@ -1699,6 +2019,262 @@ test("backup actual executor resolves same-archive symbolic config references wi
     )
 })
 
+// The setting that names the most references, a role panel of 20 mappings with 100 required and 100 excluded roles each, 4,020 roles
+// from the given first ID
+const widestPanel = (first: number): BackupConfigObject => ({
+    family: "panel",
+    sourceId: "widest",
+    value: {
+        name: "widest",
+        kind: "reaction",
+        enabled: true,
+        exclusive: false,
+        mappings: Array.from({ length: 20 }, (_, m) => ({
+            emoji: String(m),
+            roleId: String(first + m * 201),
+            prerequisiteRoleIds: Array.from({ length: 100 }, (_, i) => String(first + m * 201 + 1 + i)),
+            exclusionRoleIds: Array.from({ length: 100 }, (_, i) => String(first + m * 201 + 101 + i)),
+        })),
+    },
+})
+
+test("backup actual role panel naming 4,020 roles, most of them gone, is checked with one proof and the next item restores", async (t) => {
+    const f = await fixture(t),
+        runtime = await sdk(),
+        { readBackupEvidence, readBackupNativeProof } = await import("../../bot/src/backup-permissions.ts"),
+        { processBackupPlanPass } = await import("../../bot/src/backup.ts")
+    const panel = widestPanel(5000),
+        later: BackupConfigObject = {
+            family: "draft",
+            sourceId: "draft_later",
+            value: { kind: "draft", name: "later", content: { content: "Synthetic later draft" } },
+        }
+    await withNative(f, ({ Effect, Redacted, Permissions }, bot) =>
+        Effect.gen(function* () {
+            const native = bot.fixtures
+            bot.rest.respond("GET /guilds/1/roles", {
+                body: [
+                    native.role({
+                        id: "1",
+                        position: 0,
+                        permissions: (Permissions.ViewChannel | Permissions.ReadMessageHistory).toString(),
+                    }),
+                    native.role({ id: "50", permissions: Permissions.Administrator.toString() }),
+                    native.role({
+                        id: "51",
+                        position: 10,
+                        permissions: (
+                            Permissions.ViewChannel |
+                            Permissions.SendMessages |
+                            Permissions.ReadMessageHistory |
+                            Permissions.ManageChannels |
+                            Permissions.ManageRoles
+                        ).toString(),
+                    }),
+                    // The server has its 250 roles, so the rest of the panel's roles are gone
+                    ...Array.from({ length: 247 }, (_, i) =>
+                        native.role({ id: String(5000 + i), position: 1, permissions: "0" }),
+                    ),
+                ],
+            })
+            const proof: BackupNativeProof = yield* readBackupNativeProof(
+                bot.client,
+                "1",
+                yield* readBackupEvidence(bot.client, "1", "10", "90"),
+                [panel],
+            )
+            assert.equal(proof.references.length, 4020)
+            assert.equal(proof.references.filter((r) => r.exists).length, 247)
+            const planned = yield* Effect.promise(() => f.plan(f.manifest({ config: [panel, later] }), proof))
+            assert.deepEqual(
+                planned.items.map((item: BackupItem) => [item.family, item.disposition, item.reason]),
+                [
+                    ["draft", "create", null],
+                    ["panel", "blocked", "The role <@&5247> is gone, or you or NeonFlux cannot see it"],
+                ],
+            )
+            const confirmed = yield* Effect.promise(() => f.confirm(planned.plan))
+            yield* advanceNative(f, runtime, 60001)
+            const config = {
+                serverId: "1",
+                token: Redacted.make("synthetic-backup-sdk-token"),
+                backend: f.config,
+                backupKey: keyring(),
+            }
+            const pass = yield* processBackupPlanPass(f.store, config, bot.client, confirmed, "90")
+            assert.deepEqual(
+                pass.results.map((result) => [result.item.family, result.recorded, result.item.state]),
+                [
+                    ["draft", true, "created"],
+                    ["panel", true, "blocked"],
+                ],
+                JSON.stringify(pass),
+            )
+        }),
+    )
+})
+
+test("backup actual automod rule naming 400 channels and 201 roles previews and restores from one channel listing, and the next item settles", async (t) => {
+    const f = await fixture(t),
+        runtime = await sdk(),
+        { backupReferenceKeys, readBackupEvidence, readBackupNativeProof } =
+            await import("../../bot/src/backup-permissions.ts"),
+        { processBackupPlanPass } = await import("../../bot/src/backup.ts")
+    const channelIds = Array.from({ length: 400 }, (_, i) => String(2000 + i)),
+        roleIds = Array.from({ length: 201 }, (_, i) => String(3000 + i))
+    // Automod allows 500 channels and 250 roles, so one valid rule names more than 600 roles and channels
+    const rule: BackupConfigObject = {
+        family: "automod",
+        sourceId: "wide",
+        value: {
+            name: "wide",
+            type: "words",
+            enabled: true,
+            priority: 0,
+            action: "log",
+            threshold: 1,
+            windowSeconds: 30,
+            durationSeconds: 60,
+            patterns: ["synthetic"],
+            domainMode: "block",
+            channelIds: channelIds.slice(0, 300),
+            exemptChannelIds: channelIds.slice(300),
+            exemptRoleIds: roleIds,
+        },
+    }
+    // A check reads up to 4,020 of them for one segment, the most one setting names, so settings past that together start another
+    const naming = (name: string, count: number): BackupConfigObject => ({
+        family: "automod",
+        sourceId: name,
+        value: {
+            ...(rule.value as Extract<BackupConfigObject, { family: "automod" }>["value"]),
+            name,
+            channelIds: Array.from({ length: count }, (_, i) => String(4000 + i)),
+            exemptChannelIds: [],
+            exemptRoleIds: [],
+        },
+    })
+    const segments = (config: BackupConfigObject[]) =>
+        backupSegments(f.manifest({ config }), summarize, (object) => backupReferenceKeys(object)).length
+    assert.equal(segments([rule, naming("near", 400)]), 1)
+    assert.equal(segments([rule, widestPanel(5000)]), 2)
+    const later: BackupConfigObject = {
+        family: "draft",
+        sourceId: "draft_later",
+        value: { kind: "draft", name: "later", content: { content: "Synthetic later draft" } },
+    }
+    await withNative(f, ({ Effect, Redacted, Permissions }, bot) =>
+        Effect.gen(function* () {
+            const native = bot.fixtures
+            bot.rest.respond("GET /guilds/1/roles", {
+                body: [
+                    native.role({
+                        id: "1",
+                        position: 0,
+                        permissions: (Permissions.ViewChannel | Permissions.ReadMessageHistory).toString(),
+                    }),
+                    native.role({ id: "50", permissions: Permissions.Administrator.toString() }),
+                    native.role({
+                        id: "51",
+                        position: 10,
+                        permissions: (
+                            Permissions.ViewChannel |
+                            Permissions.SendMessages |
+                            Permissions.ReadMessageHistory |
+                            Permissions.ManageChannels |
+                            Permissions.ManageRoles
+                        ).toString(),
+                    }),
+                    ...roleIds.map((id) => native.role({ id, position: 1, permissions: "0" })),
+                ],
+            })
+            // Any read of one of these channels by its ID is unmatched, which the native harness refuses
+            const listing = bot.rest.respond("GET /guilds/1/channels", {
+                body: channelIds.map((id) =>
+                    native.channel({
+                        id,
+                        guild_id: "1",
+                        type: 0,
+                        name: `synthetic-${id}`,
+                        parent_id: null,
+                        permission_overwrites: [],
+                    }),
+                ),
+            })
+            const proof: BackupNativeProof = yield* readBackupNativeProof(
+                bot.client,
+                "1",
+                yield* readBackupEvidence(bot.client, "1", "10", "90"),
+                [rule],
+            )
+            assert.equal(listing.requests().length, 1)
+            assert.equal(proof.references.length, 601)
+            assert(
+                proof.references.every(
+                    (r) => r.exists && r.actorCanAccess && r.botCanAccess && r.observedAt === f.now(),
+                ),
+            )
+            const planned = yield* Effect.promise(() => f.plan(f.manifest({ config: [rule, later] }), proof))
+            assert.deepEqual(
+                planned.items.map((item: BackupItem) => [item.family, item.disposition]),
+                [
+                    ["automod", "create"],
+                    ["draft", "create"],
+                ],
+            )
+            const confirmed = yield* Effect.promise(() => f.confirm(planned.plan))
+            // A minute later the preview's proof is stale, so the restore reads the server again for each item
+            yield* advanceNative(f, runtime, 60001)
+            yield* Effect.promise(() =>
+                f.reject(
+                    f.store.work({
+                        serverId: "1",
+                        operation: {
+                            type: "apply",
+                            binding: itemBinding(planned.items[0]!),
+                            context: f.context(),
+                            native: proof,
+                        },
+                    }),
+                    f.BackupStoreError,
+                    400,
+                ),
+            )
+            const config = {
+                serverId: "1",
+                token: Redacted.make("synthetic-backup-sdk-token"),
+                backend: f.config,
+                backupKey: keyring(),
+            }
+            const pass = yield* processBackupPlanPass(f.store, config, bot.client, confirmed, "90")
+            assert.deepEqual(
+                pass.results.map((result) => [result.item.family, result.recorded, result.item.state]),
+                [
+                    ["automod", true, "created"],
+                    ["draft", true, "created"],
+                ],
+                JSON.stringify(pass),
+            )
+            assert.equal(listing.requests().length, 2)
+            const restored = yield* Effect.promise(() =>
+                f.backend.run(async (ctx) => ({
+                    rule: await ctx.db.query("automodRules").first(),
+                    draft: await ctx.db.query("publishingDrafts").first(),
+                })),
+            )
+            assert.deepEqual(
+                [
+                    restored.rule!.rule.channelIds,
+                    restored.rule!.rule.exemptChannelIds,
+                    restored.rule!.rule.exemptRoleIds,
+                ],
+                [channelIds.slice(0, 300), channelIds.slice(300), roleIds],
+            )
+            assert.equal(restored.draft!.content.content, "Synthetic later draft")
+        }),
+    )
+})
+
 test("backup actual native executor creates private category then dependent text voice with exact durable mappings", async (t) => {
     const f = await fixture(t),
         { readBackupEvidence, readBackupNativeProof } = await import("../../bot/src/backup-permissions.ts"),
@@ -1724,7 +2300,6 @@ test("backup actual native executor creates private category then dependent text
                 }
             const pass = yield* processBackupPlanPass(f.store, config, bot.client, confirmed, "90")
             assert.equal(pass.results.length, 3)
-            assert.equal(pass.remaining, 0)
             assert(
                 pass.results.every((r) => r.recorded && r.item.state === "created"),
                 JSON.stringify(pass),
@@ -2122,24 +2697,25 @@ test("backup snapshot family sentinel and plan item cap refuse oversized complet
                 updatedAt: f.now(),
             })
     })
-    await f.reject(f.store.snapshot(f.snapshotInput()), f.BackupStoreError, 413)
+    // More custom commands than the feature allows is corrupt data, so the page of that family is refused
+    await f.reject(f.store.snapshotPage(f.snapshotInput()), f.BackupStoreError, 413)
     assert.equal((await f.backend.run((ctx) => ctx.db.query("responseDefinitions").collect())).length, 101)
+    // XP has no such guard below the leveling limit, so 501 profiles make a plan
     const xp = Array.from({ length: 501 }, (_, i) => ({
             sourceId: String(10000 + i),
             userId: String(10000 + i),
             xp: i,
         })),
         archive = f.manifest({ xp })
-    await f.reject(f.store.preview(f.previewInput(archive)), f.BackupStoreError, 413)
-    assert.deepEqual(((await f.query({ type: "plans" })) as Extract<BackupQueryResult, { type: "plans" }>).plans, [])
+    assert.equal((await f.plan(archive)).plan.itemCount, 6)
 })
 
-test("backup ten retained plans refuse capacity until bounded seven day retention releases settled details", async (t) => {
+test("backup ten unfinished plans refuse capacity until bounded seven day retention releases settled details", async (t) => {
     const f = await fixture(t),
         plans: BackupPlan[] = []
-    // A preview replaces the plan nobody confirmed, so only confirmed plans are retained
+    // A preview replaces the plan nobody confirmed, and each of these is confirmed with its run stopped, so each stays unfinished
     for (let i = 0; i < 10; i++) plans.push(await f.confirm((await f.plan(f.manifest({ xp: [] }))).plan))
-    await f.reject(f.store.preview(f.previewInput(f.manifest({ xp: [] }))), f.BackupStoreError, 429)
+    assert.equal(await f.refusal(f.manifest({ xp: [] })), 429)
     assert.equal(((await f.query({ type: "plans" })) as Extract<BackupQueryResult, { type: "plans" }>).plans.length, 10)
     f.advance(8 * 86400000)
     for (let pass = 0; pass < 5; pass++) await f.cleanup()
@@ -2563,19 +3139,19 @@ test("backup actual private handler rejects absent keys malformed archives and b
                 /Backups are off because NeonFlux has no NEONFLUX_BACKUP_KEY/,
             )
             assert.equal(f.calls.length, before)
-            const tampered = Buffer.from(encryptBackupManifest(archive, keyring()))
-            tampered[29] = tampered[29]! ^ 1
+            const tampered = Buffer.from(encryptBackupManifest(archive, keyring())[0]!)
+            tampered[49] = tampered[49]! ^ 1
             const wrong = parseBackupKey({ NEONFLUX_BACKUP_KEY: Buffer.alloc(32, 18).toString("base64") })
             assert(wrong)
             const inputs = [
                 tampered,
-                encryptBackupManifest(archive, wrong),
-                encryptBackupManifest({ ...archive, version: 2 }, keyring()),
+                encryptBackupManifest(archive, wrong)[0]!,
+                encryptBackupManifest({ ...archive, version: 1 }, keyring())[0]!,
                 rawEnvelope('{"private-marker-body":"Synthetic private authored content\\q"}'),
-                encryptBackupManifest({ ...archive, serverId: "2" }, keyring()),
-                encryptBackupManifest({ ...archive, provider: "https://other-instance.invalid" }, keyring()),
-                encryptBackupManifest({ ...archive, extra: "Synthetic private authored content" }, keyring()),
-                new Uint8Array(backupEnvelopeLimit + 1),
+                encryptBackupManifest({ ...archive, serverId: "2" }, keyring())[0]!,
+                encryptBackupManifest({ ...archive, provider: "https://other-instance.invalid" }, keyring())[0]!,
+                encryptBackupManifest({ ...archive, extra: "Synthetic private authored content" }, keyring())[0]!,
+                new Uint8Array(backupPartLimit + 1),
             ]
             const instance = yield* bot.client.instance.resolve(),
                 mediaBase = instance.endpoints.media.replace(/\/$/, "")
@@ -2679,9 +3255,9 @@ test("backup actual SDK export uploads encrypted in-memory bytes after fresh pri
                 selected: ["config", "xp"],
             })
             assert.equal(uploaded.length, 1)
-            assert.equal(f.calls.slice(before).filter((call) => call.path === "/backup/snapshot").length, 1)
+            assert(f.calls.slice(before).filter((call) => call.path === "/backup/snapshot-page").length > 0)
             const bytes = uploaded[0]!,
-                manifest = validateBackupManifest(decryptBackupEnvelope(bytes, keyring()))
+                manifest = validateBackupManifest(decryptBackupParts([bytes], keyring()).manifest)
             assert.equal(manifest.provider, provider)
             assert.equal(manifest.serverId, "1")
             assert.deepEqual(manifest.selected, ["config", "xp"])
@@ -2712,12 +3288,12 @@ test("backup actual SDK export uploads encrypted in-memory bytes after fresh pri
                 ]),
                 { type: "preview" },
             )
-            assert.equal(f.calls.filter((call) => call.path === "/backup/preview").length, 1)
+            assert.equal(f.calls.filter((call) => call.path === "/backup/preview-start").length, 1)
             const plans = yield* Effect.promise(() => f.query({ type: "plans" }))
             assert.equal(plans.type, "plans")
             assert.equal(plans.plans.length, 1)
             assert.equal(plans.plans[0]!.backupId, manifest.backupId)
-            assert.equal(plans.plans[0]!.archiveDigest, createHash("sha256").update(bytes).digest("hex"))
+            assert.equal(plans.plans[0]!.archiveDigest, backupArchiveDigest([bytes]))
             assert.equal(plans.plans[0]!.counts.skip, 1)
             assert.equal(plans.plans[0]!.confirmedAt, undefined)
             assert(
@@ -2731,25 +3307,31 @@ test("backup actual SDK export uploads encrypted in-memory bytes after fresh pri
 })
 
 test("backup preview replaces the plan nobody confirmed and its stale binding is refused", async (t) => {
-    const f = await fixture(t),
-        archive = f.manifest({ xp: [{ sourceId: "20", userId: "20", xp: 10 }] })
-    const first = await f.plan(archive),
-        second = await f.plan(archive)
+    const f = await fixture(t)
+    // Two archives of the same server, so the second check is another plan
+    const first = await f.plan(f.manifest({ xp: [{ sourceId: "20", userId: "20", xp: 10 }] })),
+        second = await f.plan(f.manifest({ xp: [{ sourceId: "20", userId: "20", xp: 10 }] }))
     assert.notEqual(second.plan.planId, first.plan.planId)
     const plans = (await f.query({ type: "plans" })) as Extract<BackupQueryResult, { type: "plans" }>
+    // The replaced plan is forgotten, and retention removes it later
     assert.deepEqual(
-        plans.plans.map((plan) => plan.planId),
+        plans.plans.filter((plan) => !plan.forgotten).map((plan) => plan.planId),
         [second.plan.planId],
     )
     await f.reject(
         f.store.manage(f.manageInput({ type: "confirm", binding: binding(first.plan) })),
         f.BackupStoreError,
-        404,
+        409,
     )
     // Confirming keeps that plan: A newer preview then makes another one beside it
     await f.confirm(second.plan)
-    const third = await f.plan(archive)
-    assert.equal(((await f.query({ type: "plans" })) as Extract<BackupQueryResult, { type: "plans" }>).plans.length, 2)
+    const third = await f.plan(f.manifest({ xp: [{ sourceId: "20", userId: "20", xp: 10 }] }))
+    assert.equal(
+        ((await f.query({ type: "plans" })) as Extract<BackupQueryResult, { type: "plans" }>).plans.filter(
+            (plan) => !plan.forgotten,
+        ).length,
+        2,
+    )
     assert.equal((await f.show(second.plan)).confirmedAt !== undefined, true)
     assert.equal((await f.show(third.plan)).confirmedAt, undefined)
 })
@@ -2757,31 +3339,27 @@ test("backup preview replaces the plan nobody confirmed and its stale binding is
 test("backup actual serial executor discovers21 items and enforces twenty item passes through restart", async (t) => {
     const f = await fixture(t),
         { processBackupPlanPass } = await import("../../bot/src/backup.ts"),
-        xp = Array.from({ length: 21 }, (_, i) => ({ sourceId: String(10000 + i), userId: String(10000 + i), xp: i })),
-        planned = await f.plan(f.manifest({ xp })),
+        config: BackupConfigObject[] = Array.from({ length: 21 }, (_, i) => ({
+            family: "draft",
+            sourceId: `draft_d${i}`,
+            value: { kind: "draft", name: `d${i}`, content: { content: "Synthetic draft" } },
+        })),
+        planned = await f.plan(f.manifest({ config })),
         confirmed = await f.confirm(planned.plan)
     await withNative(f, ({ Effect, Redacted }, bot) =>
         Effect.gen(function* () {
             const config = { serverId: "1", token: Redacted.make("synthetic-backup-sdk-token"), backend: f.config },
                 first = yield* processBackupPlanPass(f.store, config, bot.client, confirmed, "90")
             assert.equal(first.results.length, 20)
-            assert.equal(first.remaining, 1)
             assert(first.results.every((result) => result.recorded && result.item.state === "created"))
             const second = yield* processBackupPlanPass(f.store, config, bot.client, confirmed, "90")
             assert.equal(second.results.length, 1)
-            assert.equal(second.remaining, 0)
             const third = yield* processBackupPlanPass(f.store, config, bot.client, confirmed, "90")
             assert.deepEqual(third.results, [])
             assert(!bot.requests().some((request: any) => request.method !== "GET"))
         }),
     )
-    assert.equal((await f.snapshot(["xp"])).xp.length, 21)
-    assert.deepEqual(
-        await f.backend.run(async (ctx) =>
-            (await ctx.db.query("levelingProfiles").collect()).filter((row) => row.rewardDueAt !== undefined),
-        ),
-        [],
-    )
+    assert.equal((await f.snapshot(["config"])).config.filter((x) => x.family === "draft").length, 21)
 })
 
 test("backup retained status reconcile and forget remain private and usable after keyring removal", async (t) => {
@@ -2855,26 +3433,40 @@ test("backup retained status reconcile and forget remain private and usable afte
     )
 })
 
-test("backup retained unresolved origin capacity refuses native reserve without partial mutation", async (t) => {
+test("backup origin mappings have no count limit, and a lookup answers only the archive channels it names", async (t) => {
     const f = await fixture(t),
         row = structure(f.now()),
         planned = await f.plan(f.manifest({ structure: [row] }), f.native([row]))
     await f.confirm(planned.plan)
-    await f.backend.run((ctx) => ctx.db.insert("backupOriginCounts", { serverId: "1", provider, count: 5000 }))
-    await f.reject(
-        f.store.work({
-            serverId: "1",
-            operation: {
-                type: "reserve",
-                binding: itemBinding(planned.items[0]!),
-                context: f.context(),
-                native: f.native([row]),
-            },
-        }),
-        f.BackupStoreError,
-        429,
+    // 5,000 mappings of earlier restores, the most a server could once keep
+    const plan = (await f.backend.run((ctx) => ctx.db.query("backupPlans").first()))!._id
+    await f.backend.run(async (ctx) => {
+        for (let index = 0; index < 5000; index++)
+            await ctx.db.insert("backupOrigins", {
+                provider,
+                serverId: "1",
+                category: "structure",
+                family: "structure",
+                sourceId: String(9000000 + index),
+                state: "created",
+                planId: plan,
+                itemNo: 1,
+                generation: 1,
+                mappedId: String(9500000 + index),
+                desiredHash: "b".repeat(64),
+            })
+    })
+    const reserved = await f.work({
+        type: "reserve",
+        binding: itemBinding(planned.items[0]!),
+        context: f.context(),
+        native: f.native([row]),
+    })
+    assert.equal(reserved.item.state, "reserved")
+    assert.equal((await f.backend.run((ctx) => ctx.db.query("backupOrigins").collect())).length, 5001)
+    const found = await f.query({ type: "origins", provider, sourceIds: ["9004999", "9004999", "123456789"] })
+    assert.deepEqual(
+        found.type === "origins" && found.origins.map(({ sourceId, mappedId }) => ({ sourceId, mappedId })),
+        [{ sourceId: "9004999", mappedId: "9504999" }],
     )
-    assert.equal((await f.items(planned.plan))[0]!.state, "planned")
-    assert.equal((await f.backend.run((ctx) => ctx.db.query("backupOriginCounts").unique()))?.count, 5000)
-    assert.equal((await f.backend.run((ctx) => ctx.db.query("backupOrigins").collect())).length, 0)
 })

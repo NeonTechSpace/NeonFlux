@@ -53,16 +53,16 @@ Every request and answer has a schema in the [contracts package](../projects/con
 
 Chat commands carry no revision numbers. Where a write needs the revision it changes, the bot reads it from the feature's query right before the write, so of two chat changes the later one wins. Dashboard saves keep their revision checks, as [the dashboard guide](WEB.md#saving-and-live-updates) describes
 
-| Status | Meaning |
-| --- | --- |
-| `400` | Invalid input, or a request value JSON cannot carry |
-| `401` | Missing or wrong key |
-| `403` | Authorization denied, or a scope denial carrying `code: "NEONFLUX_SCOPE_DENIED"`. Some refusals carry a reason code, see below |
-| `404` | A missing record, or an installation function in single mode |
-| `409` | Conflict, such as an existing name or a stale revision |
-| `413` | Request over the path's limit |
-| `429` | A remaining capacity bound was reached |
-| `503` | Missing configuration or an unexpected backend failure |
+| Status | Meaning                                                                                                                        |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `400`  | Invalid input, or a request value JSON cannot carry                                                                            |
+| `401`  | Missing or wrong key                                                                                                           |
+| `403`  | Authorization denied, or a scope denial carrying `code: "NEONFLUX_SCOPE_DENIED"`. Some refusals carry a reason code, see below |
+| `404`  | A missing record, or an installation function in single mode                                                                   |
+| `409`  | Conflict, such as an existing name or a stale revision                                                                         |
+| `413`  | Request over the path's limit                                                                                                  |
+| `429`  | A remaining capacity bound was reached                                                                                         |
+| `503`  | Missing configuration or an unexpected backend failure                                                                         |
 
 Failures are Convex errors whose data holds the status, a fixed `error` message and, for scope denials and the refusals
 below, a code. Unexpected failures answer `503` and are logged without request bodies or keys. Each path's body limit is
@@ -72,15 +72,15 @@ A refusal the bot can explain with a fix carries a stable reason `code`. For eve
 the code and never the message, and turns it into a reply that says what to change, using the native facts it read for
 the request. A `REFUSED` message is already a sentence for members with its next step, so the bot shows it as it is
 
-| Code | Meaning |
-| --- | --- |
-| `BOT_PERMISSION` | The bot lacks the native permission for a moderation action or a role change |
-| `BOT_BELOW_TARGET` | The bot's highest role does not rank above the target member's |
-| `ACTOR_BELOW_TARGET` | The actor's highest role does not rank above the target member's |
-| `ACTOR_PERMISSION` | The actor lacks the native permission for the action |
-| `TARGET_PROTECTED` | The target is the bot, the server owner, an Administrator or the actor |
-| `ROLE_NOT_ELIGIBLE` | A role is not below the bot and the actor, carries more than ordinary member permissions or is a staff role |
-| `REFUSED` | A refusal a member can act on, such as a name already taken, a feature that is off or a closed vote. The `error` message is the sentence the bot shows |
+| Code                 | Meaning                                                                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BOT_PERMISSION`     | The bot lacks the native permission for a moderation action or a role change                                                                           |
+| `BOT_BELOW_TARGET`   | The bot's highest role does not rank above the target member's                                                                                         |
+| `ACTOR_BELOW_TARGET` | The actor's highest role does not rank above the target member's                                                                                       |
+| `ACTOR_PERMISSION`   | The actor lacks the native permission for the action                                                                                                   |
+| `TARGET_PROTECTED`   | The target is the bot, the server owner, an Administrator or the actor                                                                                 |
+| `ROLE_NOT_ELIGIBLE`  | A role is not below the bot and the actor, carries more than ordinary member permissions or is a staff role                                            |
+| `REFUSED`            | A refusal a member can act on, such as a name already taken, a feature that is off or a closed vote. The `error` message is the sentence the bot shows |
 
 ### Checks
 
@@ -405,7 +405,7 @@ The `security` category holds the event types `invite-create`, `invite-delete`, 
 
 ### Security alerts and invites
 
-`alertSettings` keeps one row per server with the five alert switches, which default to off, the three optional action switches `kickBots`, `deleteWebhooks` and `removePermissions`, which read as off while absent, up to 8,192 expected bot IDs and 8,192 expected webhook IDs, the most values Convex keeps in one array, and the invite list the bot last read for the dashboard. Chat changes carry the actor's fresh native evidence and `managerAuthorized`, like sticky messages, and dashboard changes use the configuration family `alerts`, so both share one family revision and reach the audit log. The operation `{ type: "action", action, enabled }` turns an action on or off. Turning one on needs an owner or Administrator actor in chat, and on the dashboard the job's native target asks for one. Turning an alert or an action off counts as a critical change at DEFCON 1
+`alertSettings` keeps one row per server with the five alert switches, which default to off, the three optional action switches `kickBots`, `deleteWebhooks` and `removePermissions`, which read as off while absent, up to 8,192 expected bot IDs and 8,192 expected webhook IDs, the most values Convex keeps in one array, and the invite list the bot last read for the dashboard. Chat changes carry the actor's fresh native evidence and `managerAuthorized`, like sticky messages, and dashboard changes use the configuration family `alerts`, so both share one family revision and reach the audit log. The operation `{ type: "expect", kind, ids, expected }` marks one or more bots or webhooks expected, or stops expecting them, and the dashboard's `{ type: "expected-set", kind, ids }` replaces one whole list. Each writes its list once and refuses a list past 8,192 IDs. The operation `{ type: "action", action, enabled }` turns an action on or off. Turning one on needs an owner or Administrator actor in chat, and on the dashboard the job's native target asks for one. Turning an alert or an action off counts as a critical change at DEFCON 1
 
 `alertActions` records the native actions the bot claims, one row per server and key, where the key is `audit:<entry ID>` or `join:<user ID>:<joined at>`. `alerts/claim-action` refuses a known key and rechecks that the action and its alert are on and that neither the target bot nor the actor is expected. The row starts `pending`, and `alerts/action-outcome` sets `succeeded`, `failed` or `uncertain` once and admits a `security` record of type `alert-action`, whose source is derived from the key. At a server's startup `alerts/observe-actions` turns up to 100 leftover `pending` rows into `uncertain` and records them. Nothing retries. The retention pass `alerts` deletes rows 24 hours after their claim, since they only stop a redelivered event from acting twice and the posted record keeps the result. `/setup/status` lists in `alertActions` the actions that are on with their alert, so the bot's check requires Kick members, Manage webhooks or Manage roles for them
 
@@ -525,26 +525,47 @@ is archived exactly as the server has it, with any allow and deny bits of up to 
 that a ticket or a temporary voice room made is archived with `managed` set to `ticket` or `voiceRoom`, which the bot
 learns from the `backup:query` operation `managed` (at most 100 channel IDs, each looked up in the `by_channel` index of `tickets` and of `voiceRooms`), because NeonFlux
 forgets those rows later. The label is not part of what a channel restores to. Configuration that names an announcement,
-forum or media channel counts it as a message channel reference. An export larger than the restore limits is refused, so
-every archive stays restorable. Limits are a 1 MiB snapshot, 500 XP profiles, 100 structure items and 500
-permission overwrites
+forum or media channel counts it as a message channel reference. An export reads the database through
+`/backup/snapshot-page`, the `backup:snapshotPage` service query, which checks the owner again on each page and answers
+one family a page, at most 100 settings items, 100 drafts and templates, events, schedules or cleanup channels, 20 ticket categories, or 500
+XP profiles, with an opaque cursor. Events and schedules are read in pages too, since a server keeps its cancelled and finished definitions
+beside the live ones it limits, and a cancelled one stays out of an archive. A posted role panel is archived with its definition only, never its message, publication, reactions to clear or the roles it gave. Structure covers every
+channel, up to the 500 Fluxer allows in a server. The bot encrypts the manifest, format version 2, in parts of at most 4
+MiB and at most 10, 40 MiB in all, since a restore reads every part from one DM message, and refuses a larger export.
+A part is the version byte 2, the archive's 16-byte ID, the part's number and the number of parts, a nonce, a tag and
+the ciphertext. Its first 21 bytes are AES-256-GCM additional data, so parts cannot be swapped, reordered or mixed with
+another archive's, and `archiveDigest` hashes every part in order. An archive of version 1 is refused by name
 
-A preview and a restore plan are one thing. `backup:preview` runs `createBackupPlan`, which decides every archive item
-with `backupPlanItems` in [backup.ts](../projects/backend/convex/backup.ts) and stores the decisions as a plan.
-`backupPlans` keeps the archive hash, the owner binding, the counts by decision, the permissions and switches the plan
-grants and a 15-minute expiry, and `backupItems` keeps at most 500 items per plan with their decision, reason, changed
-fields, a warning for an item that deletes or posts, a rank that sorts problems first and the archived object.
+A preview and a restore plan are one thing. The bot sends the archive in segments. `/backup/preview-start` carries the
+header, the digest of every segment and the archive digest, and makes the plan in state `building`. Each
+`/backup/preview-segment` carries the next segment with fresh native proof, which the backend checks against its digest
+and decides with `backupPlanSegment` in [backup.ts](../projects/backend/convex/backup.ts). Categories come first with a
+summary of every archived channel, which a category's cascade needs, then channels, then one segment with the match
+deletes and the order item, then configuration, then XP. A segment holds at most 500 items, 100 channels and 512 KiB,
+so each one is decided in one transaction. The capacity and automod pattern checks of a segment count what the settings
+of earlier segments write, so a later segment decides each item as its step will find the server. A schedule that ran out of dates no longer counts toward its limit, so restoring it takes a place like a new one, at the plan and when its step runs. The last segment sets the plan `ready` with its `planHash` and an expiry a
+day later. A check that receives no segment for 10 minutes is stale, the dashboard shows it as failed and the next
+check replaces it. `backupPlans` keeps the archive hash, the owner binding, the counts by decision, the permissions and
+switches the plan grants, the expiry and the counts of items by state and with a warning, so a page and a progress line
+read no other item. `backupItems` keeps every item of a plan with its decision, reason, changed fields, a warning for an
+item that deletes or posts, a rank that sorts problems first and the archived object.
 `backupChanges` keeps one row per item with its complete list of changes, as leaf paths with the value before and after,
-a mark on a setting that turns on and, for a new channel, each overwrite with the permissions it gives. Values are never
-cut. An item whose changes would pass 512 KiB is blocked as too large to show. A server keeps at most ten plans,
-forgotten ones included. A newer preview deletes the server's plan that was never confirmed before it makes its own. A
-confirmed plan stays for seven days after its 15-minute expiry, its last step or `!backup forget`, whichever comes last,
-and longer while one of its items is unresolved. Confirmation binds the exact owner, plan, archive and mode. Each item
+a mark on a setting that turns on and, for a new channel, each overwrite with the permissions it gives. An expected bot
+or webhook list is one row with the IDs it drops and adds, so restoring both lists at 8,192 IDs fits unless both
+also drop 8,192 other IDs. Values are never
+cut. An item whose changes would pass 512 KiB is blocked as too large to show. A server has at most ten plans that are
+not finished, so old checks cannot pile up: a check being built, one nobody confirmed that has not expired, or a
+confirmed plan whose run has not finished. Forgotten plans do not count, and past ten a preview answers `429`. A newer
+preview marks the server's plan that was never confirmed as forgotten, and retention removes it in pages. A preview of
+the same archive whose plan comes out with the same hash keeps the earlier plan, with its ID and hash, and moves its
+expiry a day ahead, so an open page and the chat binding stay valid. A confirmed plan stays for seven days after its
+expiry, its last step or `!backup forget`, whichever comes last, and longer while one of its items is unresolved. Confirmation binds the exact owner, plan, archive and mode. Each item
 is created, updated, deleted, skipped as identical or blocked, and a step that finds the server changed since the
 preview ends as a conflict. The permissions an overwrite gives are highlighted by one rule, the bits it newly allows
-plus the denies it lifts, which is Fluxer's own rule for overwrite edits. The preview route accepts a request whose
-serialized JSON is at most 4,194,304 UTF-16 code units long, which carries the decrypted manifest of at most 512 KiB, up
-to 100 channel snapshots, 1,000 references, the server's list of up to 500 channels and the owner's evidence
+plus the denies it lifts, which is Fluxer's own rule for overwrite edits. The start route accepts a request whose serialized
+JSON is at most 262,144 UTF-16 code units long, and the segment route at most 4,194,304, which carries a segment of at
+most 512 KiB, up to 100 channel snapshots, the references, the server's list of up to 500 channels and the owner's
+evidence
 
 A channel is decided by `backupNativeDecision` in [backupStore.ts](../projects/backend/convex/backupStore.ts) from the
 bot's fresh evidence: each observation carries the channel and the permissions NeonFlux has in it, and the proof lists
@@ -571,11 +592,20 @@ and a channel the cascade will reach accepts a second state, its permissions alr
 deletes, category deletes, then configuration and XP. Creates run before deletes, so a full server fails safely, and a
 category changes before its channels
 
+Each archived channel keeps `position`, its place among its siblings in Fluxer's order, which is not part of what a
+channel restores to. When an archive holds places, one order item with `order` set comes after every other channel item,
+whenever the order differs now or the plan creates a channel. Its claim runs once no other channel item is planned,
+reserved or claimed, and decides on the fresh proof, whose channel list is in Fluxer's order: each category and the top
+level keep the places their archived channels hold, those places are filled in the archive's order, and
+`backupOrderMoves` picks the fewest moves with the structure editor's `movedChannels`, never moving a channel NeonFlux
+cannot manage or that tickets or voice rooms own. The grant carries the moves, and the bot sends them in one reorder
+request and answers `updated`, `failed` with how many did not land, or `uncertain`. Nothing left to move settles the item
+as skipped with no write
+
 Match mode adds one thing, the deletion of the channels and categories of the six archived types that the proof lists
 and the archive does not hold. They are items with `extra` set, and the archive must have selected `structure`. A
 channel that tickets or voice rooms own is a skip, one that NeonFlux cannot manage is blocked, and a category that would
-still hold a channel after the plan is blocked. A plan of archive items and deletes over 500 is refused with 413. The
-mode is part of `planHash`. An update or delete is claimed straight from planned, with no reservation and no origin.
+still hold a channel after the plan is blocked. The mode is part of `planHash`. An update or delete is claimed straight from planned, with no reservation and no origin.
 The claim decides again, so a channel that already has the wanted values settles as updated with no write, one that
 changed since the preview is a conflict, and one NeonFlux lost the permission for is blocked. The grant carries the
 action and `from`, the channel as the claim read it, which the bot must still find right before it writes. The bot
@@ -585,8 +615,21 @@ keeps a plan from being forgotten, since a new check compares the server itself.
 channel writes an audit entry under `structure`
 
 A restore step writes a configuration item through the feature's own save, such as the moderation, response, role,
-ticket, leveling, milestone, cleanup, greeting, metadata and publishing operations, so revisions, role ledgers, pending
-deliveries, activation times and worker wakes happen as they do for a change from chat or the dashboard. Every on/off
+ticket, leveling, milestone, cleanup, greeting, metadata, publishing, general settings, analytics, voice generator,
+looking for group, role picker, member access, temporary role, newcomer checklist, sticky message, security alert, help
+desk, showcase, profile and YouTube operations, so revisions, role ledgers, pending deliveries, activation times and
+worker wakes happen as they do for a change from chat or the dashboard. An event is written by `restoreEventDraft` in
+[events.ts](../projects/backend/convex/events.ts) as a draft made or changed by name, with its occurrences replaced as
+drafts, and a schedule by `restoreSchedule` in [schedules.ts](../projects/backend/convex/schedules.ts) with deliveries
+for the dates ahead. `backupTarget` keeps a calendar whose every date passes the feature's own calendar check. A repeat
+whose first date has started begins again at its first date after now through `civilRestart`, with a count reduced to
+the dates left, and with no date left an event loses its calendar and a schedule is paused. The step writes that same
+value, so the preview's hash binds what is written. A
+general item records the nickname as pending under its own revision, and the bot applies it after the step and reports
+the result. The moderation item also carries `privateDataRoleId`, which sits beside the moderation settings in its row,
+and setting it is a warning. A YouTube item follows the channel again through the feature, which makes a new secret, and
+it is blocked while the deployment has no WebSub hub. Looking for group and the newcomer checklist are blocked when the
+voice generator, role panel or role picker menu they name is neither on the server nor earlier in the same plan Every on/off
 switch is written as archived, and a role setting the archive leaves out is written as what absent means. A cleanup
 policy that turns on, a log route that turns on or moves, and the module switch that resumes policies or routes that
 stayed on are written too, since the verified owner's confirmation is the authority the feature's native step stands
@@ -597,14 +640,17 @@ resumes, so a policy that changes after the preview ends the module as a conflic
 not cover, such as a policy that stays on in a paused module and is not in the archive, is left to the worker, which
 checks it again. The owner, DEFCON and quarantine checks run for every step, and a cleanup policy or log route that an
 administrator set up restores as archived for the owner who confirms it. The plan carries a warning that says what the
-item will delete or post. A published or withdrawing role panel is blocked until it is withdrawn. The step checks the
+item will delete or post. A role panel that is missing returns unposted with a warning to post it. A posted panel whose archived roles differ changes under its message through the same in-place edit as a staff change, so the emojis whose role changed wait for their reactions to clear, which the step's answer hands the bot with the panel to do at once, and it is blocked with the reason when that edit cannot apply: A panel that is not a reaction panel posted at its current revision, a switch to one choice, no role left or more than 40 emojis waiting to clear. A panel being withdrawn is blocked until that finishes. The step checks the
 plan's hashes, the references, the capacity of a new item and the feature's rules again right before it writes and ends
-as a conflict when the server changed, and a refusal from a feature's rules undoes the whole step. A member's XP is set
-through the leveling correction, which orders by time, moves the rank counts and audits the change, and it queues no
-reward roles. `backupOrigins` keeps up to 5,000 body-free mappings from an archive channel to the channel a restore
-created for it, for channels only. A channel that a restore made and somebody deleted since is made again, and its
-mapping and the settings that name it point at the new channel. `backupOriginCounts` counts the mappings per provider so
-a capacity check reads one row. A restore step checks a plan's unresolved items through an index instead of reading
+as a conflict when the server changed, and a refusal from a feature's rules undoes the whole step. An XP item holds up to 100 members
+and the XP season the check read. It sets each member's XP through the leveling correction, which orders by time, moves
+the rank counts and audits the change, and it queues no reward roles. A member whose XP changed after the check is left
+alone and the item's reason counts them, and a new season since the check makes the item a conflict. A member with a
+`memberDataDeletions` row from on or after the archive's database read is left out at the check and at the step, and the
+reason counts them without naming them. `backupOrigins` keeps body-free mappings from an archive channel to the channel a restore
+created for it, for channels only, with no limit on how many. A channel that a restore made and somebody deleted since is made again, and its
+mapping and the settings that name it point at the new channel. The bot looks up only the mappings of the archive
+channels a check or a step names, up to 100 a request, through the `by_origin` index. A restore step checks a plan's unresolved items through an index instead of reading
 every item
 
 `backupPreviewJobs` keeps one row per server: the owner, the DM channel and message that carry the archive,
@@ -612,18 +658,19 @@ whether the plan deletes what the archive does not hold, the plan the latest pre
 the latest request was made, and a state. `queued` waits for the bot to read the archive and the server again, `running`
 waits for the bot to run the next items of a plan the owner confirmed, `waiting` holds a restore whose only remaining
 items are open claims, `done` is a finished check or restore and `failed` carries `owner`, `archive`, `key`, `refused`,
-`error`, `unanswered`, `paused` for DEFCON 1 or `expired` for a plan that ended first. The archive must sit in the
+`error`, `unanswered`, `paused` for DEFCON 1 or `expired` for a run that made no progress for 10 minutes. `notify` marks a
+run confirmed in chat, whose outcome the bot posts in the DM. The archive must sit in the
 owner's DM named by the request's context. A preview from chat is a newer request and replaces a queued one, and every
-answer to a website request, `/backup/preview` and `/backup/preview-failed`, carries the `requestedAt` it answers and is
+answer to a website request, `/backup/preview-start` and `/backup/preview-failed`, carries the `requestedAt` it answers and is
 rejected unless that is still the latest request. A preview and a website request are refused while the job is `running`
 or `waiting`
 
 `backup:restoreView` returns the job and the plan to the session of the owner who made them: counts, gain, how many
 items start work other than a delete, the items with a setting that turns on, so the page names them, `planId`,
 `planHash`, the last moment the website may confirm, and for a confirmed plan how many items have an outcome and the
-items by state. Once the job's plan is forgotten or removed by retention, it returns nothing, as that plan is gone from
-`!backup status` too. `settled` counts every item that is not `planned`, `reserved`, `claimed` or `uncertain`, and it is
-derived from the item states when the view is read. `backup:restoreItems` pages 25 items in `by_plan_rank` order,
+items by state, and `building` while the check is still being built. Once the job's plan is forgotten or removed by
+retention, it returns nothing, as that plan is gone from `!backup status` too. `settled` counts every item that is not
+`planned`, `reserved`, `claimed` or `uncertain`, from the plan's counts by state. `backup:restoreItems` pages 25 items in `by_plan_rank` order,
 problems first, each with its stored changes, where a channel's category that the plan creates is named by its archive
 name, and lists identical items and items left alone only when asked. `backup:restoreRequest` queues a refresh for that
 owner at most every 10 seconds and not once the job's plan is forgotten or removed, and answers whether it did, raises
@@ -632,9 +679,10 @@ with its own reads, rechecking that the sender still owns the server, or records
 `error`. `owner` also deletes the plan that was never confirmed
 
 `backup:restoreConfirm` takes the session, a `planId` and a `planHash`. It needs the owner who made the check, the job's
-own plan with that hash that is not forgotten, a `done` job and at least 5 minutes before the plan expires. It sets
-`confirmedAt`, moves the job to `running` until the plan expires, schedules `previewExpire` for that time and raises the
-work signal. A repeat answers the same `confirmedAt`. The bot's `previewReady` then returns the confirmed plan with the
+own plan with that hash, ready and not forgotten, a `done` job and a check that has not expired. It sets `confirmedAt`,
+starts the run and raises the work signal. A repeat answers the same `confirmedAt`. A chat confirmation through
+`/backup/manage` starts the same run with `notify`, and on a confirmed plan whose run stopped it starts the run again. One
+run goes at a time on a server, so confirming another plan meanwhile answers `409`. The bot's `previewReady` then returns the confirmed plan with the
 job, and one pass per wake runs up to 20 items with the same owner, DM and DEFCON checks a chat confirmation makes, on
 Owner and DM evidence the backend accepts for 60 seconds. A blocked item, an identical setting or XP profile and a
 channel a match restore leaves alone write nothing, so the bot sends their `apply` with no native evidence.
@@ -642,22 +690,27 @@ channel a match restore leaves alone write nothing, so the bot sends their `appl
 claims past their dispatch window and settle time to not confirmed with the retention sweep's own helper, and the job
 stays `running` while items wait to start, which the dispatcher sees as due work. It goes `waiting` when only open
 claims remain and schedules `runWake` for the time the first one ages, which is not due work, so the bot does not poll.
-`runWake` acts only for a job still `waiting` on the same plan. The job ends `done` when nothing is left, and `failed`
-when the sender no longer owns the server, DEFCON 1 pauses it or a pass records nothing with no claim to wait for.
+`runWake` acts only for a job still `waiting` on the same plan. A pass that records an item renews the run's 10-minute
+lease, and a pass that records nothing tries again after 30 seconds. The job ends `done` when nothing is left, which sets
+the plan's `settledAt` and frees its place, and `failed` when the sender no longer owns the server or DEFCON 1 pauses it.
+`/backup/run-step` answers with `ended` when its pass ended the run, so the bot posts the outcome of a run with `notify`.
 Forgetting the plan with `!backup forget`, or retention removing it, ends a queued, running or waiting job that holds
-it, so a late answer to that job is rejected. A scheduled `previewExpire` ends a `running` or `waiting` job whose plan
-expired. The request carries no archive and no key: they stay in the bot. The row is purged with the server
+it, so a late answer to that job is rejected. A scheduled `previewExpire` ends a `running` or `waiting` job whose lease
+ran out as `expired`, so a run is bounded by its progress and never by the check's expiry. A run with `notify` that ends
+this way also gets `outcomeDue`, which the dispatcher lists through the `by_outcome` index. `previewReady` then returns
+the job with its plan and `ended`, and the bot takes it once with `/backup/outcome-claim`, which clears `outcomeDue`,
+before it posts the outcome in the DM and runs nothing more. A new check or confirmation clears it too. The request carries no archive and no key: they stay in the bot. The row is purged with the server
 
 ## Server analytics
 
-Analytics stores aggregated counts only, with no member IDs. `analyticsSettings` keeps one row per server with the switch, a revision and the last change. A server without a row counts as on
+Analytics stores aggregated counts only, with no member IDs. `analyticsSettings` keeps one row per server with the switch, a revision, the last change and `reloadDue` while the bot has not read a change the website made. A server without a row counts as on
 
-| Table | Row | Retention |
-| --- | --- | --- |
-| `analyticsChannelDays` | Server, channel, UTC day start, message count and 24 hourly message counts | 35 days |
-| `analyticsMessageDays` | Server, UTC day start, message count, 24 hourly message counts and the message count of each channel, for at most 1,000 channels a day | 35 days |
-| `analyticsDays` | Server, UTC day start, joins, leaves and newcomer checklist completions | 400 days |
-| `analyticsFlushes` | Server, bot worker session and the highest batch number applied for it | Two days after its last batch |
+| Table                  | Row                                                                                                                                    | Retention                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `analyticsChannelDays` | Server, channel, UTC day start, message count and 24 hourly message counts                                                             | 35 days                       |
+| `analyticsMessageDays` | Server, UTC day start, message count, 24 hourly message counts and the message count of each channel, for at most 1,000 channels a day | 35 days                       |
+| `analyticsDays`        | Server, UTC day start, joins, leaves and newcomer checklist completions                                                                | 400 days                      |
+| `analyticsFlushes`     | Server, bot worker session and the highest batch number applied for it                                                                 | Two days after its last batch |
 
 `/analytics/record` takes a session, a batch number and 1 to 500 hour and day buckets in one mutation. It adds each hour bucket to its channel day row and its server message day row, adds each day bucket to its server day row and creates missing rows. Hours and days must be aligned to their bucket and inside their retention window. A server day lists at most 1,000 channels, and messages in further channels still count in the day's total and hours. When analytics is off, it stores nothing and returns `{ enabled: false, recorded: false }`
 
@@ -667,7 +720,7 @@ Reads take at most one row per UTC day, newest first, so a bound never drops rec
 
 The hourly retention cron deletes at most 512 expired rows per table and 128 message day rows in one run, and schedules one immediate follow-up while a batch is full. A row is deleted once its whole bucket is older than its retention, and a session row two days after its last batch
 
-Checklist completions are added to the day row when a member finishes the [newcomer checklist](#newcomer-checklist), and `!stats` shows their seven-day total. The dashboard's `analytics:dashboard` query returns a zero-filled 30-day series of joins, leaves and completions, a 14-day message series, the top ten channels for 7 or 30 days and the messages per UTC hour for each day of that range. Hours cover every channel, or the one channel named by the optional `channelId`. `analytics:save` rechecks provider permission and writes the switch directly with the expected revision, like the prefix
+Checklist completions are added to the day row when a member finishes the [newcomer checklist](#newcomer-checklist), and `!stats` shows their seven-day total. The dashboard's `analytics:dashboard` query returns a zero-filled 30-day series of joins, leaves and completions, a 14-day message series, the top ten channels for 7 or 30 days and the messages per UTC hour for each day of that range. Hours cover every channel, or the one channel named by the optional `channelId`. `analytics:save` rechecks provider permission and writes the switch directly with the expected revision, like the prefix. A change it saves sets `reloadDue` and rings the work signal, so the dispatcher wakes the server's dashboard worker with the `analytics` pass. That pass calls `/analytics/reloaded`, which returns the switch and clears `reloadDue`, and applies it to the running counter at once
 
 ## Multi-server scope
 
@@ -677,11 +730,11 @@ A deployment runs in `single` mode, where it serves the server in `NEONFLUX_SERV
 
 `serverInstallations` keeps one row per server the bot has joined, with an `active` or `removed` status, `joinedAt` and, after removal, `removedAt` and the purge's `purgeLeaseUntil`. The bot calls these when it starts, joins a server or is removed from one. They bind no server, have a body limit of 4,096, return `404` in single mode and leave the same state when repeated. A join answers `dueIn: 0`, so the bot looks for work the server kept
 
-| Path | Body | Purpose |
-| --- | --- | --- |
-| `/service/installations/list` | `{ cursor }`, optional | Lists active servers, 500 per page, with `nextCursor` or `null` |
-| `/service/installations/join` | `{ serverId }` | Marks the server active. A removed server becomes active again with the data the purge has not deleted. The join that starts an installation, the first or one after a removal, also answers `welcome: true`, so the bot posts its install note once per install |
-| `/service/installations/leave` | `{ serverId }` | Marks the server removed and records `removedAt`. Its data stays for 30 days |
+| Path                           | Body                   | Purpose                                                                                                                                                                                                                                                          |
+| ------------------------------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/service/installations/list`  | `{ cursor }`, optional | Lists active servers, 500 per page, with `nextCursor` or `null`                                                                                                                                                                                                  |
+| `/service/installations/join`  | `{ serverId }`         | Marks the server active. A removed server becomes active again with the data the purge has not deleted. The join that starts an installation, the first or one after a removal, also answers `welcome: true`, so the bot posts its install note once per install |
+| `/service/installations/leave` | `{ serverId }`         | Marks the server removed and records `removedAt`. Its data stays for 30 days                                                                                                                                                                                     |
 
 Every feature request selects its server with the `serverId` argument, which single mode may omit. It must match `request.serverId` and name the configured server in single mode or an active installation in multi mode. Each bot service function checks the installation in its own transaction before any domain work, so a removed server is rejected with its data kept. Otherwise the function answers `403` with `code: "NEONFLUX_SCOPE_DENIED"`. Native evidence names the server it was read from in `originServerId` or `memberOriginServerId`, which must match the selected server. In multi mode, authority and membership facts without an origin are rejected
 
@@ -703,7 +756,7 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 
 | Worker | Listed when | Index |
 | --- | --- | --- |
-| `dashboard` | A job waits for the bot and has not expired. Every dashboard job table is read by state. `dashboard` names for each listed server the worker passes its jobs need, such as `roles`, `messages` or `configuration`, so the bot reads only those job kinds, and a new job table needs its pass named | `by_state` on each dashboard job table |
+| `dashboard` | A job waits for the bot and has not expired, or the website changed the analytics switch. Every dashboard job table is read by state. `dashboard` names for each listed server the worker passes its jobs need, such as `roles`, `messages`, `configuration` or `analytics`, so the bot reads only those job kinds, and a new job table needs its pass named | `by_state` on each dashboard job table, `analyticsSettings.by_reload` |
 | `verification` | A solved or redeemed proof has no outcome, while advanced verification is on at DEFCON 3 | `verificationLinks.by_global_ready` |
 | `events` | A queued, blocked or unclaimed reserved reminder is due while events and publishing are on at DEFCON 3 or its window has ended, or a waitlist occurrence, a discussion thread to start or close or a notice to members is due while events are on at DEFCON 3 | `eventDeliveries.by_global_due`, `eventOccurrences.by_global_work`, `events.by_global_thread_due`, `events.by_global_notice_due` |
 | `schedules` | An active delivery's due time and check time have passed | `scheduleDeliveries.by_global_discovery` |
@@ -728,11 +781,11 @@ The bot counts each function it calls and each work signal update it receives. A
 
 `NEONFLUX_MONTHLY_CALL_BUDGET` sets the budget in function calls, not money, because NeonFlux does not hard-code plan prices or included amounts. Convert a spending budget with your plan's price per call. Without a budget the state is always `normal`, and reports still record the month's calls. With a budget the state is:
 
-| State | From | Bot behavior |
-| --- | --- | --- |
-| `normal` | Below the warning share | Everything runs |
-| `warning` | `NEONFLUX_BUDGET_WARNING_SHARE` of the budget, 0.65 by default | The month's first report at or past the warning share answers `warn: true`, and the bot logs one warning |
-| `paused` | 90 percent of the budget | The bot pauses optional work, as [the bot guide](BOT.md#optional-work-limits-and-the-bill-guard) describes, until a report answers another state |
+| State     | From                                                           | Bot behavior                                                                                                                                     |
+| --------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `normal`  | Below the warning share                                        | Everything runs                                                                                                                                  |
+| `warning` | `NEONFLUX_BUDGET_WARNING_SHARE` of the budget, 0.65 by default | The month's first report at or past the warning share answers `warn: true`, and the bot logs one warning                                         |
+| `paused`  | 90 percent of the budget                                       | The bot pauses optional work, as [the bot guide](BOT.md#optional-work-limits-and-the-bill-guard) describes, until a report answers another state |
 
 The state follows each report, so raising the budget resumes optional work at the next report, within five minutes, and a new UTC month starts at zero. A malformed setting answers `503 Usage budget not configured correctly` with the code `USAGE_BUDGET_INVALID` and logs the variable to fix. The report is not counted, so the bot keeps its calls for the next report and pauses optional work until a report succeeds
 
@@ -763,11 +816,11 @@ Web verification needs advanced verification enabled and DEFCON 3. It issues a l
 
 The bot's `!setup` and `!health` and the dashboard's permission check read the same data through these functions, with a body limit of 4,096 for the reads and 262,144 for the answer
 
-| Path | Body | Purpose |
-| --- | --- | --- |
-| `/setup/status` | `{ serverId }` | Each feature's state, as the overview reports it, and the roles each feature assigns: autorole roles and reservations, reaction and verification panel roles, role picker roles, temporary roles, the newcomer checklist completion role and level rewards, at most 100 per feature, and the moderation staff roles of each staff area |
-| `/setup/ready` | `{ serverId }` | `{ queued }`, whether the website waits for a check |
-| `/setup/record` | `{ serverId, problems }` | The bot's answer to a waiting check. Returns `{ recorded: false }` when no check waits or it expired |
+| Path            | Body                     | Purpose                                                                                                                                                                                                                                                                                                                                |
+| --------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/setup/status` | `{ serverId }`           | Each feature's state, as the overview reports it, and the roles each feature assigns: autorole roles and reservations, reaction and verification panel roles, role picker roles, temporary roles, the newcomer checklist completion role and level rewards, every role each feature names, and the moderation staff roles of each staff area |
+| `/setup/ready`  | `{ serverId }`           | `{ queued }`, whether the website waits for a check                                                                                                                                                                                                                                                                                    |
+| `/setup/record` | `{ serverId, problems }` | The bot's answer to a waiting check. Returns `{ recorded: false }` when no check waits or it expired                                                                                                                                                                                                                                   |
 
 `setupCheck:request` is a dashboard mutation for a manager's session. It queues one check per server in `dashboardSetupJobs`, raises the work signal and gives the bot 60 seconds to answer, after which a scheduled function marks it failed. A request while a check waits, or within 10 seconds of the previous one, changes nothing, so the refresh button cannot keep the bot reading Fluxer. `setupCheck:view` returns the latest check. A problem is a missing set of permissions for a feature, roles a feature assigns that rank at or above the bot, or a gateway state other than connected, stored as permission keys, role IDs and names and the state. The safety audit adds `dangerous-role` with the role, its dangerous permission keys and its member count, absent for the everyone role, `staff-permissions` with the staff area, the role and the keys it lacks, and `verification-bypass` with the role features that are on. A check stores at most 50 problems. The bot reads Fluxer with its own token, so the check never uses the manager's sign-in
 
@@ -801,9 +854,9 @@ Every view needs a live access check in `dashboardPrivateAccessJobs`, one row pe
 
 The bot answers with its own Fluxer reads, never the viewer's sign-in. It reports whether the viewer owns the server, is a member and which roles they hold. The backend then passes the owner, passes a member holding the current private data role and refuses everyone else, so a role removal takes effect at the next check. A passed check also keeps `owner`, whether the bot found the viewer to own the server, which the [server export](#server-export) needs. Erased cases and appeals keep only their erasure marker
 
-| Path | Body | Purpose |
-| --- | --- | --- |
-| `/private-data/ready` | `{ serverId }` | The viewers whose checks wait for the bot, at most 10 a call, with a body limit of 4,096 |
+| Path                   | Body                                                                                                      | Purpose                                                                                                                           |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `/private-data/ready`  | `{ serverId }`                                                                                            | The viewers whose checks wait for the bot, at most 10 a call, with a body limit of 4,096                                          |
 | `/private-data/record` | `{ serverId, userId, originServerId, isOwner, present, roleIds }` or `{ serverId, userId, failed: true }` | The bot's answer to a waiting check, with a body limit of 65,536. Returns `{ recorded: false }` when no check waits or it expired |
 
 ### Server export
@@ -812,10 +865,10 @@ The bot answers with its own Fluxer reads, never the viewer's sign-in. It report
 
 Only the server owner may export. The website's `serverExport:start` mutation runs the [private cases check](#private-cases-on-the-website) and answers `ok` only for a fresh passed check whose `owner` is true, `refused` for anyone else and otherwise `checking` or `failed` like a private view. It records a `server-exported` entry under the `export` feature, and with `resume` records that the export continued after a new check. `serverExport:page` is a query, so a page read never conflicts with the server's writes, and answers `expired` once the owner's check is older than two minutes. The bot's functions take the same fresh owner and one-to-one DM evidence as `/backup`, which the backend accepts for one minute
 
-| Path | Body | Purpose |
-| --- | --- | --- |
-| `/export/start` | `{ serverId, context }` | Record the export in the audit log and answer `{ version: 1 }`, with a body limit of 4,096 |
-| `/export/page` | `{ serverId, context, cursor }` | One page, starting with `cursor: null`, with a body limit of 8,192 |
+| Path            | Body                            | Purpose                                                                                    |
+| --------------- | ------------------------------- | ------------------------------------------------------------------------------------------ |
+| `/export/start` | `{ serverId, context }`         | Record the export in the audit log and answer `{ version: 2 }`, with a body limit of 4,096 |
+| `/export/page`  | `{ serverId, context, cursor }` | One page, starting with `cursor: null`, with a body limit of 8,192                         |
 
 ### Server structure editor
 
@@ -836,13 +889,13 @@ The merge decides each change against the current structure: `skip` when it is a
 - `structure:save` queues the draft with its starting structure, at most 100 changes. The bot claims it with a fresh read, and the claim merges and stores every decision, marking each change to write as uncertain until the bot reports it. Only a waiting save can be claimed, so a repeated claim gets nothing to write. The bot writes for at most 90 seconds, and a save it does not report within 30 seconds after that turns `uncertain` as a whole. Each change reported applied or uncertain records an audit entry. A recorded save queues a new read
 - A channel event after a read marks every row of the server that holds a read as changed, and the next read clears the mark
 
-| Path | Body | Purpose |
-| --- | --- | --- |
-| `/structure/ready` | `{ serverId }` | Up to 10 waiting requests, fewer when the rows read pass 8 MiB, each with the manager, the request time and `read`, `threads` with its channel, or `save`, with a body limit of 4,096 |
-| `/structure/answer` | `{ serverId, userId, requestedAt, work, originServerId }` with `read` or `threads`, or `{ serverId, userId, requestedAt, work, failure }` with `access` or `error` | A read, a closed thread page or why the bot could not answer, with a body limit of 524,288. Returns `{ recorded: false }` for a request that no longer waits |
-| `/structure/claim` | `{ serverId, userId, requestedAt, originServerId, current }` | Claims a waiting save with the bot's fresh read and answers `{ claimed, applyUntil, apply }`, the writes in order, with a body limit of 262,144 |
-| `/structure/record` | `{ serverId, userId, requestedAt, results }` | The outcome of every claimed write, `applied`, `failed` or `uncertain` with an optional reason, with a body limit of 65,536 |
-| `/structure/changed` | `{ serverId }` | Marks the server's reads out of date, with a body limit of 4,096. Rows are marked 8 MiB at a time, and the rest continue in a scheduled run |
+| Path                 | Body                                                                                                                                                               | Purpose                                                                                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/structure/ready`   | `{ serverId }`                                                                                                                                                     | Up to 10 waiting requests, fewer when the rows read pass 8 MiB, each with the manager, the request time and `read`, `threads` with its channel, or `save`, with a body limit of 4,096 |
+| `/structure/answer`  | `{ serverId, userId, requestedAt, work, originServerId }` with `read` or `threads`, or `{ serverId, userId, requestedAt, work, failure }` with `access` or `error` | A read, a closed thread page or why the bot could not answer, with a body limit of 524,288. Returns `{ recorded: false }` for a request that no longer waits                          |
+| `/structure/claim`   | `{ serverId, userId, requestedAt, originServerId, current }`                                                                                                       | Claims a waiting save with the bot's fresh read and answers `{ claimed, applyUntil, apply }`, the writes in order, with a body limit of 262,144                                       |
+| `/structure/record`  | `{ serverId, userId, requestedAt, results }`                                                                                                                       | The outcome of every claimed write, `applied`, `failed` or `uncertain` with an optional reason, with a body limit of 65,536                                                           |
+| `/structure/changed` | `{ serverId }`                                                                                                                                                     | Marks the server's reads out of date, with a body limit of 4,096. Rows are marked 8 MiB at a time, and the rest continue in a scheduled run                                           |
 
 ## Audit log and member data rights
 
@@ -852,7 +905,7 @@ The merge decides each change against the current structure: `skip` when it is a
 
 Setting changes are recorded where they are written, so chat commands and the website share one path:
 
-- Configuration families: Every chat `manage` function and every dashboard configuration job applies its change through `changeConfiguration` in [configurationChange.ts](../projects/backend/convex/configurationChange.ts). It reads the family's dashboard view before and after the change, bumps the family revision and records the difference, so a new family or operation is recorded without code of its own. Of a list that has no bound on its count, the watchlist, drafts and templates, events and schedules, it reads only the entries the operation names, by their key, so a change anywhere in such a list reaches Details. Other lists are read whole, since none holds more than 1,000 entries
+- Configuration families: Every chat `manage` function and every dashboard configuration job applies its change through `changeConfiguration` in [configurationChange.ts](../projects/backend/convex/configurationChange.ts). It reads the family's dashboard view before and after the change, bumps the family revision and records the difference, so a new family or operation is recorded without code of its own. Of a list that has no bound on its count, the watchlist, drafts and templates, events, schedules and ticket categories, it reads only the entries the operation names, by their key, so a change anywhere in such a list reaches Details. Drafts and templates, and custom commands and autoresponders, are named by kind and name in Details, since one name may be both. Other lists are read whole, since none holds more than 1,000 entries
 - The prefix and reply style, the analytics switch, metadata log settings, and role settings and panels have their own write functions that chat and the website share: `writeGeneral`, `writeEnabled`, `applyMetadataConfiguration` and `changeRoles`. Each records its change
 - A confirmed backup restore records each imported item
 - A member's `!mydata` deletion records the features and counts it removed, never the deleted content
@@ -919,16 +972,17 @@ These tables hold a member's ID but are left out, and the member is told about s
 | `backupPlans`, `cleanupSweeps`, `dashboardStructureJobs`, `backupPreviewJobs` | Name the staff member who runs a server task, not data about them as a member |
 | `cleanupPolicies`, `cleanupTargets` | Message cleanup settings and tasks staff run. They name message authors only to skip their messages or to track a deletion. Settled tasks expire after 30 days, and a setting stays until staff change it |
 | `alertSettings` | Server security settings and the invite list staff last read from Fluxer, which names each invite's creator and is replaced at the next refresh |
+| `memberDataDeletions` | Only the server, the member and the time of their last deletion there, so a restore of a backup made before leaves their data out. A backup can be restored at any time, so it stays until the server's purge |
 
 Records that name a member only as the sender of a command or inside their content are not indexed by member and keep their own retention: Other metadata log records expire after 30 days, audit log entries after 180 days, and command receipts and dashboard jobs on their own schedules. Staff actor fields, such as the actor of a case or a correction, stay with the server's records
 
 The bot calls these functions for a member in a one-to-one conversation it verified, so the key vouches for the member's ID. They bind no server and work in both modes, because a member's data spans every server, including removed servers whose data waits for the purge. Each has a body limit of 4,096
 
-| Path | Body | Purpose |
-| --- | --- | --- |
-| `/service/member-data/list` | `{ userId, serverId? }` | Counts per server and feature, reading at most 51 rows per table, in one server when `serverId` is given. `complete` is false when a table held more, and servers past those rows can then be missing |
-| `/service/member-data/servers` | `{ userId, cursor }` | The servers that hold the member's data, found with one index read per server and table and at most 200 reads per call, with a cursor of the table and the last server found while more remains. A later page can repeat a server. The bot's export of every server pages it up to 20 times |
-| `/service/member-data/export` | `{ userId, serverId, cursor }` | Up to 100 records of one server in table order, with a cursor for the next page |
-| `/service/member-data/delete` | `{ userId, userName, serverId, cursor }` | Deletes up to 100 rows of one server from at most 200 reads, reports what was deleted and what was kept with its reason, records the deletion in that server's audit log and returns a cursor while more remains |
+| Path                           | Body                                     | Purpose                                                                                                                                                                                                                                                                                     |
+| ------------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/service/member-data/list`    | `{ userId, serverId? }`                  | Counts per server and feature, reading at most 51 rows per table, in one server when `serverId` is given. `complete` is false when a table held more, and servers past those rows can then be missing                                                                                       |
+| `/service/member-data/servers` | `{ userId, cursor }`                     | The servers that hold the member's data, found with one index read per server and table and at most 200 reads per call, with a cursor of the table and the last server found while more remains. A later page can repeat a server. The bot's export of every server pages it up to 20 times |
+| `/service/member-data/export`  | `{ userId, serverId, cursor }`           | Up to 100 records of one server in table order, with a cursor for the next page                                                                                                                                                                                                             |
+| `/service/member-data/delete`  | `{ userId, userName, serverId, cursor }` | Deletes up to 100 rows of one server from at most 200 reads, reports what was deleted and what was kept with its reason, records the deletion in that server's audit log and returns a cursor while more remains                                                                            |
 
 An export or deletion cursor names a table and the creation time of the last row read, so paging relies on creation times being distinct within a table

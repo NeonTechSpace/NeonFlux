@@ -551,6 +551,22 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     // Its invite list names each invite's creator as Fluxer shows it to staff, and the next refresh replaces it
     alertSettings: "Server security settings and the invite list staff last read from Fluxer",
     alertActions: SECURITY,
+    memberDataDeletions:
+        "Records only that you deleted your data in a server and when, so restoring a backup made before cannot bring it back. Kept while NeonFlux keeps the server's data, since a backup can be restored at any time",
+}
+
+/** Whether the member deleted their data in the server at or after a time, such as when a backup read the database */
+export async function memberDataDeletedSince(
+    ctx: QueryCtx | MutationCtx,
+    serverId: string,
+    userId: string,
+    since: number,
+) {
+    const row = await ctx.db
+        .query("memberDataDeletions")
+        .withIndex("by_member", (q) => q.eq("serverId", serverId).eq("userId", userId))
+        .unique()
+    return row !== null && row.deletedAt >= since
 }
 
 type Range = { eq(field: string, value: unknown): Range; gt(field: string, value: unknown): Range }
@@ -679,6 +695,13 @@ export async function memberDataDelete(
         next: MemberDataCursor | null = null
     // A profile save still waiting for the bot would bring the profile back, so it goes too, even when no profile is stored yet
     const cancelled = await cancelMemberRequests(ctx, serverId, PROFILE_FAMILY, member.userId)
+    // A restore of a backup made before now skips this member's data, so each page notes the time of the deletion
+    const deletion = await ctx.db
+        .query("memberDataDeletions")
+        .withIndex("by_member", (q) => q.eq("serverId", serverId).eq("userId", member.userId))
+        .unique()
+    if (deletion) await ctx.db.patch(deletion._id, { deletedAt: Date.now() })
+    else await ctx.db.insert("memberDataDeletions", { serverId, userId: member.userId, deletedAt: Date.now() })
     if (cancelled) deleted.set("Profile saves waiting for the bot", cancelled)
     scan: for (
         let table = cursor?.table ?? 0, after = cursor?.after ?? 0;

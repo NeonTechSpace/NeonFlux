@@ -36,17 +36,12 @@ import { finishVoiceDashboardJob, prepareVoiceDashboardJob } from "./voice-manag
 import { rolePickerDisplay } from "./rolepicker-store.ts"
 import { prepareSidebarDashboardJob, sidebarJobFix } from "./sidebar-management.ts"
 import { prepareMemberListDashboardJob } from "./memberlist-management.ts"
-import { stickyRuntimes } from "./sticky-worker.ts"
 import { prepareAlertsDashboardJob } from "./alerts-management.ts"
-import { alertRuntimes } from "./alerts-worker.ts"
-import { helpDeskRuntimes } from "./helpdesk-worker.ts"
 import { ticketPanelIndexes } from "./ticket-panels.ts"
-import { onboardingRuntimes } from "./onboarding.ts"
 import { causeFix } from "./permission-fix.ts"
-import { levelingRechecks } from "./leveling.ts"
 import { readChannelParent } from "./channel-parents.ts"
 import { ensureSuggestionTags, readSuggestionForum, SuggestionTagError } from "./suggestion-forum.ts"
-import { forgetSuggestionCards } from "./suggestion-reactions.ts"
+import { reloadServerRuntime } from "./runtime-reload.ts"
 
 export class DashboardConfigurationError extends Data.TaggedError("DashboardConfigurationError")<{
     readonly stage: "identity" | "reference" | "bot" | "authority" | "result" | "binding"
@@ -273,18 +268,17 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                 )
                 if (voice) yield* finishVoiceDashboardJob(serverId, result.job.state, voice)
                 if (sidebar && result.job.state !== "applied") yield* sidebar.undo
-                // Sticky messages run from memory, so an applied change reloads them and posts or removes copies at once
-                if (job.family === "sticky" && result.job.state === "applied")
-                    yield* stickyRuntimes.get(serverId)?.reload() ?? Effect.void
-                // Security alerts and their actions also check in-memory settings
+                // Features that keep settings in memory pick up an applied change at once. Alerts reload only for the changes
+                // they read, not for an invite revocation
                 if (
-                    job.family === "alerts" &&
-                    (job.operation.type === "set" ||
+                    result.job.state === "applied" &&
+                    (job.family !== "alerts" ||
+                        job.operation.type === "set" ||
                         job.operation.type === "expect" ||
-                        job.operation.type === "action") &&
-                    result.job.state === "applied"
+                        job.operation.type === "expected-set" ||
+                        job.operation.type === "action")
                 )
-                    yield* alertRuntimes.get(serverId)?.reload() ?? Effect.void
+                    yield* reloadServerRuntime(client, serverId, job.family)
                 // A deleted ticket category's panel goes with it, as in chat: its message once and its entry in the panel index
                 if (job.family === "tickets" && result.job.state === "applied" && result.ticketPanel) {
                     const panel = result.ticketPanel
@@ -293,20 +287,6 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                         .pipe(Effect.ignore)
                     yield* ticketPanelIndexes.get(serverId)?.removed(panel) ?? Effect.void
                 }
-                if (job.family === "helpdesk" && result.job.state === "applied")
-                    yield* helpDeskRuntimes.get(serverId)?.reload() ?? Effect.void
-                // Vote reactions count only on the cards the bot learned, which it learns again after a suggestions change, so
-                // turning suggestions on makes the next reaction count
-                if (job.family === "suggestions" && result.job.state === "applied")
-                    forgetSuggestionCards(client, serverId)
-                // Leveling stops sending candidates while it is off, so an applied leveling or preset change rechecks it
-                if ((job.family === "leveling" || job.family === "presets") && result.job.state === "applied")
-                    yield* levelingRechecks.get(serverId)?.() ?? Effect.void
-                // The newcomer checklist is kept in memory too, so an applied change is read again
-                if (job.family === "onboarding" && result.job.state === "applied")
-                    yield* (onboardingRuntimes.get(serverId)?.reload() ?? Effect.void).pipe(
-                        Effect.catch(() => Effect.void),
-                    )
                 if (
                     result.job.id !== job.id ||
                     result.job.actorId !== job.actorId ||

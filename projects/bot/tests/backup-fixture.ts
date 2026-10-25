@@ -1,6 +1,15 @@
-import type { BackupPlan } from "@neonflux/contracts/backup"
+import type {
+    BackupConfigObject,
+    BackupItem,
+    BackupPlan,
+    BackupQueryRequest,
+    BackupWorkRequest,
+} from "@neonflux/contracts/backup"
+import type { Client } from "@neontechspace/fluxerly/effect"
 import { createFixtures, type createTestBot, type TestRoute } from "@neontechspace/fluxerly/effect/testing"
 import { Clock, Effect } from "effect"
+import { processBackupPlanPass } from "../src/backup.ts"
+import { backupBinding, type BackupStore } from "../src/backup-store.ts"
 import type { platform } from "./moderation-fixture.ts"
 
 const f = createFixtures()
@@ -26,7 +35,7 @@ export const syntheticPlan = (
     revision: 1,
     planHash: "e".repeat(64),
     archiveDigest: "f".repeat(64),
-    backupId: "synthetic-archive",
+    backupId: "5".repeat(32),
     manifestDigest: "c".repeat(64),
     provider: "https://api.fluxer.app",
     serverId: f.ids.guild,
@@ -34,6 +43,9 @@ export const syntheticPlan = (
     gain: { items: 0, bits: "0", switches: 0 },
     match: false,
     forgotten: false,
+    state: "ready",
+    warned: 0,
+    states: {},
     ...scenario,
 })
 
@@ -54,3 +66,72 @@ export const withClock =
             }
             return yield* effect.pipe(Effect.provideService(Clock.Clock, clock))
         })
+
+/**
+ * Restores configuration objects of the fixture server through one real restore pass, each as an update. written runs as the
+ * backend records each item, so a test changes the feature's stored settings there. Needs the moderation fixture's platform
+ */
+export function restoreConfig(
+    client: Client,
+    dmId: string,
+    objects: readonly BackupConfigObject[],
+    written: (object: BackupConfigObject) => void = () => {},
+) {
+    return Effect.gen(function* () {
+        const plan = syntheticPlan({
+            planId: "synthetic-restore-plan",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 900000,
+            confirmedAt: Date.now(),
+            itemCount: objects.length,
+            counts: { create: 0, update: objects.length, delete: 0, skip: 0, blocked: 0 },
+        })
+        const items = objects.map((object, i): BackupItem => ({
+            ...backupBinding(plan),
+            itemNo: i + 1,
+            generation: 1,
+            category: "config",
+            family: object.family,
+            sourceId: object.sourceId,
+            disposition: "update",
+            reason: null,
+            state: "planned",
+            expectedHash: "c".repeat(64),
+            desiredHash: "d".repeat(64),
+            dependencyItemNo: null,
+            mappedId: null,
+        }))
+        const store = {
+            query: (input: BackupQueryRequest) =>
+                Effect.sync(() => {
+                    const op = input.operation
+                    if (op.type === "plan") return { type: "plan", plan }
+                    if (op.type === "open" || op.type === "unconfirmed")
+                        return {
+                            type: op.type,
+                            items: items.filter((row) =>
+                                op.type === "open" ? row.state === "planned" : row.state === "uncertain",
+                            ),
+                        }
+                    if (op.type === "origins") return { type: "origins", origins: [] }
+                    if (op.type === "item")
+                        return {
+                            type: "item",
+                            item: items[op.binding.itemNo - 1],
+                            object: objects[op.binding.itemNo - 1],
+                        }
+                    throw new Error(`Unexpected query ${op.type}`)
+                }),
+            work: (input: BackupWorkRequest) =>
+                Effect.sync(() => {
+                    const op = input.operation as Extract<BackupWorkRequest["operation"], { type: "apply" }>
+                    const i = op.binding.itemNo - 1
+                    written(objects[i]!)
+                    items[i] = { ...items[i]!, state: "updated" }
+                    return { type: "item", item: items[i] }
+                }),
+        } as unknown as BackupStore
+        const config = { serverId: f.ids.guild } as Parameters<typeof processBackupPlanPass>[1]
+        return yield* processBackupPlanPass(store, config, client, plan, dmId)
+    })
+}

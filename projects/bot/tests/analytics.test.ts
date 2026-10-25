@@ -3,7 +3,7 @@ import nodeTest from "node:test"
 import type { AnalyticsManageRequest, AnalyticsRecordRequest } from "@neonflux/contracts/analytics"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Deferred, Effect, Queue } from "effect"
+import { Deferred, Effect, Queue, Redacted } from "effect"
 import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { AnalyticsStoreError, type AnalyticsStore } from "../src/analytics-store.ts"
@@ -11,8 +11,10 @@ import {
     analyticsRecheckMs,
     analyticsResendMs,
     analyticsWindowMs,
+    processAnalyticsReloadPass,
     startAnalyticsWorker,
 } from "../src/analytics-worker.ts"
+import { startDashboardRolesWorker } from "../src/dashboard-roles.ts"
 import { platform, token } from "./moderation-fixture.ts"
 
 // A hang guard only. Every wait inside is a controlled clock step, an awaited flush or a gate the test opens
@@ -35,12 +37,14 @@ function analyticsBoundary(
     const state = {
         enabled: options.enabled ?? true,
         settingsReads: 0,
+        reloads: 0,
         manages: [] as AnalyticsManageRequest[],
         records: [] as AnalyticsRecordRequest[],
         calls: [] as string[],
     }
     const flushed = Effect.runSync(Queue.unbounded<AnalyticsRecordRequest>()),
-        reads = Effect.runSync(Queue.unbounded<void>())
+        reads = Effect.runSync(Queue.unbounded<void>()),
+        reloads = Effect.runSync(Queue.unbounded<void>())
     const store: AnalyticsStore = {
         settings: () =>
             Effect.sync(() => {
@@ -68,6 +72,12 @@ function analyticsBoundary(
                     ),
                 )
             }),
+        reloaded: () =>
+            Effect.sync(() => {
+                state.reloads++
+                Queue.offerUnsafe(reloads, undefined)
+                return { enabled: state.enabled }
+            }),
         summary: () =>
             Effect.sync(() => {
                 state.calls.push("summary")
@@ -89,7 +99,7 @@ function analyticsBoundary(
                 }
             }),
     }
-    return { state, store, next: Queue.take(flushed), read: Queue.take(reads) }
+    return { state, store, next: Queue.take(flushed), read: Queue.take(reads), reloaded: Queue.take(reloads) }
 }
 
 const scenario = <A>(body: Effect.Effect<A, unknown, import("effect").Scope.Scope>, at = start) =>
@@ -224,6 +234,51 @@ test("analytics off stops counting, activity rereads the setting at most every r
             yield* TestClock.adjust(analyticsWindowMs)
             assert.equal((yield* b.next).hours[0]!.count, 1)
             assert.equal(runtime.failures().length, 0)
+        }),
+    )
+})
+
+test("a dashboard change of the switch reaches the running bot at once through its dashboard pass", async () => {
+    const b = analyticsBoundary({ enabled: false })
+    await scenario(
+        Effect.gen(function* () {
+            const recorder = yield* startAnalyticsWorker(b.store, serverId)
+            // The bot learned that analytics is off, so without the pass it would reread the switch only after ten minutes
+            yield* recorder.setEnabled(false)
+            yield* recorder.message("500")
+            const config = {
+                token,
+                serverId,
+                backend: { url: "https://synthetic-analytics.convex.cloud", secret: Redacted.make("synthetic-secret") },
+            }
+            const worker = yield* startDashboardRolesWorker(
+                config,
+                undefined as never,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                processAnalyticsReloadPass(b.store, serverId),
+            )
+            b.state.enabled = true
+            // The worker runs one pass at a time, so the second pass's read shows that the first one finished
+            yield* worker.notify(["analytics"])
+            yield* b.reloaded
+            yield* worker.notify(["analytics"])
+            yield* b.reloaded
+            yield* recorder.message("500")
+            yield* TestClock.adjust(analyticsWindowMs)
+            assert.deepEqual(
+                (yield* b.next).hours.map((hour) => [hour.channelId, hour.count]),
+                [["500", 1]],
+            )
+            assert.deepEqual([b.state.settingsReads, b.state.reloads], [0, 2])
         }),
     )
 })

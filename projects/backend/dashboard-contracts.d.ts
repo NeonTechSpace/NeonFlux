@@ -114,13 +114,15 @@ export interface DashboardBackupRestore {
         backupId: string
         match: boolean
         createdAt: number
-        /** The last moment the website confirms the plan, which leaves the bot time to run it */
+        /** When the check stops being confirmable. A confirmed run is not bound by it */
         confirmBefore: number
+        /** The check is still taking in the archive's segments, so it cannot be confirmed yet */
+        building?: true
         confirmedAt?: number
         itemCount: number
         counts: BackupPlan["counts"]
         gain: BackupPlan["gain"]
-        /** The items that delete messages or post logs */
+        /** The items with a warning other than a channel delete, such as messages they delete or post */
         warned: number
         /** The items with a setting that turns on */
         turnsOn: Pick<DashboardBackupItem, "category" | "family" | "sourceId" | "name">[]

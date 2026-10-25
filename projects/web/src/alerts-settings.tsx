@@ -1,9 +1,10 @@
 import { Fragment } from "react"
-import { ALERT_INVITE_PAGE } from "@neonflux/contracts/alerts"
+import { ALERT_EXPECTED_LIMIT, ALERT_INVITE_PAGE } from "@neonflux/contracts/alerts"
 import type { AlertAction, AlertKind } from "@neonflux/contracts/alerts"
 import { ConfigForm } from "./configuration-form"
 import type { ConfigSectionProps } from "./configuration-form"
-import { idValue } from "./configuration-values"
+import { IdList } from "./configuration-fields"
+import { idsValue } from "./configuration-values"
 import { localTime } from "./time"
 
 const alerts: ReadonlyArray<readonly [AlertKind, string, string]> = [
@@ -57,10 +58,11 @@ export function AlertsSettings(props: ConfigSectionProps<"alerts">) {
     const owner = props.catalog?.ownerId !== undefined && props.catalog.ownerId === props.userId
     const channelName = (id: string) =>
         props.catalog?.channels.find((channel) => channel.id === id)?.name ?? `Channel ${id}`
+    // Each expected list is edited whole, so many IDs are pasted, replaced or cleared in one save
     const expected = [
-        ...settings.expectedBotIds.map((id) => ["bot", id] as const),
-        ...settings.expectedWebhookIds.map((id) => ["webhook", id] as const),
-    ]
+        ["bot", "Expected bots", settings.expectedBotIds],
+        ["webhook", "Expected webhooks", settings.expectedWebhookIds],
+    ] as const
     // The invite list shows one page, and a revocation or page change names the page to read next
     const offset = data.invites?.offset ?? 0,
         page = (start: number) => (start > 0 ? { offset: start } : {})
@@ -126,65 +128,30 @@ export function AlertsSettings(props: ConfigSectionProps<"alerts">) {
                     </Fragment>
                 )
             })}
-            <ConfigForm<"alerts">
-                {...common}
-                title="Mark a bot or webhook expected"
-                description="An expected bot or webhook raises no alert"
-                submitLabel="Mark expected"
-                snapshot={{ revision, values: { kind: "bot", id: "" } }}
-                operation={(values) => ({
-                    type: "expect",
-                    kind: values.kind === "webhook" ? "webhook" : "bot",
-                    id: idValue(values.id, "bot or webhook ID"),
-                    expected: true,
-                })}
-                fields={(values, edit, disabled) => (
-                    <>
-                        <label>
-                            Kind
-                            <select
-                                value={String(values.kind)}
-                                disabled={disabled}
-                                onChange={(event) => edit("kind", event.target.value)}
-                            >
-                                <option value="bot">Bot</option>
-                                <option value="webhook">Webhook</option>
-                            </select>
-                        </label>
-                        <label>
-                            ID
-                            <input
-                                required
-                                inputMode="numeric"
-                                maxLength={19}
-                                value={String(values.id)}
-                                disabled={disabled}
-                                onChange={(event) => edit("id", event.target.value)}
-                            />
-                        </label>
-                    </>
-                )}
-            />
-            {expected.length > 0 && (
-                <details>
-                    <summary>Expected bots and webhooks ({expected.length})</summary>
-                    <div className="role-section">
-                        {expected.map(([kind, id]) => (
-                            <ConfigForm<"alerts">
-                                {...common}
-                                key={`${kind}:${id}`}
-                                title={`${kind === "bot" ? "Bot" : "Webhook"} ${id}`}
-                                description="Alerts resume for it once it is no longer expected"
-                                submitLabel="No longer expected"
-                                submitUnchanged
-                                snapshot={{ revision, values: {} }}
-                                operation={() => ({ type: "expect", kind, id, expected: false })}
-                                fields={() => null}
-                            />
-                        ))}
-                    </div>
-                </details>
-            )}
+            {expected.map(([kind, title, ids]) => (
+                <ConfigForm<"alerts">
+                    {...common}
+                    key={kind}
+                    title={title}
+                    description={`An expected ${kind} raises no alert. Saving replaces the whole list, up to ${ALERT_EXPECTED_LIMIT.toLocaleString("en-US")} IDs`}
+                    submitLabel={`Save ${title.toLowerCase()}`}
+                    snapshot={{ revision, values: { ids: JSON.stringify(ids) } }}
+                    operation={(values) => ({
+                        type: "expected-set",
+                        kind,
+                        ids: idsValue(values.ids, ALERT_EXPECTED_LIMIT, title.toLowerCase()),
+                    })}
+                    fields={(values, edit, disabled) => (
+                        <IdList
+                            label={title}
+                            value={String(values.ids)}
+                            onChange={(value) => edit("ids", value)}
+                            disabled={disabled}
+                            max={ALERT_EXPECTED_LIMIT}
+                        />
+                    )}
+                />
+            ))}
             <ConfigForm<"alerts">
                 {...common}
                 title="Invites"

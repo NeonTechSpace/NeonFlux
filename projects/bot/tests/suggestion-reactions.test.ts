@@ -17,6 +17,7 @@ import { platform, token } from "./moderation-fixture.ts"
 import { mockBackend } from "./backend-fake.ts"
 import { processDashboardConfigurationPass } from "../src/dashboard-configuration.ts"
 import type { DashboardConfigurationReadyJob } from "@neonflux/contracts/dashboard"
+import { restoreConfig } from "./backup-fixture.ts"
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
 const f = createFixtures()
@@ -143,6 +144,7 @@ function scenario(
         card: SuggestionsCardIndexEntry
         react: (type: "ADD" | "REMOVE", emoji: string, userId?: string) => Effect.Effect<void, unknown>
         say: (content: string) => Effect.Effect<string | undefined, unknown>
+        dmId: string
     }) => Effect.Effect<void, unknown>,
     thread = false,
 ) {
@@ -193,7 +195,7 @@ function scenario(
                         return (p.replies.requests().slice(before).at(-1)?.body as { content?: string } | undefined)
                             ?.content
                     })
-                yield* run({ bot, r, native, card, react, say })
+                yield* run({ bot, r, native, card, react, say, dmId: p.dmId })
                 assert.equal(bot.failures().length, 0)
             }),
         ),
@@ -449,3 +451,20 @@ test("turning suggestions on from the dashboard makes the next reaction read the
         }),
     )
 })
+
+test("restoring the suggestions settings makes the next reaction read the cards again", () =>
+    scenario(({ bot, r, react, dmId }) =>
+        Effect.gen(function* () {
+            const learned = () => r.work.filter((input) => input.operation.type === "card-index").length
+            yield* react("ADD", up)
+            yield* react("REMOVE", up)
+            assert.equal(learned(), 1)
+            // The restore reads the channel the settings name from one listing of the server's channels
+            bot.rest.respond(`GET /guilds/${f.ids.guild}/channels`, { body: [bot.fixtures.channel()] })
+            yield* restoreConfig(bot.client as unknown as Parameters<typeof restoreConfig>[0], dmId, [
+                { family: "suggestions", sourceId: "suggestions", value: { enabled: true, channelId: f.ids.channel } },
+            ])
+            yield* react("ADD", up)
+            assert.equal(learned(), 2)
+        }),
+    ))

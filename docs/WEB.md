@@ -149,7 +149,9 @@ The message builder edits text, one embed, fields, author, footer, thumbnail and
     "title": "Server information",
     "description": "Read the rules before participating",
     "color": 6589644,
-    "fields": [{ "name": "Help", "value": "Contact server staff", "inline": false }]
+    "fields": [
+      { "name": "Help", "value": "Contact server staff", "inline": false }
+    ]
   }
 }
 ```
@@ -182,7 +184,7 @@ Choose a destination and a responsible Owner or Administrator for each category.
 
 ### Security alerts
 
-The Security alerts section under Moderation has one switch for each alert: Invite logs, unexpected bots, unexpected webhooks, privilege changes and impersonation, all off at first, with the same rules as `!alerts`. Under the bots, webhooks and privileges alerts, a second switch turns on their action: kick unexpected bots, delete unexpected webhooks or remove gained permissions. Turning an action on needs the server owner or an Administrator, which the bot checks when it applies the change, and other managers see that note. Any manager can turn one off. Alerts reach staff only through the Security alerts group in Channel logs, which belongs in a channel only staff can read, since invite logs show invite codes. Mark a bot or webhook as expected by its ID, and open the expected list to make one alert again
+The Security alerts section under Moderation has one switch for each alert: Invite logs, unexpected bots, unexpected webhooks, privilege changes and impersonation, all off at first, with the same rules as `!alerts`. Under the bots, webhooks and privileges alerts, a second switch turns on their action: kick unexpected bots, delete unexpected webhooks or remove gained permissions. Turning an action on needs the server owner or an Administrator, which the bot checks when it applies the change, and other managers see that note. Any manager can turn one off. Alerts reach staff only through the Security alerts group in Channel logs, which belongs in a channel only staff can read, since invite logs show invite codes. **Expected bots** and **Expected webhooks** each edit their whole list of up to 8,192 IDs in one save. Each takes many IDs pasted at once, separated by spaces, commas or lines, to add to the list or replace it, leaves entries that are not IDs in the box, and **Remove all expected bots** or **Remove all expected webhooks** clears it, so a removed ID raises alerts again
 
 **Refresh invite list** has the bot read the server's invites with its own permissions, which needs Manage community, and shows the newest 100 with code, channel, creator ID, uses, expiry and flags for invites that never expire or have unlimited uses. **Show older invites** and **Show newer invites** have the bot read the next or the previous 100. Tick the confirmation and choose **Revoke invite** to have the bot read the current invites and delete that one, and the list stays on its page. A revoked invite cannot be restored. See [security alerts and invites](BOT.md#security-alerts-and-invites)
 
@@ -214,7 +216,7 @@ Members without Manage community reach this section only from the member view of
 
 The Audit log section under Insights lists every setting change, whether it was saved here or made with a chat command, newest first in pages of 25. **Older** and **Newer** move between pages, and **Feature** shows one feature's changes. Each entry shows when it happened in the viewer's local time, who made it, whether it came from the website or a command, the feature, the setting or operation and a short summary of what changed, such as `xpPerMessage: 15 → 25`. Website entries show the signed-in name with the user ID, and command entries show the user ID only
 
-Summaries name changed settings and list items such as rules or menus by name, with values of up to 40 characters. **Details** on a setting change opens a table of every value it changed, before and after, with channels and roles named from the server's lists, the same table a backup restore check shows. A value longer than 8,000 characters keeps its first 8,000, and the table says how long it was. When one change holds more than 512 KiB of values, the rest are counted below the table. A restore from a backup lists each imported item, and its Details show what the restore check compared. When a member deletes their own data with [`!mydata`](BOT.md#your-data), the log shows the features and counts they deleted, never the data. Each view of [private cases](#private-cases) shows as **Private data viewed** under the **Private cases** feature, with who viewed what kind of data, such as a cases list, one case, the appeals list or a member's history, and the member it concerns, never the cases or appeals themselves. Each change saved in [server structure](#server-structure) shows under **Server structure** with the channel names, such as `move news` with `Info, after rules → Chat, after general`. Each [server export](#server-export) shows as **Server exported** under **Server export**, with whether it came from the website or `!export` and whether it started or continued after a new access check. Entries are kept for 180 days. The [backend guide](BACKEND.md#audit-log) lists the few changes that are not recorded, such as DEFCON changes that security detection makes on its own
+Summaries name changed settings and list items such as rules or menus by name, with values of up to 40 characters. **Details** on a setting change opens a table of every value it changed, before and after, with channels and roles named from the server's lists, the same table a backup restore check shows. Expected bots and webhooks show as one row per list, with the IDs it drops before and the IDs it adds after, so their order is no change. A value longer than 8,000 characters keeps its first 8,000, and the table says how long it was. When one change holds more than 512 KiB of values, the rest are counted below the table. A restore from a backup lists each imported item, and its Details show what the restore check compared. When a member deletes their own data with [`!mydata`](BOT.md#your-data), the log shows the features and counts they deleted, never the data. Each view of [private cases](#private-cases) shows as **Private data viewed** under the **Private cases** feature, with who viewed what kind of data, such as a cases list, one case, the appeals list or a member's history, and the member it concerns, never the cases or appeals themselves. Each change saved in [server structure](#server-structure) shows under **Server structure** with the channel names, such as `move news` with `Info, after rules → Chat, after general`. Each [server export](#server-export) shows as **Server exported** under **Server export**, with whether it came from the website or `!export` and whether it started or continued after a new access check. Entries are kept for 180 days. The [backend guide](BACKEND.md#audit-log) lists the few changes that are not recorded, such as DEFCON changes that security detection makes on its own
 
 ### Server export
 
@@ -241,8 +243,8 @@ The page leads with a summary: the archive, when it was checked and how many ite
 as identical or block. Below it, **Look at these first** lists only what applies as a bulleted list, each line starting
 with its name: **Blocked** items, **Deletes** of channels and categories with their messages, which cannot be undone,
 **More permission** with the permission names when an overwrite would grant more than the server has now, **Turns on**
-with the name of each setting a restore switches on, such as Leveling, and **Starts work** for items that delete
-messages or post logs. Then **Changes** lists each item, problems first, 25 to a page. A row says what it does with a
+with the name of each setting a restore switches on, such as Leveling, and **Warnings** for items with a warning, such
+as messages they delete or post. Then **Changes** lists each item, problems first, 25 to a page. A row says what it does with a
 text mark, **+ Create**, **~ Update**, **- Delete**, **= Identical** or **! Blocked**, and a **More than now** or
 **Turns on** badge when it applies. It shows why and how to fix a blocked item, a table of the settings that change with
 **Before** and **After**, named in words such as Cooldown seconds with a channel's parent as Category, and an overwrite
@@ -252,7 +254,9 @@ restored. A long value starts collapsed and keeps its full text. Identical items
 channel, appear only after **Show identical or left alone**
 
 Opening the section, and **Check again**, asks NeonFlux to read the archive message and the server again with its own
-token and to recheck that you still own the server. A restore that already started keeps its outcome on screen instead.
+token and to recheck that you still own the server. A large archive is checked part by part, and the section says so
+while it builds. A check of the same archive on an unchanged server keeps the plan and gives it another day. A restore
+that already started keeps its outcome on screen instead.
 **Match fully** also deletes the channels and categories the archive does not hold, and changing it makes a new check. A
 check waits at least 10 seconds after the previous one, and the page says to wait when it does not take a request. One
 the bot does not answer within a minute says so. When the archive message is gone, the key changed or you no longer own
@@ -262,13 +266,14 @@ with `!backup forget`, or removed at least seven days after it expired, is gone 
 
 The **Restore** panel is last. Its button counts what it does, such as **Restore 12 changes and delete 3 channels or
 categories**, and confirms exactly the check shown, so a page that a newer check replaced cannot confirm it. The button
-is off with its reason while the bot works, after a failed check, in the last 5 minutes before the check expires and
-when nothing can be restored. The bot then runs the plan 20 items at a time, rechecking that you still own the server
-and that the DM is private when a pass starts and again before each item that writes. The page shows how many items
+is off with its reason while the bot works or builds the check, after a failed check, once the check expired a day
+after it was made and when nothing can be restored. The bot then runs the whole plan in the background, rechecking that
+you still own the server and that the DM is private when a pass starts and again before each item that writes. The page shows how many items
 have an outcome. It never says a restore is done while an item is waiting, in progress or not confirmed. When the
 restore ends, the page counts the items by outcome and says to check again to compare with the server. A restore that
-stops says why. **Check again** and a new restore continue it, and `!backup status` and `!backup confirm` in the DM
-continue one that stopped for DEFCON 1 or an error while its plan has time left. The website never receives the
+stops says why, such as 10 minutes without progress while the bot was not running. **Check again** and a new restore
+continue it, and `!backup status` and `!backup confirm` in the DM continue one that stopped for DEFCON 1, an error or
+lack of progress. The website never receives the
 archive or its key
 
 ### Temporary voice

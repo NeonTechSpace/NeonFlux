@@ -27,19 +27,26 @@ test("the security alerts adapter round trips through the real HTTP boundary", a
     assert.deepEqual(
         (
             await run(
-                store.manage({ ...chat(), operation: { type: "expect", kind: "webhook", id: "60", expected: true } }),
+                store.manage({
+                    ...chat(),
+                    operation: { type: "expect", kind: "webhook", ids: ["60"], expected: true },
+                }),
             )
         ).settings.expectedWebhookIds,
         ["60"],
     )
-    // More than 50 expected webhooks pass the bot's contract both ways
-    for (let id = 61; id <= 111; id++)
-        await run(
-            store.manage({
-                ...chat(),
-                operation: { type: "expect", kind: "webhook", id: String(id), expected: true },
-            }),
-        )
+    // More than 50 expected webhooks pass the bot's contract both ways, in one change
+    await run(
+        store.manage({
+            ...chat(),
+            operation: {
+                type: "expect",
+                kind: "webhook",
+                ids: Array.from({ length: 51 }, (_, index) => String(61 + index)),
+                expected: true,
+            },
+        }),
+    )
     assert.equal((await run(store.get({ serverId: "1" }))).settings.expectedWebhookIds.length, 52)
     await f.reject(
         store.manage({

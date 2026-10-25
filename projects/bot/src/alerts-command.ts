@@ -18,7 +18,7 @@ export type AlertsCommand =
     | { type: "expected"; next?: true }
     | { type: "set"; alerts: AlertKind[]; enabled: boolean }
     | { type: "action"; action: AlertAction; enabled: boolean }
-    | { type: "expect"; kind: "bot" | "webhook"; id: string; expected: boolean }
+    | { type: "expect"; kind: "bot" | "webhook"; ids: string[]; expected: boolean }
     | { type: "expect"; kind: "webhook"; name: string; expected: boolean }
 export type InvitesCommand = { type: "help" } | { type: "list"; next?: true } | { type: "revoke"; code: string }
 
@@ -26,7 +26,7 @@ export const alertsHelp = [
     "!alerts status: Which alerts are on and how many bots and webhooks are marked expected",
     "!alerts expected [next]: The bots and webhooks marked expected",
     "!alerts on|off <alert>|all: Alerts are invites, bots, webhooks, privileges and impersonation. All start off",
-    "!alerts expect|unexpect bot <ID>|webhook <name>: An expected bot or webhook raises no alert",
+    "!alerts expect|unexpect bot <ID>...|webhook <name>|<ID>...: An expected bot or webhook raises no alert. Several IDs or mentions change at once",
     "!alerts action bots|webhooks|privileges on|off: Kick unexpected bots, delete unexpected webhooks or remove gained permissions. Turning one on needs the owner or an Administrator",
     "Alerts post in the metadata logs' security category. Send it to a staff-only channel with !logs metadata route security",
     "NeonFlux acts on an alert only where you turn its action on with !alerts action",
@@ -61,12 +61,12 @@ export function parseAlertsCommand(args: readonly string[]): AlertsCommand | { e
         args.length >= 3 &&
         (args[1] === "bot" || args[1] === "webhook")
     ) {
-        const id =
-                args.length === 3
-                    ? commands.parseArgument(args[2], args[1] === "bot" ? argument.user : argument.id)
-                    : undefined,
+        // Several IDs or mentions, apart or split by commas, change in one go
+        const words = args.slice(2).flatMap((word) => word.split(",").filter(Boolean)),
+            ids = words.map((word) => commands.parseArgument(word, args[1] === "bot" ? argument.user : argument.id)),
             expected = verb === "expect"
-        if (id) return { type: "expect", kind: args[1], id, expected }
+        if (words.length && ids.every((id) => id !== undefined))
+            return { type: "expect", kind: args[1], ids: [...new Set(ids as string[])], expected }
         // A webhook may also be named, with spaces. Bots that have not joined yet have no name to find
         if (args[1] === "bot") return { error: "Use the bot's mention or ID" }
         return args.some((word) => /^<[@#]/.test(word))

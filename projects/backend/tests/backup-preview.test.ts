@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
-import { afterEach, beforeEach, mock, test, type TestContext } from "node:test"
+import { mock, test, type TestContext } from "node:test"
 import { ConvexError } from "convex/values"
 import type {
+    BackupConfigObject,
     BackupItem,
     BackupManifest,
     BackupNativeProof,
@@ -10,19 +11,22 @@ import type {
 } from "@neonflux/contracts/backup"
 import { api, internal } from "../convex/_generated/api.js"
 import { BACKUP_PLAN_MS, BACKUP_RETENTION, BACKUP_SETTLE_MS, backupHash } from "../convex/backupDomain.ts"
+import { BACKUP_RUN_IDLE_MS, backupManifestHeader, backupSegments } from "@neonflux/contracts/backup"
 import { BACKUP_PREVIEW_INTERVAL_MS, BACKUP_PREVIEW_MS } from "../convex/backup.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { state as moderationState } from "../convex/moderationStore.ts"
 import { tokenHash } from "../convex/dashboard.ts"
-import { allPermissions, binding, fixture, installBackupEnv, read } from "./backup-fixture.ts"
+import { allPermissions, binding, fixture, installBackupEnv, read, summarize } from "./backup-fixture.ts"
 
 installBackupEnv()
-// The scheduled ends and wakes of a job run when a test moves the timers
-beforeEach(() => mock.timers.enable({ apis: ["setTimeout"] }))
-afterEach(() => mock.timers.reset())
 
-const slots = (n: number) =>
-    Array.from({ length: n }, (_, i) => ({ sourceId: String(1000 + i), userId: String(1000 + i), xp: 10 }))
+/** n drafts, one plan item each */
+const drafts = (n: number, text = "Synthetic draft"): BackupConfigObject[] =>
+    Array.from({ length: n }, (_, i) => ({
+        family: "draft",
+        sourceId: `draft_d${i}`,
+        value: { kind: "draft", name: `d${i}`, content: { content: text } },
+    }))
 const refused = async (work: Promise<unknown>, status: number) => {
     await assert.rejects(
         work,
@@ -39,19 +43,7 @@ async function backend(t: TestContext) {
         match = false,
         requestedAt?: number,
         from = { channelId: "90", messageId: "500" },
-    ) =>
-        backupHash(archive).then((archiveDigest) =>
-            f.http("/backup/preview", {
-                serverId: "1",
-                context: f.context(),
-                manifest: archive,
-                archiveDigest,
-                native,
-                archive: from,
-                match,
-                ...(requestedAt !== undefined ? { requestedAt } : {}),
-            }),
-        )
+    ) => f.preview(archive, native, match, { archive: from, ...(requestedAt !== undefined ? { requestedAt } : {}) })
     const preview = async (archive: BackupManifest, native: BackupNativeProof | null, match = false) =>
         ((await read(await previewResponse(archive, native, match))) as { plan: BackupPlan }).plan
     const items = async (plan: BackupPlan) =>
@@ -73,13 +65,22 @@ async function backend(t: TestContext) {
                 userId,
                 userName: "Synthetic manager",
                 servers: [{ id: "1", name: "Synthetic server" }],
-                expiresAt: f.now() + 3600000,
-                lifetimeAt: f.now() + 86400000,
+                // A session lasts longer than a check stays confirmable, so a test can wait past it
+                expiresAt: f.now() + 7 * 86400000,
+                lifetimeAt: f.now() + 7 * 86400000,
             })
         })
         return { sessionToken, serverId: "1" }
     }
     const jobRow = () => f.db.run(async (ctx) => (await ctx.db.query("backupPreviewJobs").collect())[0]!)
+    /** Ends the running restore as one whose sender no longer owns the server, which leaves its plan unfinished */
+    const stop = async () =>
+        f.http("/backup/run-step", {
+            serverId: "1",
+            requestedAt: (await jobRow()).createdAt,
+            recorded: 0,
+            stopped: "owner",
+        })
     const runStep = async (body: object) => {
         const response = await f.http("/backup/run-step", { serverId: "1", ...body })
         return {
@@ -97,10 +98,10 @@ async function backend(t: TestContext) {
     const dispatched = async () =>
         ((await (await f.http("/service/work", { cursor: null })).json()) as { kinds: { dashboard: string[] } }).kinds
             .dashboard
-    /** A confirmed plan of count XP items that a website confirmation started, with the owner's session */
+    /** A confirmed plan of count items that a website confirmation started, with the owner's session */
     async function started(count: number) {
         const owner = await session("10", "a".repeat(64)),
-            plan = await preview(f.manifest([], slots(count)), null)
+            plan = await preview(f.manifest(drafts(count)), null)
         await f.db.mutation(api.backup.restoreConfirm, { ...owner, planId: plan.planId, planHash: plan.planHash })
         return { owner, plan }
     }
@@ -115,6 +116,7 @@ async function backend(t: TestContext) {
         counted,
         session,
         jobRow,
+        stop,
         runStep,
         ready,
         dispatched,
@@ -235,25 +237,30 @@ test("a channel that gives permissions the server does not have is a gain, and a
     ])
 })
 
-test("a newer preview replaces the plan nobody confirmed, never a confirmed plan, and keeps the server within its plans", async (t) => {
+test("a check of the same archive renews the plan nobody confirmed, a changed check replaces it and a confirmed plan stays", async (t) => {
     const b = await backend(t),
         creatable = b.channel("100"),
         archive = b.manifest([], [], [creatable]),
         native = b.proof([creatable])
-    const first = await b.preview(archive, native),
-        second = await b.preview(archive, native)
-    assert.notEqual(first.planId, second.planId)
-    assert.deepEqual(await b.counted(), { plans: 1, items: 1, changes: 1, origins: 0 })
-    // The replaced plan no longer exists, so a confirmation of it is refused instead of running a plan nobody sees
-    assert.equal((await b.manage({ type: "confirm", binding: binding(first) })).status, 404)
-    await b.confirm(second)
+    const first = await b.preview(archive, native)
+    b.advance(60000)
+    // Nothing changed, so the check keeps its ID and hash, and an open page and the chat stay valid. Its time to confirm moves on
+    const renewed = await b.preview(archive, native)
+    assert.deepEqual(
+        [renewed.planId, renewed.planHash, renewed.expiresAt],
+        [first.planId, first.planHash, b.now() + BACKUP_PLAN_MS],
+    )
+    // A check that finds the server changed is another plan, and the one it replaces is forgotten
+    const changed = await b.preview(archive, b.proof([]))
+    assert.notEqual(changed.planId, first.planId)
+    assert.equal((await b.manage({ type: "confirm", binding: binding(renewed) })).status, 409)
+    await b.confirm(changed)
+    await b.stop()
     const third = await b.preview(archive, native)
-    assert.notEqual(third.planId, second.planId)
+    assert.notEqual(third.planId, changed.planId)
     // The confirmed plan stays with its items beside the new one
-    assert.deepEqual(await b.counted(), { plans: 2, items: 2, changes: 2, origins: 0 })
-    assert.equal((await b.items(second)).length, 1)
-    for (let n = 0; n < 5; n++) await b.preview(archive, native)
-    assert.equal((await b.counted()).plans, 2)
+    assert.equal((await b.items(changed)).length, 1)
+    assert.equal((await read(await b.query({ type: "plan", binding: binding(changed) }))).plan.forgotten, false)
 })
 
 test("the owner reads the latest plan on the dashboard with its gain and progress by state, and nobody else does", async (t) => {
@@ -261,7 +268,7 @@ test("the owner reads the latest plan on the dashboard with its gain and progres
         owner = await b.session("10", "a".repeat(64)),
         manager = await b.session("20", "b".repeat(64))
     assert.equal(await b.db.query(api.backup.restoreView, owner), null)
-    const plan = await b.preview(b.manifest([], slots(25)), null)
+    const plan = await b.preview(b.manifest(drafts(25)), null)
     const first = (await b.view(owner)).plan!
     assert.deepEqual(
         {
@@ -282,7 +289,7 @@ test("the owner reads the latest plan on the dashboard with its gain and progres
             states: { planned: 25 },
             confirmedAt: undefined,
             planHash: plan.planHash,
-            confirmBefore: 600000,
+            confirmBefore: BACKUP_PLAN_MS,
         },
     )
     assert.equal(await b.db.query(api.backup.restoreView, manager), null)
@@ -305,23 +312,25 @@ test("the dashboard pages items problems first with what each changes, and lists
             ...b.channel("101"),
             overwrites: [{ id: "40", type: "role", allow: "0", deny: "1024" }],
         },
-        xp = slots(30)
+        xp = drafts(30)
+    // Two drafts the server has already, so they are identical
     await b.db.run((ctx) =>
         Promise.all(
-            xp.slice(0, 2).map((x) =>
-                ctx.db.insert("levelingProfiles", {
+            [0, 1].map((i) =>
+                ctx.db.insert("publishingDrafts", {
                     serverId: "1",
-                    userId: x.userId,
-                    xp: x.xp,
-                    scoreEpoch: 1,
-                    adjustmentRevision: 0,
-                    joinedAt: "2020-01-01T00:00:00Z",
-                    digests: [],
+                    kind: "draft",
+                    name: `d${i}`,
+                    revision: 1,
+                    content: { content: "Synthetic draft" },
+                    canonicalContent: { content: "Synthetic draft" },
+                    createdAt: 1,
+                    updatedAt: 1,
                 }),
             ),
         ),
     )
-    const plan = await b.preview(b.manifest([], xp, [creatable, blocked]), b.proof([creatable, blocked]))
+    const plan = await b.preview(b.manifest(xp, [], [creatable, blocked]), b.proof([creatable, blocked]))
     assert.deepEqual(plan.counts, { create: 29, update: 0, delete: 0, skip: 2, blocked: 1 })
     const page = (cursor: string | null, identical = false, who = owner, planId = plan.planId) =>
         b.db.query(api.backup.restoreItems, { ...who, planId, identical, cursor })
@@ -349,7 +358,7 @@ test("the dashboard pages items problems first with what each changes, and lists
     assert.equal(await page(null, false, manager), null)
     // A plan that is not the job's gives nothing
     assert.equal(await page(null, false, owner, "not-a-plan"), null)
-    const newer = await b.preview(b.manifest([], xp), null)
+    const newer = await b.preview(b.manifest(xp), null)
     assert.equal(await page(null, false, owner, plan.planId), null)
     assert.equal((await page(null, false, owner, newer.planId))?.items.length, 25)
 })
@@ -443,6 +452,8 @@ test("the website refreshes the owner's plan through the bot, and a failed refre
         { recorded: true },
     )
     assert.equal((await b.view(owner)).plan, null)
+    // The plan is forgotten at once, and retention removes it in pages
+    for (let pass = 0; pass < 3; pass++) await b.clean()
     assert.deepEqual(await b.counted(), { plans: 0, items: 0, changes: 0, origins: 0 })
     // A refresh the bot does not answer in time fails, and its late answer is dropped
     b.advance(BACKUP_PREVIEW_INTERVAL_MS)
@@ -634,6 +645,8 @@ test("a plan the owner confirmed survives the refresh of a sender who no longer 
         creatable = b.channel("100"),
         plan = await b.preview(b.manifest([], [], [creatable]), b.proof([creatable]))
     await b.confirm(plan)
+    // A confirmation runs the plan, and a refresh waits until the run stopped
+    await b.stop()
     b.advance(BACKUP_PREVIEW_INTERVAL_MS)
     await b.db.mutation(api.backup.restoreRequest, owner)
     await b.http("/backup/preview-failed", { serverId: "1", requestedAt: b.now(), failure: "owner" })
@@ -646,10 +659,11 @@ test("the owner confirms the plan the page showed, and only that plan, only once
         owner = await b.session("10", "a".repeat(64)),
         manager = await b.session("20", "b".repeat(64))
     // A plan that was confirmed in chat earlier is not the job's plan, and is not confirmed again from the page
-    const earlier = await b.preview(b.manifest([], slots(3)), null)
+    const earlier = await b.preview(b.manifest(drafts(3)), null)
     await b.confirm(earlier)
-    const old = await b.preview(b.manifest([], slots(3)), null),
-        plan = await b.preview(b.manifest([], slots(3)), null)
+    await b.stop()
+    const old = await b.preview(b.manifest(drafts(3)), null),
+        plan = await b.preview(b.manifest(drafts(3)), null)
     const confirmWith = (who: typeof owner, planId = plan.planId, planHash = plan.planHash) =>
         b.db.mutation(api.backup.restoreConfirm, { ...who, planId, planHash })
     // A manager who is not the owner, a wrong hash, a plan that is not the job's and a plan that was replaced are refused
@@ -664,12 +678,12 @@ test("the owner confirms the plan the page showed, and only that plan, only once
     await refused(confirmWith(owner), 409)
     const asked = b.now()
     b.advance(1)
-    const again = await b.preview(b.manifest([], slots(3)), null)
+    const again = await b.preview(b.manifest(drafts(3)), null)
     assert.equal(asked < b.now(), true)
-    // Too little time to run it
-    b.at(again.expiresAt - 300000 + 1)
+    // A check is confirmable until it expires, and the run then has all the time it needs
+    b.at(again.expiresAt)
     await refused(confirmWith(owner, again.planId, again.planHash), 409)
-    b.at(again.createdAt)
+    b.at(again.expiresAt - 300000 + 1)
     // An archive or a key in the request is no argument of the confirmation
     await assert.rejects(
         b.db.mutation(api.backup.restoreConfirm, {
@@ -688,7 +702,8 @@ test("the owner confirms the plan the page showed, and only that plan, only once
         b.now(),
     )
     const row = await b.jobRow()
-    assert.deepEqual([row.state, row.expiresAt], ["running", again.expiresAt])
+    // The run holds a lease of 10 minutes, which each pass that records progress renews
+    assert.deepEqual([row.state, row.expiresAt, row.notify], ["running", b.now() + BACKUP_RUN_IDLE_MS, undefined])
     // A repeat answers the same result and changes nothing
     b.advance(1000)
     assert.deepEqual(await confirmWith(owner, again.planId, again.planHash), confirmed)
@@ -709,7 +724,7 @@ test("the owner confirms the plan the page showed, and only that plan, only once
         },
         { requestedAt: row.createdAt, plan: again.planId, confirmedAt: confirmed.confirmedAt },
     )
-    assert.equal((await b.previewResponse(b.manifest([], slots(3)), null)).status, 409)
+    assert.equal((await b.previewResponse(b.manifest(drafts(3)), null)).status, 409)
     b.advance(BACKUP_PREVIEW_INTERVAL_MS)
     await b.db.mutation(api.backup.restoreRequest, owner)
     assert.equal((await b.jobRow()).state, "running")
@@ -726,8 +741,13 @@ test("a restore runs a pass at a time, goes on while items wait and ends done wh
     assert.deepEqual([step.body, step.due, (await b.jobRow()).state], [{ recorded: true }, "0", "running"])
     assert.equal((await b.view(owner)).plan?.settled, 1)
     for (const item of listed.slice(1)) await b.apply(item)
-    assert.deepEqual((await b.runStep({ requestedAt: asked, recorded: 2 })).body, { recorded: true })
+    assert.deepEqual((await b.runStep({ requestedAt: asked, recorded: 2 })).body, { recorded: true, ended: {} })
     assert.deepEqual([(await b.jobRow()).state, (await b.jobRow()).failure], ["done", undefined])
+    // The run settled every item, so the plan is finished and no longer counts toward the server's plans
+    assert.equal(
+        ((await b.db.run((ctx) => ctx.db.get(plan.planId as never))) as { settledAt?: number }).settledAt,
+        b.now(),
+    )
     assert.deepEqual(
         { settled: (await b.view(owner)).plan?.settled, states: (await b.view(owner)).plan?.states },
         { settled: 3, states: { created: 3 } },
@@ -748,7 +768,8 @@ test("a restore ends failed when nothing progresses, the sender no longer owns t
         const row = await b.jobRow()
         return [row.state, row.failure]
     }
-    assert.deepEqual(await reason(() => ({ recorded: 0 })), ["failed", "error"])
+    // A pass that records nothing waits 30 seconds before the next one, and only the lease ends a run that no longer progresses
+    assert.deepEqual(await reason(() => ({ recorded: 0 })), ["waiting", undefined])
     assert.deepEqual(await reason(() => ({ recorded: 1, stopped: "owner" })), ["failed", "owner"])
     assert.deepEqual(
         await reason(
@@ -776,9 +797,10 @@ test("a restore ends failed when nothing progresses, the sender no longer owns t
 test("a restore with open claims waits for them to age instead of looping, wakes by itself and ends once they are not confirmed", async (t) => {
     const b = await backend(t),
         owner = await b.session("10", "a".repeat(64)),
-        earlier = await b.preview(b.manifest([], slots(1)), null)
+        earlier = await b.preview(b.manifest(drafts(1, "Earlier")), null)
     await b.confirm(earlier)
-    const plan = await b.preview(b.manifest([], slots(2)), null)
+    await b.stop()
+    const plan = await b.preview(b.manifest(drafts(2)), null)
     await b.db.mutation(api.backup.restoreConfirm, { ...owner, planId: plan.planId, planHash: plan.planHash })
     const asked = (await b.jobRow()).createdAt,
         [first, second] = await b.items(plan)
@@ -794,6 +816,15 @@ test("a restore with open claims waits for them to age instead of looping, wakes
             claimedAt: b.now(),
             claimToken: "synthetic",
             dispatchExpiresAt: claimedUntil,
+        })
+        // The plan counts its items by state, as a claim moves the count
+        const owner = (await ctx.db.get(row.planId))!
+        await ctx.db.patch(owner._id, {
+            stateCounts: {
+                ...owner.stateCounts,
+                planned: owner.stateCounts!.planned! - 1,
+                claimed: (owner.stateCounts!.claimed ?? 0) + 1,
+            },
         })
     })
     const step = await b.runStep({ requestedAt: asked, recorded: 1 })
@@ -832,30 +863,146 @@ test("a restore with open claims waits for them to age instead of looping, wakes
 })
 
 for (const state of ["running", "waiting"] as const)
-    test(`a ${state} restore that outlives its plan is ended`, async (t) => {
+    test(`a ${state} restore ends once it made no progress for 10 minutes, and progress renews its lease`, async (t) => {
         const b = await backend(t),
-            { owner, plan } = await b.started(2)
+            { owner, plan } = await b.started(3),
+            asked = (await b.jobRow()).createdAt,
+            first = b.now() + BACKUP_RUN_IDLE_MS
+        const ends = () =>
+            b.db.run(async (ctx) =>
+                (await ctx.db.system.query("_scheduled_functions").collect())
+                    .filter((x) => x.name === "backup:previewExpire" && x.state.kind === "pending")
+                    .map((x) => x.scheduledTime),
+            )
+        assert.deepEqual(await ends(), [first])
+        // A run that progresses goes on past the day its check stayed confirmable
+        b.at(plan.expiresAt + 1)
+        const [one, two] = await b.items(plan)
+        await b.apply(one!)
+        await b.runStep({ requestedAt: asked, recorded: 1 })
+        const lease = b.now() + BACKUP_RUN_IDLE_MS
+        assert.deepEqual([(await b.jobRow()).state, (await b.jobRow()).expiresAt], ["running", lease])
+        await b.apply(two!)
         const id = (await b.jobRow())._id
         if (state === "waiting") await b.db.run((ctx) => ctx.db.patch(id, { state }))
-        // The confirmation scheduled the end of the job at the end of the plan, and before then it does nothing
-        assert.deepEqual(
-            await b.db.run(async (ctx) =>
-                (await ctx.db.system.query("_scheduled_functions").collect())
-                    .filter((x) => x.name === "backup:previewExpire")
-                    .map((x) => x.scheduledTime),
-            ),
-            [plan.expiresAt],
-        )
+        // The end the confirmation scheduled finds a renewed lease and does nothing
         await b.db.mutation(internal.backup.previewExpire, { serverId: "1" })
         assert.equal((await b.jobRow()).state, state)
-        b.at(plan.expiresAt)
-        await b.db.finishAllScheduledFunctions(() => mock.timers.tick(BACKUP_PLAN_MS))
+        b.at(lease)
+        await b.db.finishAllScheduledFunctions(() => mock.timers.tick(lease - first + BACKUP_RUN_IDLE_MS))
         const row = await b.jobRow()
         assert.deepEqual([row.state, row.failure], ["failed", "expired"])
         assert.equal((await b.view(owner)).failure, "expired")
+        assert.equal((await b.view(owner)).plan?.settled, 2)
     })
 
-test("a valid worst-case preview request is above the old route limit and below the new one", async (t) => {
+test("a chat confirmation runs the whole plan in the background and asks for the outcome in the DM", async (t) => {
+    const b = await backend(t),
+        plan = await b.preview(b.manifest(drafts(2)), null),
+        confirmed = await read(await b.manage({ type: "confirm", binding: binding(plan) }))
+    assert.deepEqual([confirmed.run, confirmed.duplicate], ["started", false])
+    const row = await b.jobRow()
+    assert.deepEqual(
+        [row.state, row.notify, row.planId, row.expiresAt],
+        ["running", true, plan.planId, b.now() + BACKUP_RUN_IDLE_MS],
+    )
+    assert.equal((await b.ready())?.notify, true)
+    // Confirming again while it runs says so and changes nothing, and a stopped run starts again
+    assert.deepEqual((await read(await b.manage({ type: "confirm", binding: binding(plan) }))).run, "running")
+    await b.stop()
+    b.advance(1)
+    const again = await read(await b.manage({ type: "confirm", binding: binding(plan) }))
+    assert.deepEqual([again.run, again.duplicate, (await b.jobRow()).state], ["started", true, "running"])
+})
+
+test("a chat restore that ends for lack of progress hands the bot its outcome once", async (t) => {
+    const b = await backend(t),
+        plan = await b.preview(b.manifest(drafts(2)), null)
+    await read(await b.manage({ type: "confirm", binding: binding(plan) }))
+    const asked = (await b.jobRow()).createdAt
+    b.at(b.now() + BACKUP_RUN_IDLE_MS)
+    await b.db.mutation(internal.backup.previewExpire, { serverId: "1" })
+    const row = await b.jobRow()
+    assert.deepEqual([row.state, row.failure, row.outcomeDue], ["failed", "expired", true])
+    // The bot is told to post it, and its job carries the plan and how it ended, so it runs nothing
+    assert.deepEqual(await b.dispatched(), ["1"])
+    const job = (await b.ready())!
+    assert.deepEqual(
+        [job.notify, job.ended, (job.plan as BackupPlan).planId],
+        [true, { failure: "expired" }, plan.planId],
+    )
+    const claim = async (requestedAt: number) =>
+        (await read(await b.http("/backup/outcome-claim", { serverId: "1", requestedAt }))).claimed
+    assert.equal(await claim(asked + 1), false)
+    assert.equal(await claim(asked), true)
+    assert.equal(await claim(asked), false)
+    assert.equal(await b.ready(), null)
+    assert.deepEqual(await b.dispatched(), [])
+    // Forgetting the plan drops an outcome it still owed, so the bot is not woken for it again
+    await read(await b.manage({ type: "confirm", binding: binding(plan) }))
+    b.at(b.now() + BACKUP_RUN_IDLE_MS)
+    await b.db.mutation(internal.backup.previewExpire, { serverId: "1" })
+    assert.equal((await b.jobRow()).outcomeDue, true)
+    await read(await b.manage({ type: "forget", binding: binding(plan) }))
+    assert.equal((await b.jobRow()).outcomeDue, undefined)
+    assert.deepEqual(await b.dispatched(), [])
+})
+
+test("a check is built from segments bound to their digests, and only a ready check is confirmed", async (t) => {
+    const b = await backend(t),
+        owner = await b.session("10", "a".repeat(64)),
+        archive = b.manifest(drafts(2)),
+        segment = { kind: "config", config: archive.config }
+    const start = (digests: string[]) =>
+        b.http("/backup/preview-start", {
+            serverId: "1",
+            context: b.context(),
+            header: backupManifestHeader(archive),
+            segmentDigests: digests,
+            archiveDigest: "a".repeat(64),
+            archive: { channelId: "90", messageId: "500" },
+            match: false,
+        })
+    const building = (await read(await start([await backupHash(segment), await backupHash(segment)])))
+        .plan as BackupPlan
+    assert.equal(building.state, "building")
+    // A building check is not confirmed, from chat or from the page, and the page says it is being built
+    assert.equal((await b.manage({ type: "confirm", binding: binding(building) })).status, 409)
+    assert.equal((await b.view(owner)).plan?.building, true)
+    await refused(
+        b.db.mutation(api.backup.restoreConfirm, { ...owner, planId: building.planId, planHash: building.planHash }),
+        409,
+    )
+    const send = (segmentNo: number, body: unknown) =>
+        b.http("/backup/preview-segment", {
+            serverId: "1",
+            context: b.context(),
+            planId: building.planId,
+            segmentNo,
+            segment: body,
+            native: null,
+        })
+    // A segment that is not the one its digest named, or not the next one, is refused
+    assert.equal((await send(0, { kind: "config", config: drafts(1) })).status, 400)
+    assert.equal((await send(1, segment)).status, 409)
+    assert.equal((await read(await send(0, segment))).plan.state, "building")
+    // The same objects twice is not the archive the header counts
+    assert.equal((await send(1, segment)).status, 400)
+})
+
+test("the page counts a plan of 2,000 items from the plan's own totals", async (t) => {
+    const b = await backend(t),
+        owner = await b.session("10", "a".repeat(64)),
+        plan = await b.preview(b.manifest(drafts(2000)), null)
+    assert.equal(plan.itemCount, 2000)
+    const view = (await b.view(owner)).plan!
+    assert.deepEqual(
+        [view.itemCount, view.counts.create, view.states, view.settled],
+        [2000, 2000, { planned: 2000 }, 0],
+    )
+})
+
+test("a valid worst-case segment request is above the old route limit and below the new one", async (t) => {
     const b = await backend(t)
     // 100 forum channels, each as the server has it with the most a snapshot may hold: 100 overwrites, a 4,096 character topic and 20 tags
     const present = (n: number): BackupStructureObject => ({
@@ -881,9 +1028,27 @@ test("a valid worst-case preview request is above the old route limit and below 
         })),
     })
     const live = Array.from({ length: 100 }, (_, n) => present(n))
-    // The archive holds the most the restore limits allow: 500 overwrites over its 100 channels
+    // The archive's 100 channels make one segment within 512 KiB
     const archived = live.map((x) => ({ ...x, overwrites: x.overwrites.slice(0, 5), tags: [], topic: "a".repeat(600) }))
-    const archive = b.manifest([], [], archived)
+    const archive = b.manifest([], [], archived),
+        segments = backupSegments(archive, summarize)
+    assert.deepEqual(
+        segments.map((x) => x.kind),
+        ["channels", "structure"],
+    )
+    const started = (
+        await read(
+            await b.http("/backup/preview-start", {
+                serverId: "1",
+                context: b.context(),
+                header: backupManifestHeader(archive),
+                segmentDigests: await Promise.all(segments.map((x) => backupHash(x))),
+                archiveDigest: await backupHash(archive),
+                archive: { channelId: "90", messageId: "500" },
+                match: false,
+            }),
+        )
+    ).plan as BackupPlan
     const native: BackupNativeProof = {
         ...b.proof(),
         references: Array.from({ length: 1000 }, (_, i) => ({
@@ -912,18 +1077,22 @@ test("a valid worst-case preview request is above the old route limit and below 
     const body = {
         serverId: "1",
         context: b.context(),
-        manifest: archive,
-        archiveDigest: await backupHash(archive),
+        planId: started.planId,
+        segmentNo: 0,
+        segment: segments[0],
         native,
-        archive: { channelId: "90", messageId: "500" },
-        match: false,
     }
     const size = JSON.stringify(body).length
     assert.ok(size > 1048576, `the request is ${size} characters`)
     assert.ok(size < 4194304, `the request is ${size} characters`)
-    const response = await b.http("/backup/preview", body)
-    assert.equal(response.status, 200, JSON.stringify(await response.clone().json()).slice(0, 300))
-    assert.equal(((await response.json()) as { plan: BackupPlan }).plan.itemCount, 100)
     // Beyond the limit the route refuses before it reads the request
-    assert.equal((await b.http("/backup/preview", { ...body, padding: "x".repeat(4194304) })).status, 413)
+    assert.equal((await b.http("/backup/preview-segment", { ...body, padding: "x".repeat(4194304) })).status, 413)
+    const response = await b.http("/backup/preview-segment", body)
+    assert.equal(response.status, 200, JSON.stringify(await response.clone().json()).slice(0, 300))
+    const done = (
+        await read(
+            await b.http("/backup/preview-segment", { ...body, segmentNo: 1, segment: segments[1], native: null }),
+        )
+    ).plan as BackupPlan
+    assert.deepEqual([done.state, done.itemCount], ["ready", 100])
 })

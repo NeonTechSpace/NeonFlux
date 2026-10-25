@@ -12,6 +12,9 @@ import type {
 } from "@neonflux/contracts/analytics"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { createAnalyticsStore, AnalyticsStoreError } from "../../bot/src/analytics-store.ts"
+import type { MutationCtx } from "../convex/_generated/server.js"
+import { writeAnalyticsEnabled } from "../convex/analytics.ts"
+import { dueWork } from "../convex/workDispatch.ts"
 
 const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
 const HOUR = 3600000,
@@ -311,4 +314,22 @@ test("retention prunes channel and message days after 35 days, server days after
         (await f.backend.run((ctx) => ctx.db.query("analyticsFlushes").collect())).map((row) => row.session),
         ["synthetic-recent"],
     )
+})
+
+test("a switch the website changed wakes the bot's analytics pass, which reads it and clears the wake", async (t) => {
+    const f = await fixture(t)
+    const due = () => f.backend.run((ctx) => dueWork(ctx, f.now(), null))
+    const signal = () => f.backend.run(async (ctx) => (await ctx.db.query("workSignal").first())?.version ?? 0)
+    // A chat change reaches the running bot as the bot makes it, so it wakes nothing
+    await f.run(f.store.manage({ serverId: "1", actorId: "20", managerAuthorized: true, enabled: false }))
+    assert.deepEqual([(await due()).kinds.dashboard, await signal()], [[], 0])
+    await f.backend.run((ctx) =>
+        writeAnalyticsEnabled(ctx as unknown as MutationCtx, "1", { userId: "20", source: "website" }, true),
+    )
+    const woken = await due()
+    assert.deepEqual([woken.kinds.dashboard, woken.dashboard, await signal()], [["1"], { "1": ["analytics"] }, 1])
+    // The pass reads the new switch once, and the next dispatch lists nothing
+    assert.deepEqual(await f.run(f.store.reloaded({ serverId: "1" })), { enabled: true })
+    assert.deepEqual([(await due()).kinds.dashboard, (await due()).dashboard], [[], undefined])
+    assert.deepEqual(await f.run(f.store.reloaded({ serverId: "1" })), { enabled: true })
 })

@@ -68,6 +68,15 @@ test("A diff lists the leaves that differ by path, with the whole value on each 
     assert.deepEqual(backupDiff({ ids: ["1", "2"] }, { ids: ["1", "3"] }), [
         { path: "ids[1]", before: "2", after: "3" },
     ])
+    // Expected bots and webhooks are sets: One row names the IDs a list drops and adds, and a reorder is no change
+    assert.deepEqual(backupDiff({ expectedBotIds: ["1", "2"] }, { expectedBotIds: ["3", "2"] }), [
+        { path: "expectedBotIds", before: ["1"], after: ["3"] },
+    ])
+    assert.deepEqual(backupDiff({ expectedWebhookIds: ["1", "2"] }, { expectedWebhookIds: ["2", "1"] }), [])
+    assert.deepEqual(backupDiff({ expectedBotIds: ["1"] }, { expectedBotIds: ["1", "4"] }), [
+        { path: "expectedBotIds", after: ["4"] },
+    ])
+    assert.deepEqual(backupDiff(undefined, { expectedBotIds: [] }), [{ path: "expectedBotIds", after: [] }])
     const tag = (name: string, moderated: boolean) => ({ name, moderated })
     assert.deepEqual(
         backupDiff({ tags: [tag("a", false), tag("b", false)] }, { tags: [tag("b", true), tag("a", false)] }),
@@ -107,4 +116,8 @@ test("A path ends in a switch when its last key is enabled or ends in Enabled", 
         "tags[enabled].name",
     ])
         assert.equal(backupSwitchPath(path), false, path)
+    // A security alert and an alert action are switches by name
+    for (const path of ["invites", "impersonation", "kickBots", "deleteWebhooks", "removePermissions"])
+        assert.equal(backupSwitchPath(path, "alerts"), true, path)
+    assert.equal(backupSwitchPath("kickBots"), false)
 })
