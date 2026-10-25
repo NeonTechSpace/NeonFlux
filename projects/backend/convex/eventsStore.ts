@@ -12,6 +12,8 @@ import { EVENTS_DAY, advanceEvent } from "./eventsDomain.ts"
 import { defconHoldsAutomation, automationGate, publisherSettings } from "./schedulesStore.ts"
 import { decode, fail, integer } from "./validation.ts"
 import { composerAdmin, composerContext, eventEligible } from "./publishingContext.ts"
+import { CIVIL_HORIZON_DAYS, CIVIL_WINDOW, civilLocalAt } from "@neonflux/contracts/civil"
+import { civilResume } from "./civilDomain.ts"
 
 export type EventsRead = MutationCtx | QueryCtx
 export const eventSettings = (ctx: EventsRead, serverId: string) =>
@@ -29,21 +31,36 @@ export async function eventState(ctx: MutationCtx, serverId: string) {
         nextEventNo: 1,
         nextOccurrenceNo: 1,
         definitions: 0,
-        occurrences: 0,
         rsvps: 0,
         receipts: 0,
     })
     return (await ctx.db.get(id))!
 }
+/**
+ * Cancelled or completed events stored before they stopped counting, which the counter still holds until they are forgotten.
+ * Event numbers only grow and the old rule kept at most 50 events, so all of them are among the server's first 50
+ */
+export async function staleEvents(ctx: EventsRead, serverId: string) {
+    const rows = await ctx.db
+        .query("events")
+        .withIndex("by_number", (q) => q.eq("serverId", serverId))
+        .take(50)
+    return rows.filter((row) => !row.released && (row.state === "cancelled" || row.state === "completed")).length
+}
+/** Events that are not cancelled or completed count toward the 50. Replies and source receipts are counted without a cap */
 export async function eventCount(
     ctx: MutationCtx,
     serverId: string,
-    key: "definitions" | "occurrences" | "rsvps" | "receipts",
+    key: "definitions" | "rsvps" | "receipts",
     delta: number,
 ) {
-    const state = await eventState(ctx, serverId),
-        cap = { definitions: 50, occurrences: 200, rsvps: 50000, receipts: 50000 }[key]
-    if (state[key] + delta > cap) fail(429, "Event capacity reached")
+    const state = await eventState(ctx, serverId)
+    if (
+        key === "definitions" &&
+        state[key] + delta > 50 &&
+        state[key] - (await staleEvents(ctx, serverId)) + delta > 50
+    )
+        fail(429, "Event capacity reached")
     if (state[key] + delta < 0) fail(503, "Event accounting unavailable")
     await ctx.db.patch(state._id, { [key]: state[key] + delta })
 }
@@ -89,7 +106,54 @@ export function lifecycle(
 }
 /** Where the card and reminders go: The forum post that holds the card, or the destination channel */
 export const eventCardChannel = (row: Pick<Doc<"events">, "postId" | "channelId">) => row.postId ?? row.channelId
-export function publicEvent(row: Doc<"events">): EventsDefinition {
+/** An event stops counting toward the 50 once, when it is cancelled or completed */
+export async function releaseEvent(ctx: MutationCtx, row: Doc<"events">) {
+    if (row.released) return
+    await eventCount(ctx, row.serverId, "definitions", -1)
+    await ctx.db.patch(row._id, { released: true })
+}
+/**
+ * Live dates per state: A repeat stores at most 26 dates that have not started. A repeat's date lasts at most 180 days and its dates
+ * are at least a day apart, so about 206 run at once, and the started budget doubles that for dates kept from earlier calendars. A
+ * single date of any length runs alone
+ */
+const LIVE_PER_STATE = { draft: 60, open: 60, started: 2 * (CIVIL_HORIZON_DAYS + CIVIL_WINDOW) }
+/**
+ * An event's dates that have not ended or been cancelled, soonest first: its drafts, or its open and started dates. Cancelled and
+ * completed dates stay out of every live read, however many an event keeps
+ */
+export async function liveOccurrences(ctx: EventsRead, event: Pick<Doc<"events">, "serverId" | "eventNo">) {
+    const rows: Doc<"eventOccurrences">[] = []
+    for (const state of ["draft", "open", "started"] as const) {
+        const page = await ctx.db
+            .query("eventOccurrences")
+            .withIndex("by_event_state", (q) =>
+                q.eq("serverId", event.serverId).eq("eventNo", event.eventNo).eq("state", state),
+            )
+            .take(LIVE_PER_STATE[state] + 1)
+        if (page.length > LIVE_PER_STATE[state]) fail(503, "Event date accounting unavailable")
+        rows.push(...page)
+    }
+    return rows.sort((a, b) => a.date.startsAt - b.date.startsAt || a.occurrenceNo - b.occurrenceNo)
+}
+/** Whether an event's repeat still has dates to add, so its stored dates ending does not end it */
+export const eventRepeats = (row: Pick<Doc<"events">, "calendar" | "nextIndex">) =>
+    !!row.calendar && civilLocalAt(row.calendar, row.nextIndex ?? row.calendar.dates.length) !== undefined
+/** The earliest date that has not ended, which a single event's answer and its card show */
+export const nextOccurrence = (rows: readonly Doc<"eventOccurrences">[], now = Date.now()) =>
+    rows.find((row) => row.date.endsAt > now)
+/**
+ * Where a change to a published repeat continues, for a single event's answer and the dashboard. Only these resolve dates in the
+ * zone, so other answers never depend on its rules
+ */
+export function eventResume(row: Doc<"events">, now: number): Pick<EventsDefinition, "resume"> {
+    const resume =
+        row.calendar && row.state === "open"
+            ? civilResume(row.calendar, row.calendar.dates[0]!.startsAt, now)
+            : undefined
+    return resume ? { resume } : {}
+}
+export function publicEvent(row: Doc<"events">, next?: Doc<"eventOccurrences">): EventsDefinition {
     const {
         _id,
         _creationTime,
@@ -100,18 +164,38 @@ export function publicEvent(row: Doc<"events">): EventsDefinition {
         historyExpiresAt,
         forgetting,
         threadDueAt,
+        nextIndex,
+        extendAt,
+        lastSkipped,
+        released,
+        firstStartsAt,
+        notice,
+        noticeDueAt,
         ...value
     } = row
-    if (row.calendar && row.state !== "draft" && row.state !== "cancelled") {
-        const last = row.calendar.dates.at(-1)!
+    const now = Date.now()
+    // A repeat that still adds dates has not ended, even while its stored dates have
+    if (row.calendar && row.state !== "draft" && row.state !== "cancelled")
         value.state =
-            Date.now() >= last.endsAt
+            row.state === "completed" || (endsAt !== undefined && now >= endsAt && !eventRepeats(row))
                 ? "completed"
-                : row.calendar.dates.some((d) => Date.now() >= d.startsAt)
+                : now >= (firstStartsAt ?? row.calendar.dates[0]!.startsAt)
                   ? "started"
                   : "open"
+    return {
+        ...value,
+        ...(next ? { next: next.date } : {}),
+        ...(lastSkipped ? { lastSkipped } : {}),
+        ...(notice
+            ? {
+                  notice: {
+                      sent: notice.sent,
+                      failed: notice.failed,
+                      done: notice.cursor === undefined && noticeDueAt === undefined,
+                  },
+              }
+            : {}),
     }
-    return value
 }
 export function publicOccurrence(row: Doc<"eventOccurrences">): EventsOccurrence {
     return {

@@ -1,8 +1,13 @@
 import type { CivilFoldPolicy, CivilRecurrence } from "@neonflux/contracts/civil"
-import { EVENTS_DESCRIPTION_LIMIT, type EventsChoice } from "@neonflux/contracts/events"
+import {
+    EVENTS_DESCRIPTION_LIMIT,
+    EVENTS_REMINDER_RANGE_MINUTES,
+    EVENTS_REMINDERS,
+    type EventsChoice,
+} from "@neonflux/contracts/events"
 import { isName } from "@neonflux/contracts/common"
 import { commands } from "@neontechspace/fluxerly/effect"
-import { argument } from "./command-arguments.ts"
+import { argument, repeatArguments } from "./command-arguments.ts"
 
 /** A change to one named event. The handler adds the event's number and current revision */
 export type EventChange =
@@ -26,12 +31,15 @@ export type EventCommand =
     | { type: "threads"; enabled: boolean }
     | { type: "time"; name: string; localMinute: string; zone: string; durationMinutes: number; fold: CivilFoldPolicy }
     | { type: "repeat"; name: string; recurrence: CivilRecurrence }
+    | { type: "move"; name: string; occurrenceNo: number; localMinute: string; fold: CivilFoldPolicy }
     | { type: "change"; name: string; change: EventChange }
     | { type: "forget"; name: string; confirmed: boolean }
     | { type: "reconcile"; name: string; postNo?: number }
 
-/** A length or lead time in minutes, up to a week */
-const minutes = { type: "integer", min: 1, max: 10080 } as const
+/** A date's length in minutes. The calendar then holds a repeat's date to 180 days and a single date to its last day */
+const duration = { type: "integer", min: 1, max: Number.MAX_SAFE_INTEGER } as const
+/** A reminder's lead time in minutes. The backend holds a repeat's to its stored dates, and a single date takes any lead */
+const minutes = { type: "integer", min: 1, max: EVENTS_REMINDER_RANGE_MINUTES } as const
 const name = (v: string | undefined): v is string => v !== undefined && isName(v)
 const text = (v: string | undefined, max: number, empty = false) =>
     v !== undefined && v.length <= max && (empty || v.trim().length > 0) && !/[\u0000-\u001f\u007f]/.test(v)
@@ -56,11 +64,12 @@ export const eventHelpAll = [
     "!event mine: Your Going and Maybe answers for events here",
     "!event attendees <name> <date> [next]: Who is going, and the waitlist",
     "!event time <name> YYYY-MM-DDTHH:mm <zone> <minutes> earlier|later: Pick the time a clock change repeats",
-    "!event repeat <name> daily|weekly <1-12 every> <1-26 dates> | off: Repeat an event",
+    "!event repeat <name> daily|weekly <every> [<dates>|until YYYY-MM-DD|ongoing] | off: Repeat an event, with no end unless you give one",
+    "!event move <name> <date> YYYY-MM-DDTHH:mm [earlier|later]: Move one date by its number. It keeps its replies",
     '!event title <name> "title" ["description"]: Change its text',
     "!event template <name> <template>|off: Use a publishing template for its card",
-    "!event capacity <name> <1-500>|off: Limit Going seats",
-    "!event reminders <name> <minutes> [minutes] | off: Up to two reminders, in minutes before the start",
+    "!event capacity <name> <seats>|off: Limit Going seats",
+    "!event reminders <name> <minutes> [minutes …] | off: Up to 20 reminders, in minutes before the start, up to 179 days for a repeat, less when it runs more often than weekly",
     "!event threads on|off: A discussion thread on each event card published afterwards",
     "!event status [<name> [next]]: Whether events are on, or one event's card and reminders",
     "!event reconcile <name> [post-number]: Check a card or reminder that was not confirmed",
@@ -127,7 +136,7 @@ export function parseEventCommand(args: readonly string[]): EventCommand | { err
         ["going", "maybe", "not-going", "none"].includes(choice)
     )
         return { type: "rsvp", name: event, ...(no ? { occurrenceNo: no } : {}), choice: choice as EventsChoice }
-    const durationMinutes = verb === "time" ? commands.parseArgument(args[4], minutes) : undefined
+    const durationMinutes = verb === "time" ? commands.parseArgument(args[4], duration) : undefined
     if (
         verb === "time" &&
         args.length >= 5 &&
@@ -147,15 +156,24 @@ export function parseEventCommand(args: readonly string[]): EventCommand | { err
         }
     if (verb === "repeat") {
         if (args.length === 3 && args[2] === "off") return { type: "repeat", name: event, recurrence: { type: "none" } }
-        const interval = commands.parseArgument(args[3], { type: "integer", min: 1, max: 12 })
-        const count = commands.parseArgument(args[4], { type: "integer", min: 1, max: 26 })
-        if (args.length === 5 && ["daily", "weekly"].includes(args[2]!) && interval && count)
-            return {
-                type: "repeat",
-                name: event,
-                recurrence: { type: args[2] as "daily" | "weekly", interval, count },
-            }
+        const recurrence = repeatArguments(args.slice(2))
+        if (recurrence) return { type: "repeat", name: event, recurrence }
     }
+    if (
+        verb === "move" &&
+        no &&
+        args.length >= 4 &&
+        args.length <= 5 &&
+        /^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(args[3]!) &&
+        (args.length === 4 || ["reject", "earlier", "later"].includes(args[4]!))
+    )
+        return {
+            type: "move",
+            name: event,
+            occurrenceNo: no,
+            localMinute: args[3]!,
+            fold: (args[4] ?? "reject") as CivilFoldPolicy,
+        }
     if ((verb === "publish" || verb === "cancel") && args.length === 2)
         return { type: "change", name: event, change: { type: verb } }
     if (verb === "reconcile" && args.length <= 3 && (args.length === 2 || no))
@@ -166,7 +184,7 @@ export function parseEventCommand(args: readonly string[]): EventCommand | { err
         verb === "capacity" && args.length === 3
             ? args[2] === "off"
                 ? null
-                : commands.parseArgument(args[2], { type: "integer", min: 1, max: 500 })
+                : commands.parseArgument(args[2], { type: "integer", min: 1, max: Number.MAX_SAFE_INTEGER })
             : undefined
     if (capacity !== undefined) return { type: "change", name: event, change: { type: "capacity", capacity } }
     if (
@@ -183,7 +201,7 @@ export function parseEventCommand(args: readonly string[]): EventCommand | { err
             name: event,
             change: { type: "template", templateName: args[2] === "off" ? null : args[2]! },
         }
-    if (verb === "reminders" && args.length >= 3 && args.length <= 4) {
+    if (verb === "reminders" && args.length >= 3 && args.length <= 2 + EVENTS_REMINDERS) {
         if (args.length === 3 && args[2] === "off")
             return { type: "change", name: event, change: { type: "reminders", offsets: [] } }
         const offsets = args.slice(2).map((v) => commands.parseArgument(v, minutes))

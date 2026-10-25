@@ -86,9 +86,8 @@ export function processEventDelivery(
             (delivery.postNo !== grant.postNo || delivery.attemptId !== grant.attemptId)
         )
             return yield* Effect.fail(new EventsHandlingError({ stage: "grant" }))
-        const date = event.calendar?.dates.find((d) => d.startsAt === delivery.startsAt)
+        // A repeat's later dates are added by the backend, so a reminder's date need not be one of the calendar's first dates
         if (
-            !date ||
             event.revision !== delivery.revision ||
             grant.source.type !== "event-timer" ||
             grant.source.dueAt !== delivery.dueAt ||

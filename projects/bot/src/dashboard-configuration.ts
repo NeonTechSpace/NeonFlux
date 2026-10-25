@@ -77,9 +77,9 @@ function resolveCalendar(
         calendar = createScheduleCalendar(intent.localMinute, intent.zone, intent.fold, intent.recurrence)
     }
     if (calendar) {
-        const dates = calendar.dates.map((date) => ("startsAt" in date ? date.startsAt : date.dueAt))
-        if (dates.some((date) => date <= now || date > now + 180 * 86400000))
-            throw new Error("Dashboard calendar must remain in the future within 180 days")
+        const first = calendar.dates[0]!
+        if (("startsAt" in first ? first.startsAt : first.dueAt) <= now)
+            throw new Error("Dashboard calendar must start in the future")
     }
     return calendar
 }

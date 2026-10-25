@@ -100,7 +100,12 @@ export function createEventsStore(config: BackendConfig): EventsStore {
                 if (op.type === "mine")
                     return (
                         v.type === "mine" &&
-                        v.entries.every((e, i) => i === 0 || e.startsAt >= v.entries[i - 1]!.startsAt)
+                        v.entries.every((e, i) => i === 0 || e.startsAt >= v.entries[i - 1]!.startsAt) &&
+                        (!v.nextCursor ||
+                            !op.cursor ||
+                            v.nextCursor.eventNo > op.cursor.eventNo ||
+                            (v.nextCursor.eventNo === op.cursor.eventNo &&
+                                v.nextCursor.occurrenceNo > op.cursor.occurrenceNo))
                     )
                 return (
                     op.type === "attendees" &&
@@ -186,6 +191,12 @@ export function createEventsStore(config: BackendConfig): EventsStore {
                                         (t.eventNo === v.nextCursor!.eventNo &&
                                             t.occurrenceNo <= v.nextCursor!.occurrenceNo),
                                 )))
+                    )
+                // A notice page lists each member once
+                if (op.type === "notice-claim")
+                    return (
+                        v.type === "notices" &&
+                        (!v.page || new Set(v.page.targets.map((t) => t.userId)).size === v.page.targets.length)
                     )
                 if (op.type !== "claim") return v.type === "progress"
                 return (

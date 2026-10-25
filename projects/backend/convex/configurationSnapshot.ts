@@ -13,8 +13,8 @@ import { defaultLevelingSettings } from "./levelingDomain.ts"
 import { milestoneSettings, publicMilestoneRoute } from "./milestonesStore.ts"
 import { suggestionSettings, publicSuggestionSettings } from "./suggestionsStore.ts"
 import { cleanupSettings, publicCleanupPolicy, publicCleanupSettings } from "./cleanupStore.ts"
-import { eventSettings, publicEvent } from "./eventsStore.ts"
-import { scheduleSettings, publicSchedule } from "./schedulesStore.ts"
+import { eventResume, eventSettings, publicEvent } from "./eventsStore.ts"
+import { scheduleSettings, publicSchedule, upcomingSchedule } from "./schedulesStore.ts"
 import { publicVoiceGenerator, readVoiceGenerators, readVoiceRooms } from "./voice.ts"
 import { decode, fail } from "./validation.ts"
 import { publicNickname, readGeneral } from "./generalSettings.ts"
@@ -47,14 +47,30 @@ const Cursors = Schema.Struct(
     ),
 )
 const AUDIT_LIST_ROWS = 1000
+/**
+ * The entries of long lists that an operation names, by their key. The audit log reads only these entries of such a list, so a
+ * change anywhere in a list of any length reaches its Details. A create names the number it is about to take
+ */
+export type AuditFocus = {
+    watchlist?: string[]
+    drafts?: Array<readonly [string, string]>
+    events?: number[]
+    schedules?: number[]
+}
+// The rows of the given keys that exist, read one by one through the list's own index
+async function keyed<K, T>(keys: readonly K[], read: (key: K) => Promise<T | null>): Promise<T[]> {
+    const rows: Array<T | null> = await Promise.all(keys.map(read))
+    return rows.filter((row): row is T => row !== null)
+}
 export async function configurationData(
     ctx: QueryCtx,
     serverId: string,
     family: DashboardConfigurationFamily,
     cursors: DashboardConfigurationCursors = {},
     // The audit log reads every list whole, up to AUDIT_LIST_ROWS rows, so its before and after views of a longer list
-    // differ only by the change. The website reads pages
+    // differ only by the change, and reads the entries focus names instead where the operation names them. The website reads pages
     whole = false,
+    focus: AuditFocus = {},
 ) {
     decode(Cursors, cursors, "Invalid configuration cursor")
     const nextCursors: DashboardConfigurationCursors = {},
@@ -115,17 +131,25 @@ export async function configurationData(
                         .take(size + 1),
                     (row) => row.name,
                 ).map(publicRule),
-                watchlist: page(
-                    "watchlist",
-                    await ctx.db
-                        .query("securityWatchlist")
-                        .withIndex("by_server_user", (q) =>
-                            key("watchlist") === undefined
-                                ? q.eq("serverId", serverId)
-                                : q.eq("serverId", serverId).gt("userId", key("watchlist") as string),
-                        )
-                        .take(size + 1),
-                    (row) => row.userId,
+                watchlist: (focus.watchlist
+                    ? await keyed(focus.watchlist, (userId) =>
+                          ctx.db
+                              .query("securityWatchlist")
+                              .withIndex("by_server_user", (q) => q.eq("serverId", serverId).eq("userId", userId))
+                              .unique(),
+                      )
+                    : page(
+                          "watchlist",
+                          await ctx.db
+                              .query("securityWatchlist")
+                              .withIndex("by_server_user", (q) =>
+                                  key("watchlist") === undefined
+                                      ? q.eq("serverId", serverId)
+                                      : q.eq("serverId", serverId).gt("userId", key("watchlist") as string),
+                              )
+                              .take(size + 1),
+                          (row) => row.userId,
+                      )
                 ).map(({ userId, reason, createdAt }) => ({ userId, reason, createdAt })),
             }
             break
@@ -138,21 +162,34 @@ export async function configurationData(
                 after = key("drafts") as string | undefined,
                 [afterKind, afterName] = (after ?? "draft:").split(":")
             let rows = [] as import("./_generated/dataModel.js").Doc<"publishingDrafts">[]
-            for (const kind of ["draft", "template"] as const) {
-                if (afterKind === "template" && kind === "draft") continue
-                const names = kind === afterKind ? afterName : undefined
-                rows.push(
-                    ...(await ctx.db
+            if (focus.drafts)
+                rows = await keyed(focus.drafts, ([kind, name]) =>
+                    ctx.db
                         .query("publishingDrafts")
                         .withIndex("by_server_kind_name", (q) =>
-                            names
-                                ? q.eq("serverId", serverId).eq("kind", kind).gt("name", names)
-                                : q.eq("serverId", serverId).eq("kind", kind),
+                            q
+                                .eq("serverId", serverId)
+                                .eq("kind", kind as "draft")
+                                .eq("name", name),
                         )
-                        .take(size + 1 - rows.length)),
+                        .unique(),
                 )
-                if (rows.length > size) break
-            }
+            else
+                for (const kind of ["draft", "template"] as const) {
+                    if (afterKind === "template" && kind === "draft") continue
+                    const names = kind === afterKind ? afterName : undefined
+                    rows.push(
+                        ...(await ctx.db
+                            .query("publishingDrafts")
+                            .withIndex("by_server_kind_name", (q) =>
+                                names
+                                    ? q.eq("serverId", serverId).eq("kind", kind).gt("name", names)
+                                    : q.eq("serverId", serverId).eq("kind", kind),
+                            )
+                            .take(size + 1 - rows.length)),
+                    )
+                    if (rows.length > size) break
+                }
             data = {
                 settings: { enabled: row?.enabled ?? true },
                 drafts: page("drafts", rows, (row) => `${row.kind}:${row.name}`).map(publicDraft),
@@ -251,18 +288,26 @@ export async function configurationData(
                     revision: row?.revision ?? 1,
                     threads: row?.threads ?? false,
                 },
-                events: page(
-                    "events",
-                    await ctx.db
-                        .query("events")
-                        .withIndex("by_number", (q) =>
-                            key("events") === undefined
-                                ? q.eq("serverId", serverId)
-                                : q.eq("serverId", serverId).gt("eventNo", key("events") as number),
-                        )
-                        .take(size + 1),
-                    (row) => row.eventNo,
-                ).map(publicEvent),
+                events: (focus.events
+                    ? await keyed(focus.events, (eventNo) =>
+                          ctx.db
+                              .query("events")
+                              .withIndex("by_number", (q) => q.eq("serverId", serverId).eq("eventNo", eventNo))
+                              .unique(),
+                      )
+                    : page(
+                          "events",
+                          await ctx.db
+                              .query("events")
+                              .withIndex("by_number", (q) =>
+                                  key("events") === undefined
+                                      ? q.eq("serverId", serverId)
+                                      : q.eq("serverId", serverId).gt("eventNo", key("events") as number),
+                              )
+                              .take(size + 1),
+                          (row) => row.eventNo,
+                      )
+                ).map((row) => ({ ...publicEvent(row), ...eventResume(row, Date.now()) })),
             }
             break
         }
@@ -274,18 +319,31 @@ export async function configurationData(
                     revision: row?.revision ?? 1,
                     activatedAt: row?.activatedAt ?? 0,
                 },
-                schedules: page(
-                    "schedules",
-                    await ctx.db
-                        .query("schedules")
-                        .withIndex("by_number", (q) =>
-                            key("schedules") === undefined
-                                ? q.eq("serverId", serverId)
-                                : q.eq("serverId", serverId).gt("scheduleNo", key("schedules") as number),
-                        )
-                        .take(size + 1),
-                    (row) => row.scheduleNo,
-                ).map(publicSchedule),
+                // Each schedule lists its stored dates that have not come due
+                schedules: await Promise.all(
+                    (focus.schedules
+                        ? await keyed(focus.schedules, (scheduleNo) =>
+                              ctx.db
+                                  .query("schedules")
+                                  .withIndex("by_number", (q) =>
+                                      q.eq("serverId", serverId).eq("scheduleNo", scheduleNo),
+                                  )
+                                  .unique(),
+                          )
+                        : page(
+                              "schedules",
+                              await ctx.db
+                                  .query("schedules")
+                                  .withIndex("by_number", (q) =>
+                                      key("schedules") === undefined
+                                          ? q.eq("serverId", serverId)
+                                          : q.eq("serverId", serverId).gt("scheduleNo", key("schedules") as number),
+                                  )
+                                  .take(size + 1),
+                              (row) => row.scheduleNo,
+                          )
+                    ).map(async (row) => publicSchedule(row, await upcomingSchedule(ctx, row, Date.now()))),
+                ),
             }
             break
         }

@@ -1,4 +1,5 @@
 import type { LevelingLevelUp } from "@neonflux/contracts/leveling"
+import { EVENTS_REMINDER_RANGE_MINUTES } from "@neonflux/contracts/events"
 import assert from "node:assert/strict"
 import { afterEach, test } from "node:test"
 import { JSDOM } from "jsdom"
@@ -732,8 +733,10 @@ test("Event calendar edits strip resolved dates and normalize draft numeric valu
     const form = section(ui, "Event calendar meetup")
     fireEvent.change(form.getByLabelText("Duration (minutes)"), { target: { value: "90" } })
     fireEvent.change(form.getByLabelText("Repeat"), { target: { value: "weekly" } })
-    fireEvent.change(form.getByLabelText("Repeat interval"), { target: { value: "2" } })
-    fireEvent.change(form.getByLabelText("Total occurrences"), { target: { value: "4" } })
+    // Every 13 weeks is a quarterly meeting
+    fireEvent.change(form.getByLabelText("Repeat interval"), { target: { value: "13" } })
+    fireEvent.change(form.getByLabelText("Ends"), { target: { value: "count" } })
+    fireEvent.change(form.getByLabelText("Number of dates"), { target: { value: "40" } })
     await submit(form)
     assert.deepEqual(calls[0]?.operation, {
         type: "calendar",
@@ -744,9 +747,210 @@ test("Event calendar edits strip resolved dates and normalize draft numeric valu
             zone: "UTC",
             fold: "reject",
             durationMinutes: 90,
-            recurrence: { type: "weekly", interval: 2, count: 4 },
+            recurrence: { type: "weekly", interval: 13, count: 40 },
         },
     })
+})
+for (const [ends, recurrence] of [
+    ["never", { type: "weekly", interval: 1 }],
+    ["until", { type: "weekly", interval: 1, until: "2027-06-30" }],
+] as const)
+    test(`A published event with replies keeps an open calendar form, and a repeat can end ${ends === "never" ? "never" : "on a date"}`, async () => {
+        const { ui, calls } = setup(EventSettings, "events", {
+            settings: { enabled: true, revision: 1, threads: false },
+            events: [{ ...event, state: "open", participationStarted: true }],
+        })
+        await openEditors(ui)
+        const form = section(ui, "Event calendar meetup")
+        assert.ok(form.getByText(/Upcoming dates keep their numbers and replies/))
+        fireEvent.change(form.getByLabelText("Repeat"), { target: { value: "weekly" } })
+        assert.equal((form.getByLabelText("Ends") as HTMLSelectElement).value, "never")
+        fireEvent.change(form.getByLabelText("Ends"), { target: { value: ends } })
+        if (ends === "until") fireEvent.change(form.getByLabelText("Last date"), { target: { value: "2027-06-30" } })
+        await submit(form)
+        assert.deepEqual(calls[0]?.operation, {
+            type: "calendar",
+            eventNo: 4,
+            expectedRevision: 3,
+            calendar: { localMinute: "2027-01-10T09:00", zone: "UTC", fold: "reject", durationMinutes: 60, recurrence },
+        })
+    })
+test("A repeat that has begun opens its calendar form at its next date with the dates it has left", async () => {
+    const { ui, calls } = setup(EventSettings, "events", {
+        settings: { enabled: true, revision: 1, threads: false },
+        events: [
+            {
+                ...event,
+                state: "started",
+                calendar: { ...event.calendar, recurrence: { type: "weekly", interval: 1, count: 10 } },
+                resume: { localMinute: "2027-01-24T09:00", count: 8 },
+            },
+        ],
+    })
+    await openEditors(ui)
+    const form = section(ui, "Event calendar meetup")
+    assert.equal((form.getByLabelText("Local date and time") as HTMLInputElement).value, "2027-01-24T09:00")
+    assert.equal((form.getByLabelText("Number of dates") as HTMLInputElement).value, "8")
+    fireEvent.change(form.getByLabelText("Repeat interval"), { target: { value: "2" } })
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, {
+        type: "calendar",
+        eventNo: 4,
+        expectedRevision: 3,
+        calendar: {
+            localMinute: "2027-01-24T09:00",
+            zone: "UTC",
+            fold: "reject",
+            durationMinutes: 60,
+            recurrence: { type: "weekly", interval: 2, count: 8 },
+        },
+    })
+})
+test("A single event date can last past 180 days, and a repeat's date longer than 180 days is refused with that reason", async () => {
+    const { ui, calls } = setup(EventSettings, "events", {
+        settings: { enabled: true, revision: 1, threads: false },
+        events: [event],
+    })
+    await openEditors(ui)
+    const form = section(ui, "Event calendar meetup")
+    fireEvent.change(form.getByLabelText("Duration (minutes)"), { target: { value: "259201" } })
+    fireEvent.change(form.getByLabelText("Repeat"), { target: { value: "daily" } })
+    await submit(form)
+    assert.ok(
+        form
+            .getByRole("alert")
+            .textContent?.includes(
+                "A date of a repeat lasts at most 259200 minutes (180 days), the window a repeat stores its dates in",
+            ),
+    )
+    assert.equal(calls.length, 0)
+    fireEvent.change(form.getByLabelText("Repeat"), { target: { value: "none" } })
+    await submit(form)
+    assert.equal((calls[0]?.operation as { calendar: { durationMinutes: number } }).calendar.durationMinutes, 259201)
+})
+test("An event can seat more than 500 members", async () => {
+    const { ui, calls } = setup(EventSettings, "events", {
+        settings: { enabled: true, revision: 1, threads: false },
+        events: [event],
+    })
+    await openEditors(ui)
+    const form = section(ui, "Event capacity meetup")
+    fireEvent.click(form.getByLabelText("Unlimited seats"))
+    fireEvent.change(form.getByLabelText("Event capacity"), { target: { value: "2000" } })
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, { type: "capacity", eventNo: 4, expectedRevision: 3, capacity: 2000 })
+})
+test("A counted repeat whose dates have all started opens its form with no count and asks for a new end", async () => {
+    const { ui, calls } = setup(EventSettings, "events", {
+        settings: { enabled: true, revision: 1, threads: false },
+        events: [
+            {
+                ...event,
+                state: "started",
+                calendar: { ...event.calendar, recurrence: { type: "weekly", interval: 1, count: 2 } },
+                resume: { localMinute: "2027-01-24T09:00", count: 0 },
+            },
+        ],
+    })
+    await openEditors(ui)
+    const form = section(ui, "Event calendar meetup")
+    assert.ok(form.getByText(/Every date of this repeat has started\. Choose how it ends/))
+    assert.equal(form.queryByLabelText("Number of dates"), null)
+    fireEvent.change(form.getByLabelText("Ends"), { target: { value: "count" } })
+    fireEvent.change(form.getByLabelText("Number of dates"), { target: { value: "3" } })
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, {
+        type: "calendar",
+        eventNo: 4,
+        expectedRevision: 3,
+        calendar: {
+            localMinute: "2027-01-24T09:00",
+            zone: "UTC",
+            fold: "reject",
+            durationMinutes: 60,
+            recurrence: { type: "weekly", interval: 1, count: 3 },
+        },
+    })
+})
+test("A repeat may be 400 days apart, and one with a date past the year 9999 is refused with that reason", async () => {
+    const { ui, calls } = setup(EventSettings, "events", {
+        settings: { enabled: true, revision: 1, threads: false },
+        events: [event],
+    })
+    await openEditors(ui)
+    const form = section(ui, "Event calendar meetup")
+    fireEvent.change(form.getByLabelText("Repeat"), { target: { value: "daily" } })
+    fireEvent.change(form.getByLabelText("Repeat interval"), { target: { value: "9007199254740991" } })
+    await submit(form)
+    assert.ok(form.getByRole("alert").textContent?.includes("after 9999-12-31, the last date a calendar supports"))
+    assert.equal(calls.length, 0)
+    fireEvent.change(form.getByLabelText("Repeat interval"), { target: { value: "400" } })
+    fireEvent.change(form.getByLabelText("Ends"), { target: { value: "count" } })
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, {
+        type: "calendar",
+        eventNo: 4,
+        expectedRevision: 3,
+        calendar: {
+            localMinute: "2027-01-10T09:00",
+            zone: "UTC",
+            fold: "reject",
+            durationMinutes: 60,
+            recurrence: { type: "daily", interval: 400, count: 2 },
+        },
+    })
+})
+test("A daily repeat's reminder further ahead than its 26 stored dates is refused with that reason", async () => {
+    const reason =
+        "A reminder of this repeat comes at most 36000 minutes (25 days) before a date, since NeonFlux stores its next 26 dates and adds each later date with its reminders as an earlier one starts"
+    const daily = {
+        ...event,
+        calendar: { ...event.calendar, recurrence: { type: "daily" as const, interval: 1 } },
+    }
+    const { ui, calls } = setup(EventSettings, "events", {
+        settings: { enabled: true, revision: 1, threads: false },
+        events: [daily],
+    })
+    await openEditors(ui)
+    const form = section(ui, "Event reminders meetup")
+    fireEvent.click(form.getByRole("button", { name: "Add reminder minutes", hidden: true }))
+    fireEvent.change(form.getByLabelText("Reminder minutes 1"), { target: { value: "43200" } })
+    await submit(form)
+    assert.equal(form.getByRole("alert").textContent, reason)
+    assert.equal(calls.length, 0)
+    fireEvent.change(form.getByLabelText("Reminder minutes 1"), { target: { value: "36000" } })
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, { type: "reminders", eventNo: 4, expectedRevision: 3, offsets: [36000] })
+})
+test("Making an event with a 30-day reminder a daily repeat is refused with that reason", async () => {
+    const { ui, calls } = setup(EventSettings, "events", {
+        settings: { enabled: true, revision: 1, threads: false },
+        events: [{ ...event, reminderOffsets: [43200] }],
+    })
+    await openEditors(ui)
+    const form = section(ui, "Event calendar meetup")
+    fireEvent.change(form.getByLabelText("Repeat"), { target: { value: "daily" } })
+    await submit(form)
+    assert.ok(form.getByRole("alert").textContent?.includes("at most 36000 minutes (25 days)"))
+    assert.equal(calls.length, 0)
+    fireEvent.change(form.getByLabelText("Repeat"), { target: { value: "weekly" } })
+    await submit(form)
+    assert.equal((calls[0]?.operation as { type: string }).type, "calendar")
+})
+test("Making a single event with a 400-day reminder a weekly repeat is refused with the 179-day reason", async () => {
+    const { ui, calls } = setup(EventSettings, "events", {
+        settings: { enabled: true, revision: 1, threads: false },
+        events: [{ ...event, reminderOffsets: [576000] }],
+    })
+    await openEditors(ui)
+    const form = section(ui, "Event calendar meetup")
+    fireEvent.change(form.getByLabelText("Repeat"), { target: { value: "weekly" } })
+    await submit(form)
+    assert.equal(
+        form.getByRole("alert").textContent,
+        "A reminder of a repeat comes at most 257760 minutes (179 days) before a date, since NeonFlux stores a repeat's later date once it is 180 days ahead",
+    )
+    assert.equal(calls.length, 0)
 })
 test("Event reminders enforce actual bounds and duplicate offsets before queueing", async () => {
     const { ui, calls } = setup(EventSettings, "events", {
@@ -756,9 +960,11 @@ test("Event reminders enforce actual bounds and duplicate offsets before queuein
     await openEditors(ui)
     const form = section(ui, "Event reminders meetup")
     fireEvent.click(form.getByRole("button", { name: "Add reminder minutes", hidden: true }))
-    fireEvent.change(form.getByLabelText("Reminder minutes 1"), { target: { value: "10081" } })
+    fireEvent.change(form.getByLabelText("Reminder minutes 1"), {
+        target: { value: String(EVENTS_REMINDER_RANGE_MINUTES + 1) },
+    })
     await submit(form)
-    assert.ok(form.getByRole("alert").textContent?.includes("10080"))
+    assert.ok(form.getByRole("alert").textContent?.includes(String(EVENTS_REMINDER_RANGE_MINUTES)))
     assert.equal(calls.length, 0)
     fireEvent.change(form.getByLabelText("Reminder minutes 1"), { target: { value: "60" } })
     fireEvent.click(form.getByRole("button", { name: "Add reminder minutes", hidden: true }))
@@ -766,6 +972,17 @@ test("Event reminders enforce actual bounds and duplicate offsets before queuein
     await submit(form)
     assert.ok(form.getByRole("alert").textContent?.includes("distinct"))
     assert.equal(calls.length, 0)
+    // A single date's reminder can come 400 days ahead, and an event has more than two
+    fireEvent.change(form.getByLabelText("Reminder minutes 2"), { target: { value: "576000" } })
+    fireEvent.click(form.getByRole("button", { name: "Add reminder minutes", hidden: true }))
+    fireEvent.change(form.getByLabelText("Reminder minutes 3"), { target: { value: "10" } })
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, {
+        type: "reminders",
+        eventNo: 4,
+        expectedRevision: 3,
+        offsets: [576000, 60, 10],
+    })
 })
 test("Dirty event definitions survive live drift and submit only after explicit review", async () => {
     const { ui, calls, props } = setup(EventSettings, "events", {
@@ -873,14 +1090,14 @@ test("Schedules create a finite plan from the chosen source without resolved dat
         calendar: { localMinute: "2027-01-10T09:00", zone: "UTC", fold: "reject", recurrence: { type: "none" } },
     })
 })
-test("A saved schedule shows what it posts and when from its own copy, with each date in both zones and past dates marked", async (context) => {
+test("A saved schedule shows what it posts and its stored upcoming dates from its own copy, each in both zones", async (context) => {
     const at = (localMinute: string, offsetMinutes: number) => Date.parse(`${localMinute}:00Z`) - offsetMinutes * 60000
     const dates = [
         { localMinute: "2027-01-10T09:00", offsetMinutes: 60, dueAt: at("2027-01-10T09:00", 60) },
         { localMinute: "2027-07-10T09:00", offsetMinutes: 120, dueAt: at("2027-07-10T09:00", 120) },
         { localMinute: "2027-12-10T09:00", offsetMinutes: -330, dueAt: at("2027-12-10T09:00", -330) },
     ]
-    context.mock.method(Date, "now", () => dates[1]!.dueAt)
+    context.mock.method(Date, "now", () => dates[1]!.dueAt - 1)
     const content = { content: "Weekly digest", embed: { title: "Digest" } }
     const { ui } = setup(ScheduleSettings, "schedules", {
         settings: { enabled: true, revision: 1, activatedAt: 1 },
@@ -899,9 +1116,11 @@ test("A saved schedule shows what it posts and when from its own copy, with each
                     localMinute: "2027-01-10T09:00",
                     zone: "Europe/Paris",
                     fold: "reject",
-                    recurrence: { type: "none" },
-                    dates,
+                    recurrence: { type: "daily", interval: 1 },
+                    dates: [dates[0]!],
                 },
+                // Later dates the backend added, which the calendar's first dates do not hold
+                upcoming: dates.slice(1),
                 enabled: true,
                 cancelled: false,
                 activatedAt: 1,
@@ -924,11 +1143,11 @@ test("A saved schedule shows what it posts and when from its own copy, with each
         .slice(1)
         .map((row) => [...row.querySelectorAll("td")].map((cell) => cell.textContent))
     assert.deepEqual(rows, [
-        ["2027-01-10 09:00 (UTC+01:00)", localTime(dates[0]!.dueAt), "Past"],
-        ["2027-07-10 09:00 (UTC+02:00)", localTime(dates[1]!.dueAt), "Upcoming"],
-        ["2027-12-10 09:00 (UTC-05:30)", localTime(dates[2]!.dueAt), "Upcoming"],
+        ["2027-07-10 09:00 (UTC+02:00)", localTime(dates[1]!.dueAt)],
+        ["2027-12-10 09:00 (UTC-05:30)", localTime(dates[2]!.dueAt)],
     ])
-    assert.ok(within(details).getByText("Planned dates in Europe/Paris"))
+    assert.ok(within(details).getByText("Upcoming dates in Europe/Paris"))
+    assert.ok(within(details).getByText("Every day, no end date"))
 })
 test("Cleanup deletion enabling requires explicit confirmation and preserves exact policy revision", async () => {
     const policy = {

@@ -1,5 +1,6 @@
 import type { PublishingContent } from "@neonflux/contracts/publishing-base"
 import { EventsCalendar, EventsReminderOffsets, type EventsResolvedDate } from "@neonflux/contracts/events"
+import { civilRepeatText } from "@neonflux/contracts/civil"
 import { validateCivilCalendar } from "./civilDomain.ts"
 import { publishingContent, withFittingField } from "./publishingDomain.ts"
 import { decode, fail, integer, text } from "./validation.ts"
@@ -48,7 +49,10 @@ export function validateEventCalendar(value: unknown, now = Date.now()): EventsC
         dates,
     }
 }
-/** An event's card, or a reminder for one date. Both end with how to RSVP when the card has room for it */
+/**
+ * An event's card, or a reminder for one date. Both end with how to RSVP when the card has room for it. A card shows the event's
+ * earliest date that has not ended, which is its first stored date until dates pass or move
+ */
 export function renderEvent(
     event: {
         name: string
@@ -60,12 +64,12 @@ export function renderEvent(
     },
     prefix: string,
     reminder?: { startsAt: number; endsAt: number; occurrenceNo: number },
+    first?: { startsAt: number; endsAt: number },
 ): PublishingContent {
     const calendar = event.calendar
     if (!calendar?.dates.length) fail(409, "Calendar required")
-    const date = reminder ?? calendar.dates[0]!
-    const base = event.template?.content ?? { content: "" },
-        dates = calendar.dates.length
+    const date = reminder ?? first ?? calendar.dates[0]!
+    const base = event.template?.content ?? { content: "" }
     // Fluxer shows timestamp markup in each reader's own time zone. The bot renders the same card
     const at = (ms: number) => `<t:${Math.floor(ms / 1000)}:f>`
     const rsvp = `${prefix}event rsvp ${event.name}${reminder ? ` ${reminder.occurrenceNo}` : ""}`
@@ -83,7 +87,7 @@ export function renderEvent(
                             name: reminder ? "When" : "First date",
                             value: `${at(date.startsAt)} to ${at(date.endsAt)}\nPlanned in ${calendar.zone} time`,
                         },
-                        { name: "Dates", value: dates === 1 ? "Once" : `${dates} dates` },
+                        { name: "Dates", value: civilRepeatText(calendar.recurrence) },
                         {
                             name: "Capacity",
                             value:

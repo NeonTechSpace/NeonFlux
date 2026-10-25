@@ -18,6 +18,7 @@ import {
     eventAutomationContext,
     eventCardChannel,
     eventRemindersOpen,
+    eventRepeats,
     eventRow,
     eventSettings,
     lifecycle,
@@ -41,8 +42,12 @@ async function bound(ctx: MutationCtx, serverId: string, b: EventsDeliveryBindin
     return row
 }
 const THREAD_BATCH = 10
+// A repeat that still adds dates has not ended, even while its stored dates have
 const eventOver = (event: Doc<"events">, now: number) =>
-    event.state === "cancelled" || event.forgetting === true || now >= (event.endsAt ?? 0)
+    event.state === "cancelled" || event.forgetting === true || (now >= (event.endsAt ?? 0) && !eventRepeats(event))
+// An open discussion is looked at again when the stored dates end, or a minute later when they ended while the repeat goes on,
+// by which time the retention chain has added the next date
+const threadCheckAt = (event: Doc<"events">, now: number) => Math.max(event.endsAt ?? 0, now + 60000)
 // Discussion threads follow the event. One starts on the card once it is sent, and the thread, or a forum post published with
 // threads on, closes once the event ends or is cancelled. Rows with nothing left to do leave the due index here
 async function dueThreads(ctx: MutationCtx, serverId: string, now: number) {
@@ -59,7 +64,8 @@ async function dueThreads(ctx: MutationCtx, serverId: string, now: number) {
         if (eventOver(event, now)) {
             if (target) work.push({ ...base, action: "close", threadId: target })
             else await ctx.db.patch(event._id, { threadDueAt: undefined })
-        } else if (event.postId || event.threadId) await ctx.db.patch(event._id, { threadDueAt: event.endsAt })
+        } else if (event.postId || event.threadId)
+            await ctx.db.patch(event._id, { threadDueAt: threadCheckAt(event, now) })
         else {
             const post =
                 event.cardPostNo !== undefined
@@ -97,7 +103,7 @@ async function recordThread(
             fail(409, "Event discussion changed")
         await ctx.db.patch(event._id, {
             threadId: post.messageId,
-            threadDueAt: eventOver(event, now) ? now : event.endsAt,
+            threadDueAt: eventOver(event, now) ? now : threadCheckAt(event, now),
         })
     } else if (op.outcome === "closed") {
         if (!eventOver(event, now)) fail(409, "Event discussion still open")
@@ -168,20 +174,18 @@ export const delivery = serviceMutation({
             const after =
                 op.afterDeliveryId === undefined ? null : ctx.db.normalizeId("eventDeliveries", op.afterDeliveryId)
             if (op.afterDeliveryId !== undefined && !after) fail(400, "Invalid delivery cursor")
-            if (after) {
-                const cursor = await ctx.db.get(after)
-                if (!cursor || cursor.serverId !== serverId || cursor.eventNo !== op.eventNo)
-                    fail(400, "Invalid delivery cursor")
-            }
-            const rows = await ctx.db
+            const cursor = after && (await ctx.db.get(after))
+            if (after && (!cursor || cursor.serverId !== serverId || cursor.eventNo !== op.eventNo))
+                fail(400, "Invalid delivery cursor")
+            // Chat shows 10 reminders per page in the order they were queued, read from the cursor on, so every page reaches the database
+            const selected = await ctx.db
                 .query("eventDeliveries")
-                .withIndex("by_event", (q) => q.eq("serverId", serverId).eq("eventNo", op.eventNo))
-                .take(1101)
-            // Chat shows 10 reminders per page
-            const selected = rows
-                .filter((row) => after === null || row._id > after)
-                .sort((a, b) => (a._id < b._id ? -1 : 1))
-                .slice(0, 11)
+                .withIndex("by_event", (q) =>
+                    cursor
+                        ? q.eq("serverId", serverId).eq("eventNo", op.eventNo).gt("_creationTime", cursor._creationTime)
+                        : q.eq("serverId", serverId).eq("eventNo", op.eventNo),
+                )
+                .take(11)
             const deliveries = []
             for (const row of selected.slice(0, 10)) {
                 const attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null

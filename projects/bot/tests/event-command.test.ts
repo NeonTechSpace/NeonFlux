@@ -1,4 +1,9 @@
-import { EVENTS_DESCRIPTION_LIMIT, type EventsDefinition, type EventsRsvp } from "@neonflux/contracts/events"
+import {
+    EVENTS_DESCRIPTION_LIMIT,
+    EVENTS_REMINDER_RANGE_MINUTES,
+    type EventsDefinition,
+    type EventsRsvp,
+} from "@neonflux/contracts/events"
 import { renderEmbeds, renderText } from "../src/reply-style.ts"
 import assert from "node:assert/strict"
 import test from "node:test"
@@ -27,12 +32,82 @@ test("event grammar names events in any case, takes no revisions and pages lists
         durationMinutes: 60,
         fold: "later",
     })
+    // A reminder can come months ahead
+    // Up to 20 reminders, such as a week, three days, a day, an hour and ten minutes before
+    assert.deepEqual(parse("reminders study 10080 4320 1440 60 10"), {
+        type: "change",
+        name: "study",
+        change: { type: "reminders", offsets: [10080, 4320, 1440, 60, 10] },
+    })
+    assert.deepEqual(parse("reminders study 144000"), {
+        type: "change",
+        name: "study",
+        change: { type: "reminders", offsets: [144000] },
+    })
+    // A month-long challenge lasts 43200 minutes, and a year-long season 525600, which the calendar then checks
+    assert.deepEqual(parse("time study 2026-11-01T00:00 UTC 43200"), {
+        type: "time",
+        name: "study",
+        localMinute: "2026-11-01T00:00",
+        zone: "UTC",
+        durationMinutes: 43200,
+        fold: "reject",
+    })
+    assert.equal(
+        (parse("time study 2026-11-01T00:00 UTC 525600") as { durationMinutes: number }).durationMinutes,
+        525600,
+    )
+    // A single date takes a reminder a year ahead, and the backend holds a repeat's to its stored dates
+    assert.deepEqual(parse("reminders study 525600"), {
+        type: "change",
+        name: "study",
+        change: { type: "reminders", offsets: [525600] },
+    })
     assert.deepEqual(parse("repeat study weekly 12 2"), {
         type: "repeat",
         name: "study",
         recurrence: { type: "weekly", interval: 12, count: 2 },
     })
+    // A quarterly meeting is every 13 weeks, and an interval may be any whole number from 1
+    assert.deepEqual(parse("repeat study weekly 13"), {
+        type: "repeat",
+        name: "study",
+        recurrence: { type: "weekly", interval: 13 },
+    })
+    assert.deepEqual(parse("repeat study daily 400 2"), {
+        type: "repeat",
+        name: "study",
+        recurrence: { type: "daily", interval: 400, count: 2 },
+    })
     assert.deepEqual(parse("repeat study off"), { type: "repeat", name: "study", recurrence: { type: "none" } })
+    // A repeat ends after a number of dates, on a date, or never when no end is given
+    assert.deepEqual(parse("repeat study daily 1 40"), {
+        type: "repeat",
+        name: "study",
+        recurrence: { type: "daily", interval: 1, count: 40 },
+    })
+    for (const text of ["repeat study weekly 2", "repeat study weekly 2 ongoing"])
+        assert.deepEqual(parse(text), { type: "repeat", name: "study", recurrence: { type: "weekly", interval: 2 } })
+    assert.deepEqual(parse("repeat study weekly 1 until 2027-03-01"), {
+        type: "repeat",
+        name: "study",
+        recurrence: { type: "weekly", interval: 1, until: "2027-03-01" },
+    })
+    assert.deepEqual(parse("move study 12 2026-11-02T19:00"), {
+        type: "move",
+        name: "study",
+        occurrenceNo: 12,
+        localMinute: "2026-11-02T19:00",
+        fold: "reject",
+    })
+    assert.deepEqual(parse("move study 12 2026-10-25T02:30 later"), {
+        type: "move",
+        name: "study",
+        occurrenceNo: 12,
+        localMinute: "2026-10-25T02:30",
+        fold: "later",
+    })
+    assert.match(eventHelpAll.join("\n"), /^!event move <name> <date> YYYY-MM-DDTHH:mm \[earlier\|later\]: /m)
     assert.deepEqual(parseEventCommand(["title", "study", "Study group", "Bring questions"]), {
         type: "change",
         name: "study",
@@ -47,6 +122,12 @@ test("event grammar names events in any case, takes no revisions and pages lists
         type: "change",
         name: "study",
         change: { type: "template", templateName: null },
+    })
+    // Seats go past 500, as many as the server needs
+    assert.deepEqual(parse("capacity study 2000"), {
+        type: "change",
+        name: "study",
+        change: { type: "capacity", capacity: 2000 },
     })
     assert.deepEqual(parse("capacity study off"), {
         type: "change",
@@ -93,13 +174,22 @@ test("event grammar names events in any case, takes no revisions and pages lists
 })
 test("event grammar rejects excess input, invalid bounds and the old revision, page and cursor forms", () => {
     for (const text of [
-        "capacity study 501",
+        "capacity study 1.5",
         "capacity study 0",
         "reminders study 60 60",
+        `reminders study ${Array.from({ length: 21 }, (_, i) => i + 1).join(" ")}`,
         "reminders study 0",
-        "reminders study 10081",
-        "repeat study daily 13 2",
-        "repeat study daily 1 27",
+        `reminders study ${EVENTS_REMINDER_RANGE_MINUTES + 1}`,
+        "repeat study daily 0 2",
+        "repeat study daily 9007199254740992 2",
+        "repeat study daily 1 0",
+        "repeat study daily 1 until 2027-02-30",
+        "repeat study daily 1 until",
+        "repeat study daily 1 2 3",
+        "move study 0 2026-11-02T19:00",
+        "move study 12",
+        "move study 12 2026-11-02",
+        "move study 12 2026-11-02T19:00 sideways",
         "rsvp study 1 going 1",
         "rsvp study 1 yes",
         "rsvp study yes",
@@ -109,7 +199,6 @@ test("event grammar rejects excess input, invalid bounds and the old revision, p
         "mine study",
         "forget study yes",
         "time study 2026-01-01T00:00Z UTC 60",
-        "time study 2026-01-01T00:00 UTC 10081",
         "attendees study 1 0",
         "show bad.name",
         "create bad.name 123456789012345681 Title",

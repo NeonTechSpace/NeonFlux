@@ -222,6 +222,17 @@ const WORK_SOURCES: readonly Source[] = [
         min: 0,
         gate: eventsEnabled,
     }),
+    // Members to tell by DM that dates they replied to moved or were cancelled, as eventsWork's notice claim selects them
+    source({
+        kind: "events",
+        key: "events.notices",
+        table: "events",
+        index: "by_global_notice_due",
+        prefix: [],
+        order: "noticeDueAt",
+        min: 0,
+        gate: eventsEnabled,
+    }),
     source({
         kind: "schedules",
         key: "scheduleDeliveries",

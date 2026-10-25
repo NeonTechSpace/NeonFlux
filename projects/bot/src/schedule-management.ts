@@ -10,7 +10,7 @@ import { Clock, Effect } from "effect"
 import type { BotConfig } from "./config.ts"
 import { scheduleHelp, type ScheduleCommand, type ScheduleSource } from "./schedule-command.ts"
 import { createScheduleCalendar } from "./schedule-calendar.ts"
-import { CivilCalendarError, calendarFailure } from "./civil-calendar.ts"
+import { CivilCalendarError, calendarFailure, skippedDate } from "./civil-calendar.ts"
 import { readSchedulesContext } from "./schedule-permissions.ts"
 import { SchedulesStoreError, schedulesErrorMessage, type SchedulesStore } from "./schedule-store.ts"
 import { publishingErrorMessage, PublishingStoreError, type PublishingStore } from "./publishing-store.ts"
@@ -22,12 +22,15 @@ import { sourceTimestamp } from "./responses.ts"
 import { ago, at, code, onOff, replyCard, replyText, usage, type Card } from "./reply-style.ts"
 import { replyPrefix, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
+import { civilEvery, civilRepeatText } from "@neonflux/contracts/civil"
 
 const scheduleState = (schedule: SchedulesDefinition) => (schedule.cancelled ? "Cancelled" : onOff(schedule.enabled))
-/** A schedule's staff summary: Its next date and how many there are. The dates and the post show on request, each in each reader's own time */
+/** The stored dates that have not come due. A list answer has no upcoming dates, so its calendar's first dates stand in */
+const upcoming = (schedule: SchedulesDefinition, now: number) =>
+    schedule.upcoming ?? schedule.calendar.dates.filter((date) => date.dueAt > now)
+/** A schedule's staff summary: Its next date and how it repeats. The dates and the post show on request, each in each reader's own time */
 export function scheduleDetail(schedule: SchedulesDefinition, prefix: string, now: number): Card {
-    const dates = schedule.calendar.dates,
-        next = dates.find((date) => date.dueAt > now),
+    const next = upcoming(schedule, now)[0],
         command = (verb: string) => code(`${prefix}publish schedule ${verb} ${schedule.name}`)
     return {
         title: `Schedule ${schedule.name}`,
@@ -36,10 +39,10 @@ export function scheduleDetail(schedule: SchedulesDefinition, prefix: string, no
             ["Channel", format.channelMention(schedule.channelId)],
             ["Content", `A copy of ${schedule.source.kind} ${schedule.source.name}`],
             ["Next date", next ? at(next.dueAt) : "None left"],
-            [
-                "Dates",
-                `${dates.length === 1 ? "Once" : `${dates.length} dates, last ${at(dates.at(-1)!.dueAt)}`}, planned in ${schedule.calendar.zone} time`,
-            ],
+            ["Dates", `${civilRepeatText(schedule.calendar.recurrence)}, planned in ${schedule.calendar.zone} time`],
+            ...(schedule.lastSkipped
+                ? [["Skipped", skippedDate(schedule.lastSkipped, schedule.calendar.zone)] as const]
+                : []),
         ],
         note: `See the dates with ${command("dates")}, the post with ${command("preview")} and what was sent with ${command("status")}`,
         footer: "Posts that come due while the schedule is off are skipped",
@@ -52,8 +55,12 @@ function scheduleChange(type: ScheduleCommand["type"], schedule: SchedulesDefini
     const name = `Schedule ${schedule.name}`,
         dates = schedule.calendar.dates
     switch (type) {
-        case "calendar":
-            return `${name} now posts ${dates.length === 1 ? `once, ${at(dates[0]!.dueAt)}` : `${dates.length} times, from ${at(dates[0]!.dueAt)} to ${at(dates.at(-1)!.dueAt)}`}`
+        case "calendar": {
+            const r = schedule.calendar.recurrence
+            return r.type === "none" || r.count === 1
+                ? `${name} now posts once, ${at(dates[0]!.dueAt)}`
+                : `${name} now posts ${civilEvery(r)} from ${at(dates[0]!.dueAt)}, ${r.count ? `${r.count} times` : r.until ? `until ${r.until}` : "with no end date"}`
+        }
         case "content":
             return `${name} now posts a copy of ${schedule.source.kind} ${schedule.source.name}`
         case "destination":
@@ -152,7 +159,7 @@ export function handleScheduleCommand(
                 more ? [["Next", code(`${withPrefix(start, prefix)} next`)]] : []
             if (result.type === "schedule") {
                 const schedule = result.schedule,
-                    dates = schedule.calendar.dates
+                    dates = upcoming(schedule, yield* Clock.currentTimeMillis)
                 if (command.type === "preview") {
                     yield* reply(
                         `Preview of schedule ${schedule.name}, a copy of ${schedule.source.kind} ${schedule.source.name}:`,
@@ -162,18 +169,20 @@ export function handleScheduleCommand(
                         embeds: schedule.content.embed ? [schedule.content.embed] : [],
                     })
                 } else if (command.type === "dates") {
-                    // The plan is read whole, so its dates page by number. Date numbers belong to posts, so the plan's dates are not numbered
+                    // The stored upcoming dates are read whole, so they page by number. Date numbers belong to posts, so they are not numbered
                     const pages = Math.ceil(dates.length / DATES_PAGE),
                         page = Math.min(position || 1, pages),
                         shown = dates.slice((page - 1) * DATES_PAGE, page * DATES_PAGE)
                     rememberPosition(key, page < pages ? page + 1 : undefined)
                     yield* card({
                         title: `Schedule ${schedule.name} dates`,
-                        description: [
-                            `${dates.length === 1 ? "One date" : `Dates ${(page - 1) * DATES_PAGE + 1} to ${(page - 1) * DATES_PAGE + shown.length} of ${dates.length}`}, ` +
-                                `planned in ${schedule.calendar.zone} time`,
-                            ...shown.map((date) => `- ${at(date.dueAt)}`),
-                        ].join("\n"),
+                        description: dates.length
+                            ? [
+                                  `${dates.length === 1 ? "One upcoming date" : `Upcoming dates ${(page - 1) * DATES_PAGE + 1} to ${(page - 1) * DATES_PAGE + shown.length} of ${dates.length}`}, ` +
+                                      `planned in ${schedule.calendar.zone} time`,
+                                  ...shown.map((date) => `- ${at(date.dueAt)}`),
+                              ].join("\n")
+                            : "No upcoming dates",
                         fields: next(page < pages),
                     })
                 } else yield* card(scheduleDetail(schedule, prefix, yield* Clock.currentTimeMillis))
@@ -232,10 +241,6 @@ export function handleScheduleCommand(
                                           : `Off. Schedules post nothing until ${code(`${prefix}publish module on`)}`,
                                   ],
                                   ["Schedules", usage(result.definitions, 50)],
-                                  ["Post records", usage(result.deliveries, 200)],
-                                  ...(result.receipts >= 800
-                                      ? [["Changes today", `${result.receipts} of 1000`] as const]
-                                      : []),
                               ] as const)
                             : []),
                     ],
@@ -256,14 +261,9 @@ export function handleScheduleCommand(
                       createScheduleCalendar(command.localMinute, command.zone, command.fold, command.recurrence),
                   )
                 : undefined
-        if (plan) {
-            const now = yield* Clock.currentTimeMillis
-            if (plan.dates[0]!.dueAt <= now || plan.dates.at(-1)!.dueAt > now + 180 * 86400000) {
-                yield* reply(
-                    "Every date must be in the future and within 180 days. Choose fewer dates or an earlier start",
-                )
-                return
-            }
+        if (plan && plan.dates[0]!.dueAt <= (yield* Clock.currentTimeMillis)) {
+            yield* reply("The first date must be in the future. Choose a later start")
+            return
         }
         // Chat changes apply to the current state: The bot reads the current revisions right before the write, so the later of two staff changes wins
         const source = (selected: ScheduleSource) =>

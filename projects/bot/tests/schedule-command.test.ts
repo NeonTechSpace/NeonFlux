@@ -5,7 +5,7 @@ import { parseScheduleCommand, scheduleCritical } from "../src/schedule-command.
 import { createScheduleCalendar } from "../src/schedule-calendar.ts"
 import { expandCivilCalendar, CivilCalendarError } from "../src/civil-calendar.ts"
 
-test("nested publishing parser names schedules and sources, binds finite recurrence and selected settled forgetting", () => {
+test("nested publishing parser names schedules and sources, binds recurrence with any end and selected settled forgetting", () => {
     const parsed = parsePublishingCommand([
         "schedule",
         "create",
@@ -56,6 +56,24 @@ test("nested publishing parser names schedules and sources, binds finite recurre
             recurrence: { type: "daily", interval: 2, count: 4 },
         },
     )
+    // Without an end a repeat never ends, and it may end on a date or after any number of dates
+    for (const [tail, recurrence] of [
+        [["weekly", "1"], { type: "weekly", interval: 1 }],
+        [["weekly", "1", "ongoing"], { type: "weekly", interval: 1 }],
+        [["weekly", "1", "until", "2027-03-01"], { type: "weekly", interval: 1, until: "2027-03-01" }],
+        [["weekly", "1", "40"], { type: "weekly", interval: 1, count: 40 }],
+    ] as const)
+        assert.deepEqual(
+            parseScheduleCommand(["update", "news", "time", "2026-10-24T12:00", "UTC", "reject", ...tail]),
+            {
+                type: "calendar",
+                name: "news",
+                localMinute: "2026-10-24T12:00",
+                zone: "UTC",
+                fold: "reject",
+                recurrence,
+            },
+        )
     assert.deepEqual(parseScheduleCommand(["update", "news", "destination", "<#123456789012345681>"]), {
         type: "destination",
         name: "news",
@@ -78,6 +96,27 @@ test("nested publishing parser names schedules and sources, binds finite recurre
     assert.deepEqual(parseScheduleCommand(["status", "news"]), { type: "deliveries", name: "news", next: false })
     assert.deepEqual(parseScheduleCommand(["status", "news", "next"]), { type: "deliveries", name: "news", next: true })
     assert.deepEqual(parseScheduleCommand(["module", "on"]), { type: "module", enabled: true })
+    // A quarterly schedule repeats every 13 weeks
+    assert.deepEqual(
+        parseScheduleCommand(["update", "news", "time", "2026-10-24T12:00", "UTC", "reject", "weekly", "13"]),
+        parseScheduleCommand([
+            "update",
+            "news",
+            "time",
+            "2026-10-24T12:00",
+            "UTC",
+            "reject",
+            "weekly",
+            "13",
+            "ongoing",
+        ]),
+    )
+    assert(
+        !(
+            "error" in
+            parseScheduleCommand(["update", "news", "time", "2026-10-24T12:00", "UTC", "reject", "weekly", "13"])
+        ),
+    )
     // Revision numbers, schedule numbers as cursors and malformed values are not forms of any command
     for (const args of [
         ["enable", "news", "2"],
@@ -90,7 +129,9 @@ test("nested publishing parser names schedules and sources, binds finite recurre
         ["update", "news", "content", "draft", "notice", "5"],
         ["create", "news", "draft", "notice", "2", "123456789012345681", "2026-10-24T12:00", "UTC", "reject"],
         ["create", "news", "draft", "notice", "123456789012345681", "2026-10-24T12:00", "UTC"],
-        ["update", "news", "time", "2026-10-24T12:00", "UTC", "reject", "daily", "13", "26"],
+        ["update", "news", "time", "2026-10-24T12:00", "UTC", "reject", "daily", "0", "26"],
+        ["update", "news", "time", "2026-10-24T12:00", "UTC", "reject", "daily", "1", "0"],
+        ["update", "news", "time", "2026-10-24T12:00", "UTC", "reject", "daily", "1", "until", "soon"],
         ["show", "bad name!"],
     ])
         assert("error" in parseScheduleCommand(args), JSON.stringify(args))
@@ -133,8 +174,10 @@ test("duration-free civil results map directly to schedule due dates", () => {
     const earlier = createScheduleCalendar("2026-10-25T02:30", "Europe/Berlin", "earlier"),
         later = createScheduleCalendar("2026-10-25T02:30", "Europe/Berlin", "later")
     assert.equal(later.dates[0]!.dueAt - earlier.dates[0]!.dueAt, 3600000)
-    assert.throws(
-        () => createScheduleCalendar("2026-01-01T12:00", "UTC", "reject", { type: "weekly", interval: 12, count: 4 }),
-        /180 days/,
+    // Dates more than 180 days after the first are added by the backend later
+    assert.equal(
+        createScheduleCalendar("2026-01-01T12:00", "UTC", "reject", { type: "weekly", interval: 12, count: 4 }).dates
+            .length,
+        3,
     )
 })

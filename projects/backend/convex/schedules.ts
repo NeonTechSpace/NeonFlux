@@ -18,6 +18,7 @@ import { advanceSchedule, validateScheduleCalendar, SCHEDULES_BATCH, SCHEDULES_P
 import {
     addSchedulePlan,
     closeScheduleDelivery,
+    extendSchedule,
     publicSchedule,
     publicScheduleDelivery,
     publisherSettings,
@@ -27,6 +28,9 @@ import {
     scheduleSettings,
     scheduleSnapshot,
     scheduleState,
+    releaseSchedule,
+    staleSchedules,
+    upcomingSchedule,
 } from "./schedulesStore.ts"
 import { decode, fail, source, type ConfigurationIdentity } from "./validation.ts"
 const publicSettings = (row: Doc<"scheduleSettings"> | null) => ({
@@ -34,9 +38,11 @@ const publicSettings = (row: Doc<"scheduleSettings"> | null) => ({
     revision: row?.revision ?? 1,
     activatedAt: row?.activatedAt ?? 0,
 })
+/** Closes the dates still waiting to post, and returns those not yet due, which a content or channel change stores again */
 async function closeFuture(ctx: MutationCtx, row: Doc<"schedules">, now: number, cancel = false) {
-    // Retained delivery capacity bounds the number of indexed pages
-    for (let page = 0; page < 11; page++) {
+    const copies: Doc<"scheduleDeliveries">[] = []
+    // At most 26 stored dates have not come due, and due ones close within two days, so two pages hold them all
+    for (let page = 0; page < 2; page++) {
         const rows = await ctx.db
             .query("scheduleDeliveries")
             .withIndex("by_schedule_active_due", (q) =>
@@ -47,12 +53,12 @@ async function closeFuture(ctx: MutationCtx, row: Doc<"schedules">, now: number,
                     .gt("dueAt", cancel ? -1 : now),
             )
             .take(SCHEDULES_BATCH)
-        if (!rows.length) return
+        if (!rows.length) return copies
         for (const delivery of rows) {
-            // A replaced date that never started a post anchors nothing, so it frees its capacity at once
+            copies.push(delivery)
+            // A replaced date that never started a post anchors nothing
             if (!cancel && delivery.attemptId === undefined && delivery.claimedAt === undefined) {
                 await ctx.db.delete(delivery._id)
-                await scheduleCount(ctx, row.serverId, "deliveries", -1)
                 continue
             }
             await closeScheduleDelivery(
@@ -64,7 +70,7 @@ async function closeFuture(ctx: MutationCtx, row: Doc<"schedules">, now: number,
             )
         }
         // Closing removes each row from the active index, including equal due times
-        if (rows.length < SCHEDULES_BATCH) return
+        if (rows.length < SCHEDULES_BATCH) return copies
     }
     fail(503, "Schedule retained capacity conflict")
 }
@@ -121,7 +127,6 @@ export async function forgetSchedule(ctx: MutationCtx, row: Doc<"schedules">, oc
     for (const delivery of rows) {
         await releaseConsumerPublication(ctx, delivery, "schedule")
         await ctx.db.delete(delivery._id)
-        await scheduleCount(ctx, row.serverId, "deliveries", -1)
     }
     const remaining = await ctx.db
         .query("scheduleDeliveries")
@@ -134,13 +139,15 @@ export async function forgetSchedule(ctx: MutationCtx, row: Doc<"schedules">, oc
     const complete = selective || (!remaining && !post)
     if (!selective && complete) {
         await ctx.db.delete(row._id)
-        await scheduleCount(ctx, row.serverId, "definitions", -1)
-    } else
+        if (!row.released) await scheduleCount(ctx, row.serverId, "definitions", -1)
+    } else {
         await ctx.db.patch(row._id, {
             revision: advanceSchedule(row.revision),
             updatedAt: Date.now(),
-            ...(!selective ? { enabled: false, cancelled: true } : {}),
+            ...(!selective ? { enabled: false, cancelled: true, extendAt: undefined } : {}),
         })
+        if (!selective) await releaseSchedule(ctx, row)
+    }
     return {
         duplicate: false as const,
         type: "forgotten" as const,
@@ -206,11 +213,10 @@ export const query = serviceQuery({
             return {
                 type: "status",
                 settings: publicSettings(settings),
-                definitions: settings?.definitions ?? 0,
-                deliveries: settings?.deliveries ?? 0,
+                definitions: (settings?.definitions ?? 0) - (await staleSchedules(ctx, serverId)),
                 receipts: settings?.receipts ?? 0,
                 publishing: { enabled: publisher?.enabled ?? true },
-                limits: { definitions: 50, deliveries: 200, receipts: 1000 },
+                limits: { definitions: 50 },
             }
         }
         if (op.type === "show" && "name" in op) {
@@ -221,10 +227,12 @@ export const query = serviceQuery({
                     .withIndex("by_name", (q) => q.eq("serverId", serverId).eq("name", name))
                     .unique()
             if (!row) fail(404, "Schedule not found")
-            return { type: "schedule", schedule: publicSchedule(row) }
+            return { type: "schedule", schedule: publicSchedule(row, await upcomingSchedule(ctx, row, Date.now())) }
         }
-        if (op.type === "show")
-            return { type: "schedule", schedule: publicSchedule(await scheduleRow(ctx, serverId, op.scheduleNo)) }
+        if (op.type === "show") {
+            const row = await scheduleRow(ctx, serverId, op.scheduleNo)
+            return { type: "schedule", schedule: publicSchedule(row, await upcomingSchedule(ctx, row, Date.now())) }
+        }
         if (op.type === "list") {
             const before = op.beforeScheduleNo ?? Number.MAX_SAFE_INTEGER
             const rows = await ctx.db
@@ -241,7 +249,7 @@ export const query = serviceQuery({
                     : null
             return {
                 type: "schedules",
-                schedules: rows.map(publicSchedule),
+                schedules: rows.map((row) => publicSchedule(row)),
                 ...(more ? { nextBeforeScheduleNo: last!.scheduleNo } : {}),
             }
         }
@@ -328,8 +336,9 @@ export async function applySchedulesManagement(
             updatedAt: now,
         })
         const row = (await ctx.db.get(id))!
-        await addSchedulePlan(ctx, row)
-        return { duplicate: false, type: "schedule", schedule: publicSchedule(row) }
+        await addSchedulePlan(ctx, row, calendar.dates, now)
+        await extendSchedule(ctx, row, now)
+        return { duplicate: false, type: "schedule", schedule: publicSchedule((await ctx.db.get(id))!) }
     }
     const row = await scheduleRow(ctx, identity.serverId, op.scheduleNo, op.expectedRevision)
     if (op.type === "forget") return forgetSchedule(ctx, row, op.occurrenceNos)
@@ -366,9 +375,11 @@ export async function applySchedulesManagement(
         await ctx.db.patch(row._id, {
             cancelled: true,
             enabled: false,
+            extendAt: undefined,
             revision: advanceSchedule(row.revision),
             updatedAt: now,
         })
+        await releaseSchedule(ctx, row)
     } else if (op.type === "enable" || op.type === "disable") {
         if (op.type === "enable" && row.cancelled)
             fail(409, "A cancelled schedule stays cancelled. Create a new schedule instead", "REFUSED")
@@ -391,14 +402,23 @@ export async function applySchedulesManagement(
                 fail(403, "Schedule destination permission required")
             patch = { channelId }
         }
-        await closeFuture(ctx, row, now)
+        const copies = await closeFuture(ctx, row, now)
         await ctx.db.patch(row._id, {
             ...patch,
             revision: advanceSchedule(row.revision),
             planRevision: advanceSchedule(row.planRevision),
             updatedAt: now,
         })
-        await addSchedulePlan(ctx, (await ctx.db.get(row._id))!, true, now)
+        if (op.type === "calendar") {
+            // A new calendar stores its first dates and counts again if the old one had run out
+            if (row.released) await scheduleCount(ctx, row.serverId, "definitions", 1)
+            await ctx.db.patch(row._id, { nextIndex: undefined, lastSkipped: undefined, released: undefined })
+            const next = (await ctx.db.get(row._id))!
+            await addSchedulePlan(ctx, next, next.calendar.dates, now)
+            await extendSchedule(ctx, next, now)
+        } else
+            // Other changes store the same instants again, so a changed zone database never moves a planned post
+            await addSchedulePlan(ctx, (await ctx.db.get(row._id))!, copies, now)
     }
     return { duplicate: false, type: "schedule", schedule: publicSchedule((await ctx.db.get(row._id))!) }
 }

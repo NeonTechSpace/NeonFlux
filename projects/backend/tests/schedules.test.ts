@@ -126,6 +126,7 @@ async function fixture(t: TestContext) {
             ...(afterOccurrenceNo === undefined ? {} : { afterOccurrenceNo }),
         }).then(read)
     const totals = () => query({ type: "status" }).then(read)
+    const stored = () => db.run((ctx) => ctx.db.query("scheduleDeliveries").collect()).then((rows) => rows.length)
     const change = async (operation: Record<string, unknown>, scheduleNo = 1) =>
         read(await manage({ ...operation, scheduleNo, expectedRevision: (await show(scheduleNo)).revision }))
     const open = async (count = 1) => {
@@ -180,6 +181,7 @@ async function fixture(t: TestContext) {
         show,
         deliveries,
         totals,
+        stored,
         change,
         open,
         binding,
@@ -211,24 +213,54 @@ test("Schedule indexes have no duplicate field sets within changed tables", () =
     }
 })
 
-test("Schedule civil validation enforces finite bounds and preserves explicit folds and elapsed-free instants", async (t) => {
+test("Schedule civil validation accepts any end and far dates, and preserves explicit folds and elapsed-free instants", async (t) => {
     const f = await fixture(t)
     assert.equal(validateScheduleCalendar(f.calendar(26)).dates.length, 26)
-    const base = f.calendar()
+    const base = f.calendar(),
+        daily = f.calendar(2)
+    // A repeat stores its first dates, so its count may exceed them, and it may end on a date or never
+    for (const recurrence of [
+        { type: "daily", interval: 1, count: 27 },
+        { type: "daily", interval: 1, count: 40 },
+        { type: "daily", interval: 1 },
+        { type: "daily", interval: 1, until: daily.dates[1]!.localMinute.slice(0, 10) },
+    ])
+        assert.equal(validateScheduleCalendar({ ...daily, recurrence }).dates.length, 2)
+    assert.equal(validateScheduleCalendar(f.calendar(1, f.now() + 200 * 86400000)).dates.length, 1)
+    assert.equal(
+        validateScheduleCalendar({ ...base, recurrence: { type: "daily", interval: 400, count: 2 } }).dates.length,
+        1,
+    )
+    const far = f.calendar(14, f.now() + 120000)
     for (const changed of [
         { ...base, dates: [] },
         { ...base, durationMinutes: 1 },
         { ...base, fold: "automatic" },
-        { ...base, recurrence: { type: "daily", count: 27, interval: 1 } },
+        { ...daily, recurrence: { type: "daily", interval: 1, count: 1 } },
+        { ...daily, recurrence: { type: "daily", interval: 1, count: 3, until: "2027-01-01" } },
+        { ...daily, recurrence: { type: "daily", interval: 1, until: daily.dates[0]!.localMinute.slice(0, 10) } },
+        { ...daily, recurrence: { type: "daily", interval: 1, until: "2026-02-30" } },
+        { ...daily, recurrence: { type: "daily", interval: 1, count: 0 } },
+        { ...f.calendar(27), recurrence: { type: "daily", interval: 1 } },
+        // The first dates span at most 180 days
+        {
+            ...far,
+            recurrence: { type: "weekly", interval: 2 },
+            dates: far.dates.map((_, i) => ({
+                localMinute: new Date(far.dates[0]!.dueAt + i * 14 * 86400000).toISOString().slice(0, 16),
+                dueAt: far.dates[0]!.dueAt + i * 14 * 86400000,
+                offsetMinutes: 0,
+            })),
+        },
         { ...base, recurrence: { type: "daily", count: 1, interval: 0 } },
-        { ...base, recurrence: { type: "weekly", count: 1, interval: 13 } },
+        // A second date after the year 9999 cannot be named
+        { ...base, recurrence: { type: "weekly", interval: Number.MAX_SAFE_INTEGER } },
         { ...base, recurrence: { type: "forever" } },
         { ...base, dates: [{ ...base.dates[0], localMinute: "2026-02-30T00:00" }] },
         { ...base, dates: [{ ...base.dates[0], dueAt: base.dates[0]!.dueAt + 1 }] },
     ])
         assert.throws(() => validateScheduleCalendar(changed))
     assert.throws(() => validateScheduleCalendar(f.calendar(1, f.now())))
-    assert.throws(() => validateScheduleCalendar(f.calendar(1, f.now() + 181 * 86400000)))
     assert.throws(() => resolveCivilInstant("2026-03-29T02:30", "Europe/Berlin", "reject"))
     assert.throws(() => resolveCivilInstant("2026-10-25T02:30", "Europe/Berlin", "reject"))
     assert.deepEqual(resolveCivilInstant("2026-10-25T02:30", "Europe/Berlin", "earlier"), {
@@ -271,48 +303,19 @@ test("Non-calendar schedule edits copy frozen dates after time advances and time
     assert.deepEqual((await f.show()).calendar, original.calendar)
 })
 
-test("Delivery caps roll back failed replacements, and an edit replaces unsent dates without using capacity", async (t) => {
+test("Schedule dates have no total cap, and edits replace unsent dates without growing", async (t) => {
     const f = await fixture(t)
-    for (let i = 0; i < 7; i++) await f.create(`batch-${i}`, 26)
-    await f.create("remaining", 18)
-    const before = await f.totals(),
-        original = await f.show(8),
-        rows = await f.deliveries(8)
-    assert.equal(before.deliveries, 200)
-    await status(
-        await f.manage({
-            type: "create",
-            name: "overflow",
-            source: f.snapshot,
-            channelId: "30",
-            calendar: f.calendar(),
-        }),
-        429,
+    // Eight schedules of 26 dates hold more than the 200 records the old cap allowed
+    for (let i = 0; i < 8; i++) await f.create(`batch-${i}`, 26)
+    assert.equal(await f.stored(), 208)
+    const original = await f.show(8)
+    for (let i = 0; i < 3; i++) await f.change({ type: "content", source: f.snapshot }, 8)
+    assert.equal(await f.stored(), 208)
+    assert.deepEqual(
+        (await f.show(8)).upcoming.map((date: any) => date.dueAt),
+        original.upcoming.map((date: any) => date.dueAt),
     )
-    await status(
-        await f.manage({
-            type: "calendar",
-            scheduleNo: 8,
-            expectedRevision: original.revision,
-            calendar: f.calendar(26),
-        }),
-        429,
-    )
-    assert.deepEqual(await f.totals(), before)
-    assert.deepEqual(await f.show(8), original)
-    assert.deepEqual(await f.deliveries(8), rows)
-    for (let i = 0; i < 10; i++) await f.change({ type: "content", source: f.snapshot })
-    assert.equal((await f.totals()).deliveries, 200)
-    await f.change({ type: "cancel" })
-    const first = (await f.deliveries()).deliveries
-    await f.change({
-        type: "forget",
-        confirm: "forget",
-        occurrenceNos: first.slice(0, 2).map((row) => row.occurrenceNo),
-    })
-    assert.equal((await f.totals()).deliveries, 198)
-    await f.create("released", 2)
-    assert.equal((await f.totals()).deliveries, 200)
+    assert.equal((await f.totals()).definitions, 8)
 })
 
 test("Fifty schedule definitions remain independently bounded and paginated at ten", async (t) => {
@@ -346,8 +349,10 @@ test("Fifty schedule definitions remain independently bounded and paginated at t
 
 test("Schedule show finds a schedule by its unique name", async (t) => {
     const f = await fixture(t),
-        row = await f.create("notice")
-    assert.deepEqual((await read(await f.query({ type: "show", name: "Notice" }))).schedule, row)
+        row = await f.create("notice"),
+        { upcoming, ...shown } = (await read(await f.query({ type: "show", name: "Notice" }))).schedule
+    assert.deepEqual(shown, row)
+    assert.deepEqual(upcoming, row.calendar.dates)
     await status(await f.query({ type: "show", name: "missing" }), 404)
     for (const operation of [
         { type: "show", name: "notice", scheduleNo: row.scheduleNo },
@@ -360,7 +365,7 @@ test("Schedule show finds a schedule by its unique name", async (t) => {
     )
 })
 
-test("Schedule receipt quota, source freshness and bounded expiry release exact counters", async (t) => {
+test("Schedule receipts have no daily quota, need fresh sources and expire with exact counters", async (t) => {
     const f = await fixture(t)
     await f.create()
     await f.db.run(async (ctx) => {
@@ -376,15 +381,15 @@ test("Schedule receipt quota, source freshness and bounded expiry release exact 
             })
         await ctx.db.patch(state._id, { receipts: 1000 })
     })
-    const before = await f.totals()
-    await status(await f.manage({ type: "disable", scheduleNo: 1, expectedRevision: 1 }), 429)
-    assert.deepEqual(await f.totals(), before)
+    // A thousand changes in a day do not stop the next one
+    await f.change({ type: "disable" })
+    assert.equal((await f.totals()).receipts, 1001)
     await status(
         await f.http("/schedules/manage", {
             ...f.source(),
             createdAt: f.now() - 900001,
             context: f.context(),
-            operation: { type: "disable", scheduleNo: 1, expectedRevision: 1 },
+            operation: { type: "enable", scheduleNo: 1, expectedRevision: 2 },
         }),
         400,
     )
@@ -393,15 +398,13 @@ test("Schedule receipt quota, source freshness and bounded expiry release exact 
             ...f.source(),
             createdAt: f.now() + 60001,
             context: f.context(),
-            operation: { type: "disable", scheduleNo: 1, expectedRevision: 1 },
+            operation: { type: "enable", scheduleNo: 1, expectedRevision: 2 },
         }),
         400,
     )
     assert.equal((await f.cleanup()).removed, 20)
-    assert.equal((await f.totals()).receipts, 980)
-    assert.equal((await f.db.run((ctx) => ctx.db.query("scheduleReceipts").collect())).length, 980)
-    await f.change({ type: "disable" })
     assert.equal((await f.totals()).receipts, 981)
+    assert.equal((await f.db.run((ctx) => ctx.db.query("scheduleReceipts").collect())).length, 981)
 })
 
 test("Automatic schedule reservation and claim require the bot's fresh destination rights", async (t) => {
@@ -684,11 +687,11 @@ test("Bounded settled forgetting releases exact quotas across pages and retains 
     const first = await f.change({ type: "forget", confirm: "forget" })
     assert.equal(first.removed, 20)
     assert.equal(first.complete, false)
-    assert.equal((await f.totals()).deliveries, 6)
+    assert.equal(await f.stored(), 6)
     const second = await f.change({ type: "forget", confirm: "forget" })
     assert.equal(second.removed, 6)
     assert.equal(second.complete, true)
-    assert.equal((await f.totals()).deliveries, 0)
+    assert.equal(await f.stored(), 0)
     assert.equal((await f.totals()).definitions, 0)
     assert.deepEqual(
         await f.db.run(async (ctx) => ({
@@ -722,7 +725,7 @@ test("Aged claims remain uncertain and history cleanup retains their ownership a
     )
     f.advance(181 * 86400000)
     await f.cleanup()
-    assert.equal((await f.totals()).deliveries, 1)
+    assert.equal(await f.stored(), 1)
     const retained = (await f.deliveries()).deliveries[0]!
     assert.equal(retained.attemptId, grant.attemptId)
     assert.equal(retained.state, "uncertain")
@@ -744,10 +747,12 @@ test("History cleanup releases a schedule cancelled before its date once its las
         }),
     )
     await f.change({ type: "cancel" })
+    // A cancelled schedule stops counting at once, and its record goes with its last history row
+    assert.equal((await f.totals()).definitions, 0)
     f.advance(180 * 86400000 + 1)
     await f.cleanup()
-    assert.equal((await f.totals()).deliveries, 0)
-    assert.equal((await f.totals()).definitions, 0)
+    assert.equal(await f.stored(), 0)
+    assert.equal((await f.db.run((ctx) => ctx.db.query("schedules").collect())).length, 0)
 })
 test("History cleanup releases a sent post and its ended schedule after 180 days unless a role panel uses the post", async (t) => {
     const f = await fixture(t)
@@ -769,11 +774,11 @@ test("History cleanup releases a sent post and its ended schedule after 180 days
     )
     f.advance(181 * 86400000)
     await f.cleanup()
-    assert.equal((await f.totals()).deliveries, 1)
+    assert.equal(await f.stored(), 1)
     await f.db.run((ctx) => ctx.db.delete(panel))
     f.advance(86400000)
     await f.cleanup()
-    assert.equal((await f.totals()).deliveries, 0)
+    assert.equal(await f.stored(), 0)
     assert.equal((await f.totals()).definitions, 0)
     assert.deepEqual(
         await f.db.run(async (ctx) => ({
@@ -813,4 +818,209 @@ test("The late window ends at the next local midnight in the delivery's zone, ac
     assert.equal(civilDayEnded(spring, "Europe/Berlin", Date.parse("2026-03-29T22:00Z")), true)
     assert.equal(civilDayEnded(autumn, "Europe/Berlin", Date.parse("2026-10-25T22:59Z")), false)
     assert.equal(civilDayEnded(autumn, "Europe/Berlin", Date.parse("2026-10-25T23:00Z")), true)
+})
+/** A weekly UTC calendar of its first count dates, from a minute after the fixture's start */
+function weekly(f: Awaited<ReturnType<typeof fixture>>, count: number, recurrence: Record<string, unknown>) {
+    const first = f.now() + 120000
+    return {
+        localMinute: new Date(first).toISOString().slice(0, 16),
+        zone: "UTC",
+        fold: "reject",
+        recurrence: { type: "weekly", interval: 1, ...recurrence },
+        dates: Array.from({ length: count }, (_, i) => ({
+            localMinute: new Date(first + i * 7 * 86400000).toISOString().slice(0, 16),
+            dueAt: first + i * 7 * 86400000,
+            offsetMinutes: 0,
+        })),
+    }
+}
+const WEEK = 7 * 86400000
+test("An ongoing schedule keeps 26 upcoming dates as dates come due, and its numbers continue", async (t) => {
+    const f = await fixture(t),
+        calendar = weekly(f, 26, {})
+    await read(await f.manage({ type: "create", name: "notice", source: f.snapshot, channelId: "30", calendar }))
+    assert.equal((await f.show()).resume, undefined)
+    for (let week = 1; week <= 3; week++) {
+        f.advance(WEEK)
+        await f.cleanup()
+        const shown = await f.show()
+        assert.equal(shown.upcoming.length, 26)
+        assert.equal(shown.upcoming.at(-1).dueAt, calendar.dates[0]!.dueAt + (25 + week) * WEEK)
+        // A change of the running repeat continues at its next date
+        assert.deepEqual(shown.resume, { localMinute: shown.upcoming[0].localMinute })
+    }
+    const numbers = (await f.deliveries(1, 20)).deliveries.map((row) => row.occurrenceNo)
+    assert.deepEqual(numbers, [21, 22, 23, 24, 25, 26, 27, 28, 29])
+    assert.equal(await f.stored(), 29)
+})
+test("A quarterly repeat stores the dates within 180 days and adds each later one as the horizon reaches it", async (t) => {
+    const f = await fixture(t),
+        first = weekly(f, 2, {}).dates[0]!.dueAt,
+        calendar = { ...weekly(f, 1, {}), recurrence: { type: "weekly", interval: 13 } }
+    calendar.dates.push({
+        localMinute: new Date(first + 13 * WEEK).toISOString().slice(0, 16),
+        dueAt: first + 13 * WEEK,
+        offsetMinutes: 0,
+    })
+    await read(await f.manage({ type: "create", name: "quarterly", source: f.snapshot, channelId: "30", calendar }))
+    f.advance(14 * WEEK)
+    await f.cleanup()
+    assert.deepEqual(
+        (await f.show()).upcoming.map((row: { dueAt: number }) => row.dueAt),
+        [first + 26 * WEEK, first + 39 * WEEK],
+    )
+    // A yearly interval stores one date
+    const yearly = { ...weekly(f, 1, {}), recurrence: { type: "daily", interval: 365 } }
+    await read(
+        await f.manage({ type: "create", name: "yearly", source: f.snapshot, channelId: "30", calendar: yearly }),
+    )
+    assert.equal((await f.show(2)).upcoming.length, 1)
+})
+test("A repeat that ends after a count or on a date stops adding dates there and stops counting", async (t) => {
+    const f = await fixture(t),
+        start = weekly(f, 26, {}).dates
+    await read(
+        await f.manage({
+            type: "create",
+            name: "counted",
+            source: f.snapshot,
+            channelId: "30",
+            calendar: weekly(f, 26, { count: 27 }),
+        }),
+    )
+    await read(
+        await f.manage({
+            type: "create",
+            name: "dated",
+            source: f.snapshot,
+            channelId: "30",
+            calendar: weekly(f, 26, { until: new Date(start[0]!.dueAt + 26 * WEEK).toISOString().slice(0, 10) }),
+        }),
+    )
+    for (let week = 0; week < 3; week++) {
+        f.advance(WEEK)
+        await f.cleanup()
+    }
+    assert.equal((await f.show(1)).upcoming.length, 24)
+    assert.equal((await f.show(2)).upcoming.length, 24)
+    assert.equal(await f.stored(), 54)
+    assert.equal((await f.totals()).definitions, 2)
+    f.advance(30 * WEEK)
+    await f.cleanup()
+    assert.equal((await f.totals()).definitions, 0)
+})
+test("A later date at a time that does not exist is skipped and named, never guessed", async (t) => {
+    const f = await fixture(t),
+        zone = "Europe/Berlin",
+        dates = Array.from({ length: 26 }, (_, i) => {
+            const localMinute = `2026-03-${String(i + 1).padStart(2, "0")}T02:30`,
+                resolved = resolveCivilInstant(localMinute, zone, "reject")
+            return { localMinute, dueAt: resolved.instantAt, offsetMinutes: resolved.offsetMinutes }
+        })
+    const calendar = {
+        localMinute: dates[0]!.localMinute,
+        zone,
+        fold: "reject",
+        recurrence: { type: "daily", interval: 1 },
+        dates,
+    }
+    await read(await f.manage({ type: "create", name: "notice", source: f.snapshot, channelId: "30", calendar }))
+    f.advance(Date.parse("2026-03-03T02:00Z") - f.now())
+    await f.cleanup()
+    const shown = await f.show()
+    assert.deepEqual(shown.lastSkipped, { localMinute: "2026-03-29T02:30", reason: "nonexistent" })
+    assert.deepEqual(
+        shown.upcoming.slice(-3).map((date: any) => date.localMinute),
+        ["2026-03-27T02:30", "2026-03-28T02:30", "2026-03-30T02:30"],
+    )
+    assert.equal(shown.upcoming.at(-1).offsetMinutes, 120)
+})
+test("Content edits after dates were added store the same instants without asking the zone database", async (t) => {
+    const f = await fixture(t)
+    await read(
+        await f.manage({
+            type: "create",
+            name: "notice",
+            source: f.snapshot,
+            channelId: "30",
+            calendar: weekly(f, 26, {}),
+        }),
+    )
+    f.advance(WEEK)
+    await f.cleanup()
+    const before = (await f.show()).upcoming
+    t.mock.method(Intl, "DateTimeFormat", () => {
+        throw new Error("Synthetic changed timezone database")
+    })
+    const edited = await f.change({ type: "content", source: f.snapshot })
+    assert.equal(edited.schedule.planRevision, 2)
+    assert.deepEqual((await f.show()).upcoming, before)
+})
+test("Cancelling ends adding dates and frees the schedule's place among the 50", async (t) => {
+    const f = await fixture(t)
+    for (let i = 0; i < 50; i++) await f.create(`notice-${i}`, i === 0 ? 2 : 1)
+    const create = () =>
+        f.manage({ type: "create", name: "extra", source: f.snapshot, channelId: "30", calendar: f.calendar() })
+    await status(await create(), 429)
+    await f.change({ type: "cancel" })
+    assert.equal((await f.totals()).definitions, 49)
+    await read(await create())
+    const cancelled = await f.db.run((ctx) =>
+        ctx.db
+            .query("schedules")
+            .withIndex("by_number", (q) => q.eq("serverId", "1").eq("scheduleNo", 1))
+            .unique(),
+    )
+    assert.equal(cancelled!.extendAt, undefined)
+    f.advance(WEEK)
+    await f.cleanup()
+    assert.equal(
+        (await f.deliveries()).deliveries.every((row) => row.state === "cancelled"),
+        true,
+    )
+})
+test("Cancelled and finished schedules stored before they stopped counting leave room for live ones", async (t) => {
+    const f = await fixture(t)
+    for (let i = 0; i < 50; i++) await f.create(`notice-${i}`)
+    // The old rule kept a cancelled or finished schedule counted, without storing when it extends, until it was forgotten
+    await f.db.run(async (ctx) => {
+        for (const scheduleNo of [1, 2]) {
+            const row = await ctx.db
+                .query("schedules")
+                .withIndex("by_number", (q) => q.eq("serverId", "1").eq("scheduleNo", scheduleNo))
+                .unique()
+            await ctx.db.patch(row!._id, {
+                ...(scheduleNo === 1 ? { cancelled: true, enabled: false } : {}),
+                extendAt: undefined,
+                nextIndex: undefined,
+            })
+            for (const delivery of await ctx.db
+                .query("scheduleDeliveries")
+                .withIndex("by_schedule_occurrence", (q) => q.eq("serverId", "1").eq("scheduleNo", scheduleNo))
+                .collect())
+                await ctx.db.patch(delivery._id, { active: false })
+        }
+    })
+    assert.equal((await f.totals()).definitions, 48)
+    const create = (name: string) =>
+        f.manage({ type: "create", name, source: f.snapshot, channelId: "30", calendar: f.calendar() })
+    await read(await create("first"))
+    await read(await create("second"))
+    await status(await create("third"), 429)
+    assert.equal((await f.totals()).definitions, 50)
+})
+test("A schedule whose dates have all come due no longer counts toward the 50", async (t) => {
+    const f = await fixture(t)
+    for (let i = 0; i < 50; i++) await f.create(`notice-${i}`)
+    f.advance(86400000)
+    await f.cleanup()
+    await f.cleanup()
+    await f.cleanup()
+    assert.equal((await f.totals()).definitions, 0)
+    await read(
+        await f.manage({ type: "create", name: "later", source: f.snapshot, channelId: "30", calendar: f.calendar() }),
+    )
+    // A new calendar on a schedule that ran out counts it again
+    await f.change({ type: "calendar", calendar: f.calendar() })
+    assert.equal((await f.totals()).definitions, 2)
 })

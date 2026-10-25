@@ -12,9 +12,7 @@ export function createScheduleCalendar(
         localMinute,
         zone,
         fold,
-        recurrence.type === "none"
-            ? undefined
-            : { frequency: recurrence.type, interval: recurrence.interval, count: recurrence.count },
+        recurrence.type === "none" ? undefined : { ...recurrence, frequency: recurrence.type },
     )
     return {
         localMinute,

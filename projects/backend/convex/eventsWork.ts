@@ -1,10 +1,19 @@
-import { EventsWorkRequest, type EventsPromotionBinding, type EventsWorkResult } from "@neonflux/contracts/events"
+import {
+    EVENTS_NOTICE_DATES,
+    EVENTS_NOTICE_PAGE,
+    EventsWorkRequest,
+    type EventsNoticeDate,
+    type EventsNoticePage,
+    type EventsPromotionBinding,
+    type EventsWorkResult,
+} from "@neonflux/contracts/events"
 import { v } from "convex/values"
 import { serviceMutation } from "./serviceGuard.ts"
 import type { MutationCtx } from "./_generated/server.js"
+import type { Doc } from "./_generated/dataModel.js"
 import { advanceEvent, epochOrder } from "./eventsDomain.ts"
 import { eventRow, eventSettings, lifecycle, occurrenceRow, wakePromotion } from "./eventsStore.ts"
-import { automationGate } from "./schedulesStore.ts"
+import { automationGate, defconHoldsAutomation } from "./schedulesStore.ts"
 import { decode, fail, failedWith, integer } from "./validation.ts"
 import { composerContext, eventEligible } from "./publishingContext.ts"
 
@@ -27,6 +36,116 @@ async function bound(ctx: MutationCtx, serverId: string, b: EventsPromotionBindi
         fail(409, "Promotion binding changed")
     if (lifecycle({ ...occurrence.date, state: occurrence.state }) !== "open") fail(409, "Promotion closed")
     return { occurrence, head }
+}
+/** Members one notice page looks at most, so changed dates with many members who did not reply Going or Maybe span pages */
+const NOTICE_SCAN = 50
+/**
+ * Claims the next members to tell that dates they replied Going or Maybe to moved or were cancelled. Members are taken once each
+ * in member order across all changed dates, and the cursor moves in the same write, so a member is claimed once and never told
+ * twice for one notice, even when they change a reply between pages or the bot stops before it sends. A claimed member is listed
+ * with all their changed dates. A date that started before its notice went out is left out
+ */
+async function claimNotice(ctx: MutationCtx, serverId: string, now: number): Promise<EventsWorkResult> {
+    const event = await ctx.db
+        .query("events")
+        .withIndex("by_notice_due", (q) => q.eq("serverId", serverId).gte("noticeDueAt", 0).lte("noticeDueAt", now))
+        .first()
+    if (!event) return { type: "notices" }
+    const notice = event.notice
+    if (!notice || event.state === "cancelled" || event.forgetting) {
+        await ctx.db.patch(event._id, { noticeDueAt: undefined })
+        return { type: "notices" }
+    }
+    const occurrences = new Map<number, Doc<"eventOccurrences"> | null>()
+    for (const move of notice.moves)
+        occurrences.set(
+            move.occurrenceNo,
+            await ctx.db
+                .query("eventOccurrences")
+                .withIndex("by_number", (q) =>
+                    q.eq("serverId", serverId).eq("eventNo", event.eventNo).eq("occurrenceNo", move.occurrenceNo),
+                )
+                .unique(),
+        )
+    const changed = (move: (typeof notice.moves)[number]): Omit<EventsNoticeDate, "choice"> | undefined => {
+        const row = occurrences.get(move.occurrenceNo)
+        if (!row) return undefined
+        if (move.cancelled)
+            return row.state === "cancelled"
+                ? {
+                      occurrenceNo: move.occurrenceNo,
+                      startsAt: row.date.startsAt,
+                      fromStartsAt: move.fromStartsAt,
+                      cancelled: true,
+                  }
+                : undefined
+        return lifecycle({ state: row.state, ...row.date }, now) === "open" && row.date.startsAt !== move.fromStartsAt
+            ? { occurrenceNo: move.occurrenceNo, startsAt: row.date.startsAt, fromStartsAt: move.fromStartsAt }
+            : undefined
+    }
+    // The first reply after the given member on one changed date
+    const after = (occurrenceNo: number, userId: string) =>
+        ctx.db
+            .query("eventRsvps")
+            .withIndex("by_occurrence", (q) =>
+                q
+                    .eq("serverId", serverId)
+                    .eq("eventNo", event.eventNo)
+                    .eq("occurrenceNo", occurrenceNo)
+                    .gt("userId", userId),
+            )
+            .first()
+    const targets: EventsNoticePage["targets"] = []
+    let afterUserId = notice.cursor?.afterUserId ?? "",
+        scanned = 0
+    const heads: (Doc<"eventRsvps"> | null)[] = []
+    for (const move of notice.moves) heads.push(await after(move.occurrenceNo, afterUserId))
+    while (scanned < NOTICE_SCAN && targets.length < EVENTS_NOTICE_PAGE) {
+        // The next member in order who replied to any changed date
+        const userId = heads.reduce<string | undefined>(
+            (least, head) => (head && (least === undefined || head.userId < least) ? head.userId : least),
+            undefined,
+        )
+        if (userId === undefined) break
+        scanned++
+        afterUserId = userId
+        const dates: EventsNoticeDate[] = []
+        let joinedAt: string | undefined
+        for (const [index, move] of notice.moves.entries()) {
+            const head = heads[index]
+            if (head?.userId !== userId) continue
+            heads[index] = await after(move.occurrenceNo, userId)
+            if (head.choice !== "going" && head.choice !== "maybe") continue
+            const date = changed(move)
+            if (!date) continue
+            joinedAt ??= head.joinedAt
+            dates.push({ ...date, choice: head.choice })
+        }
+        if (joinedAt !== undefined)
+            targets.push({
+                userId,
+                joinedAt,
+                dates: dates.slice(0, EVENTS_NOTICE_DATES),
+                more: Math.max(0, dates.length - EVENTS_NOTICE_DATES),
+            })
+    }
+    const done = heads.every((head) => !head)
+    const { cursor, next, ...progress } = notice
+    // A finished notice hands over to the changes made while it went out
+    await ctx.db.patch(event._id, {
+        notice: done ? (next ? { ...next, sent: 0, failed: 0 } : progress) : { ...notice, cursor: { afterUserId } },
+        noticeDueAt: done && !next ? undefined : now,
+    })
+    return {
+        type: "notices",
+        page: {
+            eventNo: event.eventNo,
+            revision: notice.revision,
+            title: event.title,
+            channelId: event.channelId,
+            targets,
+        },
+    }
 }
 export const work = serviceMutation({
     args: { request: v.any() },
@@ -131,6 +250,14 @@ export const work = serviceMutation({
             })
             return { type: "progress", recorded: true }
         }
+        if (op.type === "notice-outcome") {
+            const event = await eventRow(ctx, serverId, op.eventNo)
+            if (event.notice?.revision !== op.revision) return { type: "progress", recorded: false }
+            await ctx.db.patch(event._id, {
+                notice: { ...event.notice, sent: event.notice.sent + op.sent, failed: event.notice.failed + op.failed },
+            })
+            return { type: "progress", recorded: true }
+        }
         if (op.type === "defer") {
             const { occurrence } = await bound(ctx, serverId, op.binding)
             // Ambiguous reads defer this occurrence without passing its head
@@ -148,7 +275,12 @@ export const work = serviceMutation({
                 ? { type: "jobs", jobs: [] }
                 : op.type === "claim"
                   ? { type: "head", claimed: false }
-                  : { type: "progress", recorded: false }
+                  : op.type === "notice-claim"
+                    ? { type: "notices" }
+                    : { type: "progress", recorded: false }
+        // Notices wait while DEFCON holds automatic work, as promotions do
+        if (op.type === "notice-claim")
+            return (await defconHoldsAutomation(ctx, serverId)) ? { type: "notices" } : claimNotice(ctx, serverId, now)
         await automationGate(ctx, serverId)
         if (op.type === "list") {
             const limit = op.limit ?? 20
@@ -217,7 +349,7 @@ export const work = serviceMutation({
                 lifecycle({ ...occurrence.date, state: occurrence.state }) !== "open"
             )
                 return { type: "head", claimed: false }
-            // At most 1000 rows by the participation contract, but pages inspect twenty
+            // Pages inspect twenty rows, so a long waitlist spans pages
             const after = occurrence.workAfterQueue ?? 0
             const rows = await ctx.db
                 .query("eventRsvps")

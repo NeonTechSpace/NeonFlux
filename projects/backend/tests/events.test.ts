@@ -6,7 +6,8 @@ import type {
     EventsManageOperation,
     EventsPromotionBinding,
 } from "@neonflux/contracts/events"
-import { EventsOccurrence } from "@neonflux/contracts/events"
+import { EventsOccurrence, eventsReminderMaxMinutes } from "@neonflux/contracts/events"
+import { CIVIL_RANGE_REASON } from "@neonflux/contracts/civil"
 import assert from "node:assert/strict"
 import { Schema } from "effect"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
@@ -16,6 +17,7 @@ import schema from "../convex/schema.ts"
 import { cleanupEvents } from "../convex/eventsCleanup.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import { validateEventCalendar, EVENTS_DAY } from "../convex/eventsDomain.ts"
+import { resolveCivilInstant } from "../convex/civilDomain.ts"
 import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID,
@@ -497,15 +499,17 @@ test("Old source intent, membership generations, duplicate receipts and sticky p
     const stale = await f.rsvpRequest("none")
     assert.equal((await read(await f.http("/events/rsvp", stale))).accepted, false)
     await f.rsvp("none", "20", 1, newJoin)
-    await status(
+    // A published event's time can still change after replies, and its date keeps its number
+    const before = (await f.dates())[0].occurrenceNo
+    await read(
         await f.manage({
             type: "calendar",
             eventNo: 1,
             expectedRevision: (await f.event()).revision,
             calendar: f.calendar(Math.ceil((f.now() + 4 * 3600000) / 60000) * 60000),
         }),
-        409,
     )
+    assert.equal((await f.dates())[0].occurrenceNo, before)
     assert((await f.event()).participationStarted)
 })
 
@@ -538,7 +542,9 @@ test("Civil validation rejects gaps, unselected folds, normalized inputs, incomp
         ],
     } as EventsCalendar
     assert.equal(validateEventCalendar(two).dates.length, 2)
-    assert.throws(() => validateEventCalendar({ ...two, dates: [two.dates[0]] }))
+    // A repeat may store fewer first dates than its count, but never more
+    assert.equal(validateEventCalendar({ ...two, dates: [two.dates[0]!] }).dates.length, 1)
+    assert.throws(() => validateEventCalendar({ ...two, recurrence: { type: "daily", interval: 1, count: 1 } }))
     assert.throws(() =>
         validateEventCalendar({ ...two, dates: [two.dates[0], { ...two.dates[1], localMinute: "2026-03-29T13:00" }] }),
     )
@@ -646,6 +652,54 @@ test("Timer reservation atomically owns a protected post and immutable attempt, 
         await f.manage({ type: "forget", eventNo: 1, expectedRevision: (await f.event()).revision, confirm: "forget" }),
         409,
     )
+})
+
+test("Reminder status pages every delivery of an event past 1,101 rows and refuses another event's cursor", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.create("gather", f.now() + 120000)
+    await f.create("other", f.now() + 120000)
+    const old = (eventNo: number, i: number) => ({
+        serverId: "1",
+        eventNo,
+        occurrenceNo: 1,
+        // Above any revision the event reaches here, so its reminder changes do not clear these settled rows
+        revision: 1000,
+        channelId: "30",
+        offsetMinutes: i,
+        dueAt: f.now(),
+        startsAt: f.now(),
+        state: "skipped" as const,
+        nextCheckAt: f.now(),
+        createdAt: f.now(),
+    })
+    const foreign = await f.db.run(async (ctx) => {
+        for (let i = 0; i < 1200; i++) await ctx.db.insert("eventDeliveries", old(1, i))
+        return ctx.db.insert("eventDeliveries", old(2, 0))
+    })
+    // The reminder that ends uncertain is queued after the 1,200 older rows
+    await f.change({ type: "reminders", offsets: [1] })
+    await f.publish()
+    f.advance(60000)
+    const grant = (await read(await f.reserve(f.deliveryBinding((await f.due())[0])))).grant as EventsDeliveryGrant
+    assert((await read(await f.dispatch(grant))).claimed)
+    await read(await f.outcome(grant, "uncertain"))
+    const seen: any[] = []
+    let after: string | undefined
+    do {
+        const page = await read(
+            await f.delivery({ type: "status", eventNo: 1, ...(after ? { afterDeliveryId: after } : {}) }),
+        )
+        assert(page.deliveries.length <= 10)
+        seen.push(...page.deliveries)
+        after = page.nextAfterDeliveryId
+    } while (after)
+    assert.equal(seen.length, 1201)
+    assert.equal(new Set(seen.map((d) => d.deliveryId)).size, 1201)
+    const late = seen.at(-1)
+    assert.equal(late.state, "uncertain")
+    assert.equal(late.postNo, grant.postNo)
+    await status(await f.delivery({ type: "status", eventNo: 1, afterDeliveryId: foreign }), 400)
 })
 
 test("Claim/cancel and revision races preserve actual outcomes while fencing all unclaimed sends", async (t) => {
@@ -805,7 +859,7 @@ test("Retention removes participation after thirty days and releases settled pos
         ]),
     )
     assert.equal(counters[0]!.definitions, 0)
-    assert.equal(counters[0]!.occurrences, 0)
+    assert.equal((await f.db.run((c) => c.db.query("eventOccurrences").collect())).length, 0)
     assert.equal(counters[2].length, 0)
 })
 
@@ -925,15 +979,19 @@ test("Lowering capacity counts only dates that have not started, and the refusal
     f.advance(4 * 3600000)
     await read(await lower(2))
     assert.equal((await f.event(e.eventNo)).capacity, 2)
-    // The ended date keeps its limit, so the dates page still meets the shared contract the bot decodes
+    // The ended date keeps its limit, and the dates page starts at the date that has not ended
     const lowered = await f.dates(e.eventNo)
     assert.deepEqual(
         lowered.map((d: { capacity: number | null }) => d.capacity),
+        [2],
+    )
+    assert.deepEqual(
+        (await f.db.run((c) => c.db.query("eventOccurrences").collect())).map((o) => o.capacity),
         [5, 2],
     )
     for (const date of lowered) assert.doesNotThrow(() => Schema.decodeUnknownSync(EventsOccurrence)(date))
     // A date ahead with more members going than the new limit still refuses, with words the bot shows
-    const ahead = (await f.dates(e.eventNo))[1].occurrenceNo
+    const ahead = (await f.dates(e.eventNo))[0].occurrenceNo
     for (const userId of ["21", "22"])
         await read(
             await f.http("/events/rsvp", {
@@ -958,10 +1016,10 @@ test("Public configuration and participation reject exact finite bounds and pres
     await f.publish()
     for (const operation of [
         { type: "capacity", capacity: 0 },
-        { type: "capacity", capacity: 501 },
+        { type: "capacity", capacity: 1.5 },
         { type: "reminders", offsets: [1, 1] },
         { type: "reminders", offsets: [0] },
-        { type: "reminders", offsets: [1, 2, 3] },
+        { type: "reminders", offsets: Array.from({ length: 21 }, (_, i) => i + 1) },
     ])
         await status(
             await f.manage({
@@ -979,26 +1037,24 @@ test("Public configuration and participation reject exact finite bounds and pres
     await setCount("definitions", 50)
     await status(await f.manage({ type: "create", name: "overflow", title: "Overflow", channelId: "30" }), 429)
     await setCount("definitions", 1)
-    await setCount("rsvps", 50000)
-    await status(await f.http("/events/rsvp", await f.rsvpRequest("going")), 429)
-    await setCount("rsvps", 0)
-    assert.equal((await f.db.run((c) => c.db.query("eventRsvps").collect())).length, 0)
+    // A date has no reply cap, and seats go past 500
     await f.db.run(async (c) => {
         const row = await c.db.query("eventOccurrences").unique()
-        await c.db.patch(row!._id, { rsvps: 1000 })
+        await c.db.patch(row!._id, { rsvps: 5000 })
     })
-    await status(await f.http("/events/rsvp", await f.rsvpRequest("going")), 429)
-    assert.equal((await f.db.run((c) => c.db.query("eventRsvps").collect())).length, 0)
+    await f.change({ type: "capacity", capacity: 5000 })
+    await read(await f.http("/events/rsvp", await f.rsvpRequest("going")))
+    assert.equal((await f.db.run((c) => c.db.query("eventRsvps").collect())).length, 1)
+    // Dates have no total cap: A server that kept 200 dates still adds more
     await f.create("second")
     await setCount("occurrences", 200)
-    await status(
+    await read(
         await f.manage({
             type: "calendar",
             eventNo: 2,
             expectedRevision: (await f.event(2)).revision,
             calendar: f.calendar(f.now() + 3 * 3600000, 2),
         }),
-        429,
     )
 })
 
@@ -1070,7 +1126,8 @@ test("Guarded calendar replacement invalidates an unclaimed card and reuses its 
     assert.equal(changed.grant.postNo, original.grant.postNo)
     assert.equal(changed.grant.generation, original.grant.generation + 1)
     assert.equal(changed.grant.action, "send")
-    assert.notEqual((await f.dates())[0].occurrenceNo, before[0].occurrenceNo)
+    // A published date keeps its number when its time changes
+    assert.equal((await f.dates())[0].occurrenceNo, before[0].occurrenceNo)
     await status(await f.dispatch(original.grant), 409)
     await f.apply(changed.grant)
     const attempts = await f.db.run((c) => c.db.query("publishingAttempts").collect())
@@ -1232,7 +1289,7 @@ test("History expiry drains occurrence quotas but retains minimal unknown public
     await f.change({ type: "cancel" })
     f.advance(180 * EVENTS_DAY)
     await f.cleanup()
-    assert.equal((await read(await f.query({ type: "status" }))).occurrences, 0)
+    assert.equal((await f.db.run((c) => c.db.query("eventOccurrences").collect())).length, 0)
     await f.cleanup()
     assert.equal((await f.db.run((c) => c.db.query("eventDeliveries").collect())).length, 0)
     await f.cleanup()
@@ -1240,7 +1297,7 @@ test("History expiry drains occurrence quotas but retains minimal unknown public
     assert.equal(record.eventNo, 1)
     assert.equal(record.calendar, undefined)
     assert.equal(record.description, "")
-    assert.equal((await read(await f.query({ type: "status" }))).occurrences, 0)
+    assert.equal((await f.db.run((c) => c.db.query("eventOccurrences").collect())).length, 0)
     await status(
         await f.manage({ type: "forget", eventNo: 1, expectedRevision: record.revision, confirm: "forget" }),
         409,
@@ -1347,15 +1404,6 @@ test("Settled forgetting drains more than one publishing page with exact quota a
     for (let page = 0; page < 6 && !result.complete; page++) {
         result = await f.change({ type: "forget", confirm: "forget" })
         assert(result.removed <= 21)
-        const counted = await f.db.run((c) =>
-            Promise.all([
-                c.db.query("publishingSettings").unique(),
-                c.db.query("publishingPosts").collect(),
-                c.db.query("eventSettings").unique(),
-                c.db.query("eventOccurrences").collect(),
-            ]),
-        )
-        assert.equal(counted[2]!.occurrences, counted[3].length)
     }
     assert(result.complete)
     const counted = await f.db.run((c) =>
@@ -1367,7 +1415,7 @@ test("Settled forgetting drains more than one publishing page with exact quota a
         ]),
     )
     assert.equal(counted[0]!.definitions, 0)
-    assert.equal(counted[0]!.occurrences, 0)
+    assert.equal((await f.db.run((c) => c.db.query("eventOccurrences").collect())).length, 0)
     assert.equal(counted[2].length, 0)
     assert.equal(counted[3].length, 0)
 })
@@ -1452,6 +1500,32 @@ test("With discussion threads on, a sent card gets one thread that closes once t
     f.advance(60000)
     await read(await f.delivery({ type: "thread", eventNo: 1, outcome: "closed" }))
     assert.deepEqual(await list(), [])
+})
+
+test("A repeat's discussion stays open while its only stored date has ended, and cancelling still closes it", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await read(await f.manage({ type: "threads", expectedRevision: 2, enabled: true }))
+    await f.create()
+    const once = f.calendar()
+    await f.change({ type: "calendar", calendar: { ...once, recurrence: { type: "daily", interval: 365 } } })
+    await f.publish()
+    const list = async () => (await read(await f.delivery({ type: "list" }))).threads ?? []
+    const [open] = await list()
+    await read(await f.delivery({ type: "thread", eventNo: 1, outcome: "opened", threadId: open.messageId }))
+    // The stored date ends before the retention chain adds the next one
+    f.advance(3 * HOUR)
+    assert.deepEqual(await list(), [])
+    await status(await f.delivery({ type: "thread", eventNo: 1, outcome: "closed" }), 409)
+    await f.cleanup()
+    assert.equal((await rows(f)).length, 2)
+    f.advance(60000)
+    assert.deepEqual(await list(), [])
+    assert.equal((await f.db.run((c) => c.db.query("events").unique()))!.threadDueAt, (await rows(f))[1]!.date.endsAt)
+    await f.change({ type: "cancel" })
+    assert.deepEqual(await list(), [
+        { eventNo: 1, channelId: "30", title: "Gathering", action: "close", threadId: open.messageId },
+    ])
 })
 
 test("Without discussion threads a sent card gets no thread", async (t) => {
@@ -1575,4 +1649,730 @@ test("Moving an event earlier closes its open discussion at the new end", async 
     assert.deepEqual((await read(await f.delivery({ type: "list" }))).threads, [
         { eventNo: 1, channelId: "30", title: "Gathering", action: "close", threadId: open.messageId },
     ])
+})
+
+const HOUR = 3600000
+const rows = (f: ReturnType<typeof fixture>) =>
+    f.db
+        .run((c) => c.db.query("eventOccurrences").collect())
+        .then((all) => all.sort((a, b) => a.occurrenceNo - b.occurrenceNo))
+const rsvpFor = (f: ReturnType<typeof fixture>, occurrenceNo: number, choice: EventsChoice, userId: string) =>
+    f.http("/events/rsvp", { ...f.source(), context: f.context(userId), eventNo: 1, occurrenceNo, choice }).then(read)
+/** A published daily event with the given first dates and repeat, and no seat limit unless one is given */
+async function daily(f: ReturnType<typeof fixture>, count: number, recurrence: object, capacity: number | null = null) {
+    await read(await f.enable())
+    const start = f.now() + 2 * HOUR
+    await f.create("daily", start, capacity)
+    await f.change({ type: "calendar", calendar: { ...f.calendar(start, count), recurrence } })
+    await f.publish()
+    return start
+}
+test("An ongoing event keeps 26 open dates with reminders as dates start, and each ended date expires on its own", async (t) => {
+    const f = fixture(t),
+        start = await daily(f, 26, { type: "daily", interval: 1 })
+    for (let day = 1; day <= 3; day++) {
+        f.advance(EVENTS_DAY)
+        await f.cleanup()
+    }
+    const open = (await rows(f)).filter((row) => row.state === "open")
+    assert.equal(open.length, 26)
+    assert.equal(Math.max(...open.map((row) => row.date.startsAt)), start + 28 * EVENTS_DAY)
+    const numbers = (await rows(f)).map((row) => row.occurrenceNo)
+    assert.deepEqual(
+        numbers,
+        Array.from({ length: 29 }, (_, i) => numbers[0]! + i),
+    )
+    const reminders = await f.db.run((c) => c.db.query("eventDeliveries").collect())
+    assert(reminders.some((row) => row.startsAt === start + 28 * EVENTS_DAY && row.state === "queued"))
+    // Reminders of dates that started without the bot sending them are closed, so waiting ones stay bounded
+    assert(reminders.filter((row) => row.state === "queued").every((row) => row.startsAt > f.now()))
+    const shown = await f.event()
+    assert.equal(shown.state, "started")
+    assert.equal(shown.next.startsAt, start + 3 * EVENTS_DAY)
+    // The first date's record goes 180 days after it ends, while later ones stay until their own time
+    f.advance(start + HOUR + 180 * EVENTS_DAY - f.now() + 1)
+    for (let pass = 0; pass < 8; pass++) await f.cleanup()
+    const left = await rows(f)
+    assert.equal(left[0]!.occurrenceNo, numbers[1])
+    assert.equal((await f.event()).state, "started")
+    assert.equal((await read(await f.query({ type: "status" }))).definitions, 1)
+})
+test("A new time after replies keeps each date's number, replies and waitlist order, and a shorter end cancels the rest", async (t) => {
+    const f = fixture(t),
+        start = await daily(f, 3, { type: "daily", interval: 1, count: 3 }, 1)
+    const [first, second, third] = await rows(f)
+    for (const userId of ["20", "21", "22"]) await rsvpFor(f, first!.occurrenceNo, "going", userId)
+    await rsvpFor(f, third!.occurrenceNo, "maybe", "23")
+    const queue = async (occurrenceNo: number) =>
+        (await f.db.run((c) => c.db.query("eventRsvps").collect()))
+            .filter((row) => row.occurrenceNo === occurrenceNo)
+            .map((row) => [row.userId, row.allocation, row.queueOrder])
+    const before = await queue(first!.occurrenceNo)
+    const changed = await f.change({
+        type: "calendar",
+        calendar: { ...f.calendar(start + HOUR, 2), recurrence: { type: "daily", interval: 1, count: 2 } },
+    })
+    assert.equal(changed.event.notice.done, false)
+    const after = await rows(f)
+    assert.deepEqual(
+        after.map((row) => [row.occurrenceNo, row.state, row.date.startsAt]),
+        [
+            [first!.occurrenceNo, "open", start + HOUR],
+            [second!.occurrenceNo, "open", start + HOUR + EVENTS_DAY],
+            [third!.occurrenceNo, "cancelled", third!.date.startsAt],
+        ],
+    )
+    assert.deepEqual([after[0]!.going, after[0]!.waitlisted], [1, 2])
+    assert.deepEqual(await queue(first!.occurrenceNo), before)
+    const stored = await f.db.run((c) => c.db.query("events").unique())
+    assert.deepEqual(stored!.notice!.moves, [
+        { occurrenceNo: first!.occurrenceNo, fromStartsAt: start },
+        { occurrenceNo: third!.occurrenceNo, fromStartsAt: third!.date.startsAt, cancelled: true },
+    ])
+    // Reminders follow the new times
+    const reminders = (await f.db.run((c) => c.db.query("eventDeliveries").collect())).filter(
+        (row) => row.state === "queued",
+    )
+    assert(reminders.every((row) => row.revision === changed.event.revision))
+    assert(reminders.some((row) => row.startsAt === start + HOUR))
+})
+test("Once a repeat has begun its answer names where a change continues, and a change from there keeps the upcoming dates", async (t) => {
+    const f = fixture(t),
+        start = await daily(f, 10, { type: "daily", interval: 1, count: 10 })
+    assert.equal((await f.event()).resume, undefined)
+    // Three dates have started, so the plan continues at the fourth with seven dates left
+    f.advance(start + 2 * EVENTS_DAY + HOUR / 2 - f.now())
+    await f.cleanup()
+    const before = await rows(f),
+        fourth = before[3]!
+    await rsvpFor(f, fourth.occurrenceNo, "going", "20")
+    assert.deepEqual((await f.event()).resume, { localMinute: fourth.date.localMinute, count: 7 })
+    // A weekly repeat of two dates from there keeps date four's number and reply and cancels the open dates past its end
+    const at = fourth.date.startsAt,
+        weekly: EventsCalendar = {
+            ...f.calendar(at),
+            recurrence: { type: "weekly", interval: 1, count: 2 },
+            dates: [0, 7].map((day) => ({
+                localMinute: new Date(at + day * EVENTS_DAY).toISOString().slice(0, 16),
+                startsAt: at + day * EVENTS_DAY,
+                endsAt: at + day * EVENTS_DAY + HOUR,
+                offsetMinutes: 0,
+            })),
+        }
+    await f.change({ type: "calendar", calendar: weekly })
+    const after = await rows(f)
+    assert.deepEqual(
+        after.slice(0, 5).map((row) => [row.occurrenceNo, row.state, row.date.startsAt, row.going]),
+        [
+            ...before.slice(0, 3).map((row) => [row.occurrenceNo, row.state, row.date.startsAt, 0]),
+            [fourth.occurrenceNo, "open", at, 1],
+            [before[4]!.occurrenceNo, "open", at + 7 * EVENTS_DAY, 0],
+        ],
+    )
+    assert(after.slice(5).every((row) => row.state === "cancelled"))
+    // The new plan begins with its first date, and then continues at its second
+    assert.equal((await f.event()).resume, undefined)
+    f.advance(at - f.now() + 1)
+    assert.deepEqual((await f.event()).resume, { localMinute: weekly.dates[1]!.localMinute, count: 1 })
+    // While its last counted date runs, no date is left, and a new repeat would continue where the series comes next
+    f.advance(7 * EVENTS_DAY)
+    assert.deepEqual((await f.event()).resume, {
+        localMinute: new Date(at + 14 * EVENTS_DAY).toISOString().slice(0, 16),
+        count: 0,
+    })
+})
+test("A change to a published repeat keeps the numbers and replies of open dates past a time that does not exist", async (t) => {
+    const f = fixture(t)
+    // Every Sunday at 02:30 in New York. The first dates end before March 8, when 02:30 does not exist there
+    const weekly = (durationMinutes: number): EventsCalendar => {
+        const dates = Array.from({ length: 9 }, (_, i) => {
+            const localMinute = new Date(Date.parse("2026-01-04T02:30Z") + i * 7 * EVENTS_DAY)
+                    .toISOString()
+                    .slice(0, 16),
+                { instantAt, offsetMinutes } = resolveCivilInstant(localMinute, "America/New_York", "reject")
+            return { localMinute, startsAt: instantAt, endsAt: instantAt + durationMinutes * 60000, offsetMinutes }
+        })
+        return {
+            localMinute: dates[0]!.localMinute,
+            zone: "America/New_York",
+            fold: "reject",
+            durationMinutes,
+            recurrence: { type: "weekly", interval: 1 },
+            dates,
+        }
+    }
+    await read(await f.enable())
+    await f.create("weekly")
+    await f.change({ type: "calendar", calendar: weekly(60) })
+    await f.publish()
+    const before = (await rows(f)).filter((row) => row.state === "open"),
+        later = before.find((row) => row.date.localMinute === "2026-03-22T02:30")!
+    assert(before.length > 9)
+    await rsvpFor(f, later.occurrenceNo, "going", "20")
+    await f.change({ type: "calendar", calendar: weekly(90) })
+    const after = await rows(f)
+    assert.deepEqual(
+        after.map((row) => [row.occurrenceNo, row.state, row.date.localMinute]),
+        before.map((row) => [row.occurrenceNo, "open", row.date.localMinute]),
+    )
+    const kept = after.find((row) => row.occurrenceNo === later.occurrenceNo)!
+    assert.deepEqual([kept.going, kept.date.endsAt - kept.date.startsAt], [1, 90 * 60000])
+    assert.equal((await f.db.run((c) => c.db.query("events").unique()))!.notice, undefined)
+})
+test("Moving one date keeps its number and replies, reissues its reminders and card, and refuses started or past times", async (t) => {
+    const f = fixture(t),
+        start = await daily(f, 2, { type: "daily", interval: 1, count: 2 })
+    const [first, second] = await rows(f)
+    await rsvpFor(f, second!.occurrenceNo, "going", "20")
+    const at = start + 3 * EVENTS_DAY,
+        date = {
+            localMinute: new Date(at).toISOString().slice(0, 16),
+            startsAt: at,
+            endsAt: at + HOUR,
+            offsetMinutes: 0,
+        }
+    const moved = await f.change({ type: "move", occurrenceNo: second!.occurrenceNo, date, fold: "reject" })
+    assert.equal(moved.grant.action, "edit")
+    const after = await rows(f)
+    assert.deepEqual(after[1]!.date, date)
+    assert.equal(after[1]!.occurrenceNo, second!.occurrenceNo)
+    assert.equal(after[1]!.going, 1)
+    const reminders = (await f.db.run((c) => c.db.query("eventDeliveries").collect())).filter(
+        (row) => row.state === "queued" && row.occurrenceNo === second!.occurrenceNo,
+    )
+    assert.deepEqual(reminders.map((row) => row.dueAt).sort(), [at - 1440 * 60000, at - 60 * 60000].sort())
+    // Moving the first date to after the second changes the card's first date
+    const later = start + 4 * EVENTS_DAY,
+        laterDate = {
+            ...date,
+            localMinute: new Date(later).toISOString().slice(0, 16),
+            startsAt: later,
+            endsAt: later + HOUR,
+        }
+    const card = await f.change({ type: "move", occurrenceNo: first!.occurrenceNo, date: laterDate, fold: "reject" })
+    assert.match(JSON.stringify(card.grant.content), new RegExp(`<t:${Math.floor(at / 1000)}:f>`))
+    assert.equal(card.event.next.startsAt, at)
+    const move = async (occurrenceNo: number, value: object) =>
+        f.manage({
+            type: "move",
+            eventNo: 1,
+            expectedRevision: (await f.event()).revision,
+            occurrenceNo,
+            date: value,
+            fold: "reject",
+        } as EventsManageOperation)
+    await status(await move(second!.occurrenceNo, { ...date, offsetMinutes: 60 }), 400)
+    await status(await move(second!.occurrenceNo, { ...date, startsAt: at, endsAt: at + 2 * HOUR }), 400)
+    const past = f.now() - 60000
+    const refusedPast = await move(second!.occurrenceNo, {
+        localMinute: new Date(past).toISOString().slice(0, 16),
+        startsAt: past,
+        endsAt: past + HOUR,
+        offsetMinutes: 0,
+    })
+    assert.equal(refusedPast.status, 400)
+    assert.deepEqual(await refusedPast.json(), { error: "Choose a time in the future", code: "REFUSED" })
+    f.advance(at - f.now() + 1)
+    const refusedStarted = await move(second!.occurrenceNo, laterDate)
+    assert.equal(refusedStarted.status, 409)
+    assert.deepEqual(await refusedStarted.json(), {
+        error: `Date #${second!.occurrenceNo} has already started, so it stays as it was`,
+        code: "REFUSED",
+    })
+})
+test("A notice claims members in pages of ten before any DM, lists each member once with all their dates and never again", async (t) => {
+    const f = fixture(t),
+        start = await daily(f, 3, { type: "daily", interval: 1, count: 3 }, 1)
+    const [first, second] = await rows(f)
+    const members = Array.from({ length: 12 }, (_, i) => String(20 + i))
+    for (const userId of members) await rsvpFor(f, first!.occurrenceNo, "going", userId)
+    await rsvpFor(f, first!.occurrenceNo, "not-going", "40")
+    await rsvpFor(f, second!.occurrenceNo, "maybe", "20")
+    await f.change({
+        type: "calendar",
+        calendar: { ...f.calendar(start + HOUR, 3), recurrence: { type: "daily", interval: 1, count: 3 } },
+    })
+    const claim = async () => (await read(await f.work({ type: "notice-claim" }))).page
+    const page = await claim()
+    assert.deepEqual(
+        page.targets.map((target: any) => target.userId),
+        members.slice(0, 10),
+    )
+    assert.deepEqual(page.targets[0].dates, [
+        { occurrenceNo: first!.occurrenceNo, choice: "going", startsAt: start + HOUR, fromStartsAt: start },
+        {
+            occurrenceNo: second!.occurrenceNo,
+            choice: "maybe",
+            startsAt: start + HOUR + EVENTS_DAY,
+            fromStartsAt: start + EVENTS_DAY,
+        },
+    ])
+    // The next page goes on without an outcome report, and member 20 is not listed again for the second date
+    const rest = await claim()
+    assert.deepEqual(
+        rest.targets.map((target: any) => target.userId),
+        members.slice(10),
+    )
+    assert.equal(await claim(), undefined)
+    const stored = await f.db.run((c) => c.db.query("events").unique())
+    assert.equal(stored!.noticeDueAt, undefined)
+    await read(await f.work({ type: "notice-outcome", eventNo: 1, revision: page.revision, sent: 9, failed: 1 }))
+    await read(await f.work({ type: "notice-outcome", eventNo: 1, revision: rest.revision, sent: 2, failed: 0 }))
+    assert.deepEqual((await f.event()).notice, { sent: 11, failed: 1, done: true })
+    // An outcome for a replaced notice changes nothing
+    assert.equal(
+        (await read(await f.work({ type: "notice-outcome", eventNo: 1, revision: 1, sent: 1, failed: 0 }))).recorded,
+        false,
+    )
+})
+test("A repeat may be any number of days apart, and one with a date past the last supported day is refused with that reason", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.create()
+    const once = f.calendar(),
+        start = once.dates[0]!.startsAt
+    const repeat = async (recurrence: object) =>
+        f.manage({
+            type: "calendar",
+            eventNo: 1,
+            expectedRevision: (await f.event()).revision,
+            calendar: { ...once, recurrence },
+        } as EventsManageOperation)
+    for (const recurrence of [
+        { type: "daily", interval: Number.MAX_SAFE_INTEGER },
+        { type: "weekly", interval: 1_000_000, count: 3 },
+    ]) {
+        const refused = await repeat(recurrence)
+        assert.equal(refused.status, 400)
+        assert.equal((await refused.json()).error, CIVIL_RANGE_REASON)
+    }
+    // Every 400 days from 2026, the second date is still far from the year 9999
+    await read(await repeat({ type: "daily", interval: 400, count: 2 }))
+    await f.publish()
+    assert.equal((await rows(f)).length, 1)
+    f.advance(3 * HOUR)
+    await f.cleanup()
+    assert.deepEqual(
+        (await rows(f)).map((row) => row.date.startsAt),
+        [start, start + 400 * EVENTS_DAY],
+    )
+    f.advance(400 * EVENTS_DAY)
+    await f.cleanup()
+    assert.equal((await f.event()).state, "completed")
+})
+test("A date can last weeks, an event keeps changing while many long dates run, and a repeat's date longer than 180 days is refused", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.create()
+    const long = { ...f.calendar(), durationMinutes: 90 * 1440, recurrence: { type: "daily", interval: 1 } }
+    long.dates = long.dates.map((date) => ({ ...date, endsAt: date.startsAt + 90 * EVENTS_DAY }))
+    await f.change({ type: "calendar", calendar: long })
+    await f.publish()
+    // Twenty days at a time, so each stored date starts and keeps running for 90 days
+    for (let step = 0; step < 4; step++) {
+        f.advance(20 * EVENTS_DAY)
+        await f.cleanup()
+    }
+    const started = (await rows(f)).filter((row) => row.state === "started")
+    assert.ok(started.length > 60)
+    await f.change({ type: "content", title: "Still going", description: "" })
+    assert.equal((await f.event()).title, "Still going")
+    const tooLong = await f.manage({
+        type: "calendar",
+        eventNo: 1,
+        expectedRevision: (await f.event()).revision,
+        calendar: {
+            ...f.calendar(f.now() + 2 * HOUR),
+            recurrence: { type: "daily", interval: 1 },
+            durationMinutes: 180 * 1440 + 1,
+            dates: f.calendar(f.now() + 2 * HOUR, 26).dates.map((date) => ({
+                ...date,
+                endsAt: date.startsAt + (180 * 1440 + 1) * 60000,
+            })),
+        },
+    } as EventsManageOperation)
+    assert.equal(tooLong.status, 400)
+})
+test("A single date may last a year, and making it a repeat checks the 180 days again", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.create()
+    const season = (recurrence: object, count = 1) => {
+        const value = f.calendar(f.now() + 2 * HOUR, count)
+        return {
+            ...value,
+            recurrence,
+            durationMinutes: 365 * 1440,
+            dates: value.dates.map((date) => ({ ...date, endsAt: date.startsAt + 365 * EVENTS_DAY })),
+        }
+    }
+    await f.change({ type: "calendar", calendar: season({ type: "none" }) })
+    assert.equal((await f.event()).calendar.durationMinutes, 365 * 1440)
+    const repeat = await f.manage({
+        type: "calendar",
+        eventNo: 1,
+        expectedRevision: (await f.event()).revision,
+        calendar: season({ type: "daily", interval: 1, count: 2 }, 2),
+    } as EventsManageOperation)
+    assert.equal(repeat.status, 400)
+    assert.equal((await f.event()).calendar.recurrence.type, "none")
+})
+test("A repeat's reminder can come up to 179 days before its date, and is queued when the date is stored", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.create()
+    const set = async (value: number[]) =>
+        f.manage({
+            type: "reminders",
+            eventNo: 1,
+            expectedRevision: (await f.event()).revision,
+            offsets: value,
+        } as EventsManageOperation)
+    // A single date takes a longer reminder, and making it a repeat is refused with the reason
+    await read(await set([179 * 1440 + 1]))
+    const once = f.calendar(),
+        start = once.dates[0]!.startsAt
+    const repeat = await f.manage({
+        type: "calendar",
+        eventNo: 1,
+        expectedRevision: (await f.event()).revision,
+        calendar: { ...once, recurrence: { type: "daily", interval: 200 } },
+    } as EventsManageOperation)
+    assert.equal(repeat.status, 400)
+    assert.equal(
+        (await repeat.json()).error,
+        "A reminder of a repeat comes at most 257760 minutes (179 days) before a date, since NeonFlux stores a repeat's later date once it is 180 days ahead",
+    )
+    await read(await set([179 * 1440]))
+    // Every 200 days: The second date is stored once the first starts, and its reminder comes 179 days before it
+    await f.change({ type: "calendar", calendar: { ...once, recurrence: { type: "daily", interval: 200 } } })
+    await status(await set([179 * 1440 + 1]), 400)
+    await f.publish()
+    f.advance(3 * HOUR)
+    await f.cleanup()
+    const queued = (await f.db.run((c) => c.db.query("eventDeliveries").collect())).filter(
+        (row) => row.state === "queued",
+    )
+    assert.deepEqual(
+        queued.map((row) => [row.offsetMinutes, row.dueAt]),
+        [[179 * 1440, start + 200 * EVENTS_DAY - 179 * EVENTS_DAY]],
+    )
+})
+test("A single date far ahead takes a reminder a year before it, and one already past is skipped", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.create()
+    const start = f.now() + 500 * EVENTS_DAY
+    await f.change({ type: "calendar", calendar: f.calendar(start) })
+    await f.change({ type: "reminders", offsets: [600 * 1440, 365 * 1440] })
+    await f.publish()
+    const queued = (await f.db.run((c) => c.db.query("eventDeliveries").collect())).filter(
+        (row) => row.state === "queued",
+    )
+    // The 600-day reminder would have come before the date was set, so only the one a year ahead is queued
+    assert.deepEqual(
+        queued.map((row) => [row.offsetMinutes, row.dueAt]),
+        [[365 * 1440, start - 365 * EVENTS_DAY]],
+    )
+})
+test("A repeat's reminders reach as far as its 26 stored dates, and a longer one is refused with that reason", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.create()
+    const start = (await f.event()).calendar.dates[0].startsAt
+    const daily = (recurrence: EventsCalendar["recurrence"]) => ({ ...f.calendar(start, 26), recurrence })
+    const attempt = async (operation: Record<string, unknown>) =>
+        f.manage({ ...operation, eventNo: 1, expectedRevision: (await f.event()).revision } as EventsManageOperation)
+    const refused = async (operation: Record<string, unknown>) => {
+        const answer = await attempt(operation)
+        assert.equal(answer.status, 400)
+        assert.equal(
+            (await answer.json()).error,
+            "A reminder of this repeat comes at most 36000 minutes (25 days) before a date, since NeonFlux stores its next 26 dates and adds each later date with its reminders as an earlier one starts",
+        )
+    }
+    assert.equal(eventsReminderMaxMinutes(daily({ type: "daily", interval: 1 })), 25 * 1440)
+    assert.equal(eventsReminderMaxMinutes(daily({ type: "daily", interval: 2 })), 51 * 1440)
+    assert.equal(eventsReminderMaxMinutes(daily({ type: "weekly", interval: 1 })), 179 * 1440)
+    assert.equal(eventsReminderMaxMinutes(daily({ type: "daily", interval: 1, count: 26 })), 179 * 1440)
+    assert.equal(eventsReminderMaxMinutes(daily({ type: "daily", interval: 1, count: 27 })), 25 * 1440)
+    // A single date takes a 30-day reminder, and making it a daily repeat without an end is refused
+    await f.change({ type: "reminders", offsets: [30 * 1440] })
+    await refused({ type: "calendar", calendar: daily({ type: "daily", interval: 1 }) })
+    // 26 daily dates are all stored at once, so the 30-day reminder comes for each
+    await f.change({ type: "calendar", calendar: daily({ type: "daily", interval: 1, count: 26 }) })
+    await refused({ type: "calendar", calendar: daily({ type: "daily", interval: 1, count: 27 }) })
+    await f.change({ type: "reminders", offsets: [25 * 1440] })
+    await f.change({ type: "calendar", calendar: daily({ type: "daily", interval: 1 }) })
+    await refused({ type: "reminders", offsets: [25 * 1440 + 1, 60] })
+    // Of the first 26 dates only the last is 25 days ahead at publishing. The 25-day reminder of the 27th date is queued when the
+    // first date starts and the backend stores the 27th
+    await f.publish()
+    f.advance(3 * HOUR)
+    await f.cleanup()
+    const queued = (await f.db.run((c) => c.db.query("eventDeliveries").collect())).filter(
+        (row) => row.state === "queued",
+    )
+    assert.deepEqual(
+        queued.map((row) => row.dueAt).sort((a, b) => a - b),
+        [start + 25 * EVENTS_DAY - 25 * EVENTS_DAY, start + 26 * EVENTS_DAY - 25 * EVENTS_DAY],
+    )
+})
+test("An event can have 20 reminders on each of its 26 dates, and a change requeues them all", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.create("daily", f.now() + 2 * HOUR)
+    const offsets = Array.from({ length: 20 }, (_, i) => i + 1)
+    await f.change({ type: "reminders", offsets })
+    const start = (await f.event()).calendar.dates[0].startsAt
+    await f.change({
+        type: "calendar",
+        calendar: { ...f.calendar(start, 26), recurrence: { type: "daily", interval: 1 } },
+    })
+    await f.publish()
+    const queued = async () =>
+        (await f.db.run((c) => c.db.query("eventDeliveries").collect())).filter((row) => row.state === "queued")
+    assert.equal((await queued()).length, 26 * 20)
+    await f.change({ type: "content", title: "Renamed", description: "" })
+    const after = await queued()
+    assert.equal(after.length, 26 * 20)
+    assert.ok(after.every((row) => row.revision === (after[0]!.revision as number)))
+})
+test("A member's replies are read in pages, so any number of kept replies still shows the soonest", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    await f.create("first")
+    await f.publish(1)
+    await f.create("second", f.now() + 3 * HOUR)
+    await f.publish(2)
+    // Replies kept on 250 dates of the first event that are gone fill more than one page
+    await f.db.run(async (c) => {
+        for (let i = 0; i < 250; i++)
+            await c.db.insert("eventRsvps", {
+                serverId: "1",
+                eventNo: 1,
+                occurrenceNo: 1000 + i,
+                userId: "20",
+                joinedAt: "2025-01-01T00:00:00.000Z",
+                membershipGeneration: 1,
+                revision: 1,
+                choice: "going",
+                allocation: "none",
+                acceptedCreatedAt: 0,
+                acceptedMessageId: String(5000 + i),
+                observedAt: 0,
+                createdAt: 0,
+            })
+    })
+    await read(
+        await f.http("/events/rsvp", {
+            ...f.source(),
+            context: f.context("20"),
+            eventNo: 2,
+            occurrenceNo: (await f.dates(2))[0].occurrenceNo,
+            choice: "going",
+        }),
+    )
+    const first = await read(await f.query({ type: "mine" }, f.context("20")))
+    assert.deepEqual(first.entries, [])
+    assert.ok(first.nextCursor)
+    const next = await read(await f.query({ type: "mine", cursor: first.nextCursor }, f.context("20")))
+    assert.deepEqual(
+        next.entries.map((e: { name: string }) => e.name),
+        ["second"],
+    )
+    assert.equal(next.nextCursor, undefined)
+})
+test("A day's source receipts never block an RSVP, however many a server holds", async (t) => {
+    const f = fixture(t)
+    await daily(f, 2, { type: "daily", interval: 1, count: 2 })
+    const [first] = await rows(f)
+    await f.db.run(async (c) => {
+        const state = (await c.db.query("eventSettings").first())!
+        await c.db.patch(state._id, { receipts: 60000 })
+    })
+    await rsvpFor(f, first!.occurrenceNo, "going", "20")
+    assert.equal((await f.db.run((c) => c.db.query("eventSettings").first()))!.receipts, 60001)
+})
+test("Replies kept on ended dates never block a new RSVP, however many a server holds", async (t) => {
+    const f = fixture(t)
+    await daily(f, 2, { type: "daily", interval: 1, count: 2 })
+    const [first] = await rows(f)
+    // The server's reply count stands for 60,000 replies kept on ended dates
+    await f.db.run(async (c) => {
+        const state = (await c.db.query("eventSettings").first())!
+        await c.db.patch(state._id, { rsvps: 60000 })
+    })
+    await rsvpFor(f, first!.occurrenceNo, "going", "20")
+    assert.equal((await f.db.run((c) => c.db.query("eventSettings").first()))!.rsvps, 60001)
+})
+test("A member who changes a reply between notice pages is still told only once", async (t) => {
+    const f = fixture(t),
+        start = await daily(f, 3, { type: "daily", interval: 1, count: 3 })
+    const [first, second] = await rows(f)
+    const members = Array.from({ length: 12 }, (_, i) => String(20 + i))
+    for (const userId of members) await rsvpFor(f, first!.occurrenceNo, "going", userId)
+    await rsvpFor(f, second!.occurrenceNo, "maybe", "20")
+    await f.change({
+        type: "calendar",
+        calendar: { ...f.calendar(start + HOUR, 3), recurrence: { type: "daily", interval: 1, count: 3 } },
+    })
+    const claim = async () => (await read(await f.work({ type: "notice-claim" }))).page
+    const claimed = (await claim()).targets.map((target: any) => target.userId)
+    assert.ok(claimed.includes("20"))
+    // Member 20 changes the first date to Not going before the next page
+    await rsvpFor(f, first!.occurrenceNo, "not-going", "20")
+    for (let page = await claim(); page; page = await claim())
+        claimed.push(...page.targets.map((target: any) => target.userId))
+    assert.deepEqual(claimed, members)
+})
+test("A change while a notice is going out gets its own notice afterwards, so no member hears of one change twice", async (t) => {
+    const f = fixture(t),
+        start = await daily(f, 3, { type: "daily", interval: 1, count: 3 })
+    const [first, second] = await rows(f)
+    const members = Array.from({ length: 12 }, (_, i) => String(20 + i))
+    for (const userId of members) await rsvpFor(f, first!.occurrenceNo, "going", userId)
+    await rsvpFor(f, second!.occurrenceNo, "maybe", "20")
+    await rsvpFor(f, second!.occurrenceNo, "going", "50")
+    const claim = async () => (await read(await f.work({ type: "notice-claim" }))).page
+    const moveTo = (occurrenceNo: number, at: number) =>
+        f.change({
+            type: "move",
+            occurrenceNo,
+            fold: "reject",
+            date: {
+                localMinute: new Date(at).toISOString().slice(0, 16),
+                startsAt: at,
+                endsAt: at + HOUR,
+                offsetMinutes: 0,
+            },
+        })
+    await moveTo(first!.occurrenceNo, start + HOUR)
+    const page = await claim()
+    assert.deepEqual(
+        page.targets.map((target: any) => target.userId),
+        members.slice(0, 10),
+    )
+    // The second date moves while the first notice is half sent
+    await moveTo(second!.occurrenceNo, start + EVENTS_DAY + HOUR)
+    const rest = await claim()
+    assert.equal(rest.revision, page.revision)
+    assert.deepEqual(
+        rest.targets.map((target: any) => target.userId),
+        members.slice(10),
+    )
+    const next = await claim()
+    assert.notEqual(next.revision, page.revision)
+    assert.deepEqual(
+        next.targets.map((target: any) => [target.userId, target.dates.map((date: any) => date.occurrenceNo)]),
+        [
+            ["20", [second!.occurrenceNo]],
+            ["50", [second!.occurrenceNo]],
+        ],
+    )
+    assert.equal(await claim(), undefined)
+    await read(await f.work({ type: "notice-outcome", eventNo: 1, revision: next.revision, sent: 2, failed: 0 }))
+    assert.deepEqual((await f.event()).notice, { sent: 2, failed: 0, done: true })
+})
+test("Notices wait while events are off, and a cancelled event drops its notice", async (t) => {
+    const f = fixture(t),
+        start = await daily(f, 2, { type: "daily", interval: 1, count: 2 })
+    const [first] = await rows(f)
+    await rsvpFor(f, first!.occurrenceNo, "going", "20")
+    await f.change({
+        type: "calendar",
+        calendar: { ...f.calendar(start + HOUR, 2), recurrence: { type: "daily", interval: 1, count: 2 } },
+    })
+    await read(await f.manage({ type: "settings", expectedRevision: 2, enabled: false }))
+    assert.equal((await read(await f.work({ type: "notice-claim" }))).page, undefined)
+    await read(await f.manage({ type: "settings", expectedRevision: 3, enabled: true }))
+    await f.change({ type: "cancel" })
+    assert.equal((await read(await f.work({ type: "notice-claim" }))).page, undefined)
+    assert.equal((await f.db.run((c) => c.db.query("events").unique()))!.noticeDueAt, undefined)
+})
+test("Cancelled and completed events stop counting toward the 50", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    for (let i = 0; i < 50; i++)
+        await read(await f.manage({ type: "create", name: `event-${i}`, title: "Gathering", channelId: "30" }))
+    const extra = () => f.manage({ type: "create", name: "extra", title: "Gathering", channelId: "30" })
+    await status(await extra(), 429)
+    await f.change({ type: "calendar", calendar: f.calendar() }, 1)
+    await f.publish(1)
+    await f.change({ type: "cancel" }, 1)
+    await read(await extra())
+    await f.change({ type: "calendar", calendar: f.calendar() }, 2)
+    await f.publish(2)
+    f.advance(4 * HOUR)
+    await f.cleanup()
+    assert.equal((await read(await f.query({ type: "status" }))).definitions, 49)
+    assert.equal((await f.event(2)).state, "completed")
+})
+test("Cancelled and completed events stored before they stopped counting leave room for live ones", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    for (let i = 0; i < 50; i++)
+        await read(await f.manage({ type: "create", name: `event-${i}`, title: "Gathering", channelId: "30" }))
+    // The old rule cancelled and completed events without releasing them, so the counter still holds both
+    await f.db.run(async (ctx) => {
+        for (const [eventNo, state] of [
+            [1, "cancelled"],
+            [2, "completed"],
+        ] as const) {
+            const row = await ctx.db
+                .query("events")
+                .withIndex("by_number", (q) => q.eq("serverId", "1").eq("eventNo", eventNo))
+                .unique()
+            await ctx.db.patch(row!._id, { state })
+        }
+    })
+    assert.equal((await read(await f.query({ type: "status" }))).definitions, 48)
+    const create = (name: string) => f.manage({ type: "create", name, title: "Gathering", channelId: "30" })
+    await read(await create("first"))
+    await read(await create("second"))
+    await status(await create("third"), 429)
+    assert.equal((await read(await f.query({ type: "status" }))).definitions, 50)
+})
+
+test("Creating and changing an event numbered past the first 1,000 has audit Details", async (t) => {
+    const f = fixture(t)
+    await read(await f.enable())
+    const first = await f.create("first")
+    // 1,000 cancelled copies before the next event, so its number sorts after the first 1,000 the audit view reads of a list
+    await f.db.run(async (ctx) => {
+        const { _id, _creationTime, ...row } = (await ctx.db
+            .query("events")
+            .withIndex("by_number", (q) => q.eq("serverId", "1").eq("eventNo", first))
+            .unique())!
+        for (let eventNo = first + 1; eventNo <= first + 1000; eventNo++)
+            await ctx.db.insert("events", { ...row, eventNo, name: `copy${eventNo}`, state: "cancelled" })
+        const settings = (await ctx.db
+            .query("eventSettings")
+            .withIndex("by_server", (q) => q.eq("serverId", "1"))
+            .unique())!
+        await ctx.db.patch(settings._id, { nextEventNo: first + 1001 })
+    })
+    const created = (await read(await f.manage({ type: "create", name: "late", title: "Late", channelId: "30" }))).event
+    assert.equal(created.eventNo, first + 1001)
+    await f.change({ type: "content", title: "Later", description: "" }, created.eventNo)
+    const changes = await f.db.run(async (ctx) =>
+        Promise.all(
+            (await ctx.db.query("auditLogEntries").order("desc").take(2)).map(
+                async (entry) =>
+                    (
+                        await ctx.db
+                            .query("auditLogChanges")
+                            .filter((q) => q.eq(q.field("entryId"), entry._id))
+                            .first()
+                    )?.changes ?? [],
+            ),
+        ),
+    )
+    // Entries are named by the event's name. A created event shows only what it brings
+    assert.deepEqual(changes[0], [{ path: "events[late].title", before: "Late", after: "Later" }])
+    assert.deepEqual(
+        changes[1]!.filter((row) => !row.path.startsWith("events[late].")),
+        [],
+    )
+    assert.ok(changes[1]!.some((row) => row.path === "events[late].eventNo" && row.after === created.eventNo))
 })

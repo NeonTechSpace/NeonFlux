@@ -13,7 +13,17 @@ import {
     equalPublishingContent,
     publishingGrantFields,
 } from "./publishing-base.ts"
-import { CivilLocalMinute, CivilOffset, CivilZone, civilAt, civilIntent, civilSeries } from "./civil.ts"
+import {
+    CIVIL_WINDOW,
+    CivilLocalMinute,
+    CivilResume,
+    CivilSkipped,
+    CivilOffset,
+    CivilZone,
+    civilAt,
+    civilIntent,
+    civilSeries,
+} from "./civil.ts"
 
 // Scheduled publishing, see docs/BOT.md#scheduled-publishing
 
@@ -37,8 +47,14 @@ export const SchedulesResolvedDate = Schema.Struct({
     offsetMinutes: CivilOffset,
 }).check(Schema.makeFilter((v) => civilAt(v.localMinute, v.dueAt, v.offsetMinutes)))
 export type SchedulesResolvedDate = typeof SchedulesResolvedDate.Type
-/** The dates are resolved once when the calendar is set. Other edits copy them, so a changed zone database never moves a planned post */
-export const SchedulesCalendar = Schema.Struct({ ...civilIntent, dates: List(SchedulesResolvedDate, 26) }).check(
+/**
+ * The first dates are resolved when the calendar is set, and the backend resolves each later date as it adds it. Other edits copy
+ * the stored dates, so a changed zone database never moves a planned post
+ */
+export const SchedulesCalendar = Schema.Struct({
+    ...civilIntent,
+    dates: List(SchedulesResolvedDate, CIVIL_WINDOW),
+}).check(
     Schema.makeFilter((v) =>
         civilSeries(
             v,
@@ -79,6 +95,10 @@ export const SchedulesSnapshot = Schema.Struct({
 export type SchedulesSnapshot = typeof SchedulesSnapshot.Type
 export const SchedulesSettings = Schema.Struct({ enabled: Schema.Boolean, revision: Int(1), activatedAt: Millis })
 export type SchedulesSettings = typeof SchedulesSettings.Type
+/**
+ * upcoming lists the stored dates that have not come due yet, in a single schedule's answer, and resume is where a changed repeat
+ * continues once its first date has come due
+ */
 export const SchedulesDefinition = Schema.Struct({
     ...SchedulesSnapshot.fields,
     scheduleNo: Int(1),
@@ -88,6 +108,9 @@ export const SchedulesDefinition = Schema.Struct({
     createdBy: Id,
     channelId: Id,
     calendar: SchedulesCalendar,
+    upcoming: optional(List(SchedulesResolvedDate, CIVIL_WINDOW)),
+    resume: optional(CivilResume),
+    lastSkipped: optional(CivilSkipped),
     enabled: Schema.Boolean,
     cancelled: Schema.Boolean,
     activatedAt: Millis,
@@ -245,14 +268,9 @@ export const SchedulesQueryResult = Schema.Union([
         type: Schema.Literal("status"),
         settings: SchedulesSettings,
         definitions: Int(0, 50),
-        deliveries: Int(0, 200),
-        receipts: Int(0, 1000),
+        receipts: Int(0),
         publishing: Schema.Struct({ enabled: Schema.Boolean }),
-        limits: Schema.Struct({
-            definitions: Schema.Literal(50),
-            deliveries: Schema.Literal(200),
-            receipts: Schema.Literal(1000),
-        }),
+        limits: Schema.Struct({ definitions: Schema.Literal(50) }),
     }),
     Schema.Struct({
         type: Schema.Literal("schedules"),

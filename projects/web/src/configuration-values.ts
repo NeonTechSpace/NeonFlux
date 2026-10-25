@@ -1,3 +1,5 @@
+import { CIVIL_RANGE_REASON, civilPastRange } from "@neonflux/contracts/civil"
+import { eventsDurationProblem } from "@neonflux/contracts/events"
 import { isId, isName } from "@neonflux/contracts/common"
 import type { PublishingKind } from "@neonflux/contracts/publishing-base"
 import type { DashboardEventCalendar, DashboardScheduleCalendar } from "@neonflux/backend/dashboard-contracts"
@@ -8,6 +10,16 @@ export function numberValue(value: string | boolean | undefined, min: number, ma
     if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max)
         throw new FormInputError(`Choose ${label} between ${min} and ${max}`)
     return parsed
+}
+/** A calendar day, YYYY-MM-DD, that exists */
+function dateValue(value: unknown): string {
+    if (
+        typeof value !== "string" ||
+        !/^\d{4}-\d\d-\d\d$/.test(value) ||
+        new Date(`${value}T00:00Z`).toISOString().slice(0, 10) !== value
+    )
+        throw new FormInputError("Choose the last date of the repeat")
+    return value
 }
 export function idValue(value: string | boolean | undefined, label: string): string {
     const parsed = typeof value === "string" ? value.trim() : ""
@@ -85,27 +97,43 @@ export function calendarValue(
             !["reject", "earlier", "later"].includes(parsed.fold)
         )
             throw new Error()
+        const repeat = parsed.recurrence
+        // A repeat ends after a number of dates, on a date, or never
         const recurrence =
-            parsed.recurrence.type === "none"
+            repeat.type === "none"
                 ? { type: "none" as const }
                 : {
-                      type: parsed.recurrence.type,
-                      interval: numberValue(String(parsed.recurrence.interval), 1, 12, "recurrence interval"),
-                      count: numberValue(String(parsed.recurrence.count), 1, 26, "occurrence count"),
+                      type: repeat.type,
+                      interval: numberValue(String(repeat.interval), 1, Number.MAX_SAFE_INTEGER, "recurrence interval"),
+                      ...(repeat.count !== undefined
+                          ? { count: numberValue(String(repeat.count), 1, Number.MAX_SAFE_INTEGER, "number of dates") }
+                          : {}),
+                      ...(repeat.until !== undefined ? { until: dateValue(repeat.until) } : {}),
                   }
         if (!["none", "daily", "weekly"].includes(recurrence.type)) throw new Error()
+        if (repeat.type !== "none" && repeat.count !== undefined && repeat.until !== undefined)
+            throw new FormInputError("End a repeat after a number of dates or on a date, not both")
         const calendar: DashboardScheduleCalendar = {
             localMinute: parsed.localMinute,
             zone: parsed.zone,
             fold: parsed.fold,
             recurrence,
         }
-        return event
-            ? {
-                  ...calendar,
-                  durationMinutes: numberValue(String(parsed.durationMinutes), 1, 10080, "duration minutes"),
-              }
-            : calendar
+        if (civilPastRange(calendar)) throw new FormInputError(CIVIL_RANGE_REASON)
+        if (!event) return calendar
+        // A repeat's dates last at most 180 days and a single date until the calendar's last day
+        const timed = {
+            ...calendar,
+            durationMinutes: numberValue(
+                String(parsed.durationMinutes),
+                1,
+                Number.MAX_SAFE_INTEGER,
+                "duration minutes",
+            ),
+        }
+        const problem = eventsDurationProblem(timed)
+        if (problem) throw new FormInputError(problem)
+        return timed
     } catch (error) {
         if (error instanceof FormInputError) throw error
         throw new FormInputError("Choose an explicit local date, time, timezone and fold policy")

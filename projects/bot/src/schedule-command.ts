@@ -2,7 +2,7 @@ import { isName } from "@neonflux/contracts/common"
 import type { CivilFoldPolicy, CivilRecurrence } from "@neonflux/contracts/civil"
 import type { PublishingKind, SchedulesContentSource } from "@neonflux/contracts/publishing-base"
 import { commands } from "@neontechspace/fluxerly/effect"
-import { argument } from "./command-arguments.ts"
+import { argument, repeatArguments } from "./command-arguments.ts"
 
 /** A draft or template named in chat. The bot reads its current revision right before the write */
 export type ScheduleSource = Omit<SchedulesContentSource, "revision">
@@ -31,20 +31,15 @@ const source = (args: readonly string[]): ScheduleSource | undefined =>
         : undefined
 function calendar(args: readonly string[]): SchedulePlan | undefined {
     if (
-        (args.length !== 3 && args.length !== 6) ||
         !/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(args[0] ?? "") ||
         !args[1] ||
         args[1].length > 128 ||
         !["reject", "earlier", "later"].includes(args[2]!)
     )
         return undefined
-    let recurrence: CivilRecurrence = { type: "none" }
-    if (args.length === 6) {
-        const interval = commands.parseArgument(args[4], { type: "integer", min: 1, max: 12 }),
-            count = commands.parseArgument(args[5], { type: "integer", min: 1, max: 26 })
-        if (!["daily", "weekly"].includes(args[3]!) || !interval || !count) return undefined
-        recurrence = { type: args[3] as "daily" | "weekly", interval, count }
-    }
+    const recurrence: CivilRecurrence | undefined =
+        args.length === 3 ? { type: "none" } : repeatArguments(args.slice(3))
+    if (!recurrence) return undefined
     return { localMinute: args[0]!, zone: args[1], fold: args[2] as CivilFoldPolicy, recurrence }
 }
 export const scheduleHelp = [
@@ -58,11 +53,11 @@ export const scheduleHelp = [
 ].join("\n")
 /** The forms !publish schedule help leaves out, listed by !publish schedule help all */
 export const scheduleHelpAll = [
-    "!publish schedule create <name> draft|template <source> #channel YYYY-MM-DDTHH:mm <zone> reject daily|weekly <1-12 every> <1-26 dates>: Repeat a post",
+    "!publish schedule create <name> draft|template <source> #channel YYYY-MM-DDTHH:mm <zone> reject daily|weekly <every> [<dates>|until YYYY-MM-DD|ongoing]: Repeat a post, with no end unless you give one",
     "!publish schedule update <name> content draft|template <source>: Replace its content",
-    "!publish schedule update <name> time YYYY-MM-DDTHH:mm <zone> reject [daily|weekly <every> <dates>]: Change its time",
+    "!publish schedule update <name> time YYYY-MM-DDTHH:mm <zone> reject [daily|weekly <every> [<dates>|until YYYY-MM-DD|ongoing]]: Change its time",
     "!publish schedule update <name> destination #channel: Change its channel",
-    "!publish schedule dates <name> [next]: Its planned dates",
+    "!publish schedule dates <name> [next]: Its upcoming dates",
     "!publish schedule preview <name>: The post it sends",
     "!publish schedule status [<name> [next]]: Whether scheduled posts are on, or one schedule's posts",
     "!publish schedule reconcile <name> <post-number>: Check a post that was not confirmed",
@@ -88,7 +83,7 @@ export function scheduleCritical(command: ScheduleCommand | { error: string }) {
     )
 }
 export function parseScheduleCommand(args: readonly string[]): ScheduleCommand | { error: string } {
-    const error = { error: "Check the schedule name, values and finite dates. Use !publish schedule help for syntax" }
+    const error = { error: "Check the schedule name, values and dates. Use !publish schedule help for syntax" }
     const verb = args[0]?.toLowerCase(),
         target = name(args[1])
     if (!verb || (verb === "help" && args.length === 1)) return { type: "help" }

@@ -266,6 +266,101 @@ test("Change summaries cover paged lists longer than one dashboard page", async 
     )
 })
 
+test("A change to a watchlist entry past the first 1,000 has Details with its reasons, from an update and a removal", async () => {
+    const { t, page, detail } = await fixture()
+    let messageId = 2000
+    const manage = (operation: Record<string, unknown>) =>
+        t.mutation(internal.moderation.manage, {
+            request: {
+                serverId: "10",
+                messageId: String(messageId++),
+                createdAt: now,
+                actor: { ...manager, userId: "99", isOwner: true },
+                operation,
+            },
+        })
+    // 1,001 entries, so the last one sorts after the first 1,000 the audit view reads of a list
+    const userIds = Array.from({ length: 1001 }, (_, index) => String(5000000 + index))
+    await t.run(async (ctx) => {
+        for (const userId of userIds)
+            await ctx.db.insert("securityWatchlist", {
+                serverId: "10",
+                userId,
+                reason: "Seeded reason",
+                createdAt: now,
+            })
+    })
+    const last = userIds.at(-1)!
+    await manage({ type: "watchlist-add", userId: last, reason: "New reason" })
+    await manage({ type: "watchlist-remove", userId: last })
+    const [removed, updated] = (await page()).entries
+    assert.deepEqual(
+        [updated?.setting, updated?.detail, removed?.setting, removed?.detail],
+        [`watchlist-add ${last}`, true, `watchlist-remove ${last}`, true],
+    )
+    assert.deepEqual(await detail(updated!.id), {
+        changes: [{ path: `watchlist[${last}].reason`, before: "Seeded reason", after: "New reason" }],
+        more: 0,
+    })
+    assert.deepEqual(await detail(removed!.id), {
+        changes: [
+            { path: `watchlist[${last}].reason`, before: "New reason" },
+            { path: `watchlist[${last}].userId`, before: last },
+        ],
+        more: 0,
+    })
+    assert.deepEqual([updated?.summary, removed?.summary], [`watchlist: changed ${last}`, `watchlist: removed ${last}`])
+})
+
+test("Creating and changing a draft past the first 1,000 has Details, as other long lists read by key do", async () => {
+    const { t, page, detail } = await fixture()
+    let messageId = 3000
+    const manage = (operation: Record<string, unknown>) =>
+        t.mutation(internal.publishing.manage, {
+            request: {
+                serverId: "10",
+                messageId: String(messageId++),
+                createdAt: now,
+                actor: { ...manager, userId: "99", isOwner: true },
+                operation,
+            },
+        })
+    await t.run(async (ctx) => {
+        for (let index = 0; index < 1000; index++)
+            await ctx.db.insert("publishingDrafts", {
+                serverId: "10",
+                kind: "draft",
+                name: `d${String(index).padStart(4, "0")}`,
+                revision: 1,
+                content: { content: "Seeded" },
+                canonicalContent: { content: "Seeded" },
+                createdAt: now,
+                updatedAt: now,
+            })
+    })
+    await manage({ type: "draft-create", kind: "draft", name: " D9999 ", content: { content: "First" } })
+    await manage({
+        type: "draft-update",
+        kind: "draft",
+        name: "d9999",
+        expectedRevision: 1,
+        edit: { type: "content", content: "Second" },
+    })
+    const [changed, created] = (await page()).entries
+    assert.ok(
+        (await detail(created!.id))!.changes.some(
+            (change) => change.path.endsWith(".content") && change.after === "First",
+        ),
+    )
+    assert.deepEqual(
+        (await detail(changed!.id))!.changes.filter((change) => change.path.endsWith(".content")),
+        [
+            { path: "drafts[d9999].canonicalContent.content", before: "First", after: "Second" },
+            { path: "drafts[d9999].content.content", before: "First", after: "Second" },
+        ],
+    )
+})
+
 test("The reply style changes from chat and the website at the prefix's revision, recording only the setting that changed", async () => {
     const { t, args, page } = await fixture()
     await t.mutation(internal.generalSettings.manage, {

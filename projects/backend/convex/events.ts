@@ -1,4 +1,5 @@
 import {
+    EVENTS_REMINDERS,
     EventsManageRequest,
     EventsQueryRequest,
     EventsRsvpRequest,
@@ -6,8 +7,11 @@ import {
     type EventsDeliveryGrant,
     type EventsManageResult,
     type EventsQueryResult,
+    type EventsResolvedDate,
     type EventsRsvpResult,
+    eventsReminderProblem,
 } from "@neonflux/contracts/events"
+import { CIVIL_WINDOW } from "@neonflux/contracts/civil"
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
 import type { Doc } from "./_generated/dataModel.js"
@@ -32,12 +36,18 @@ import {
     eventSettings,
     eventState,
     lifecycle,
+    liveOccurrences,
+    nextOccurrence,
+    eventResume,
     occurrenceRow,
     publicEvent,
     publicOccurrence,
     publicRsvp,
+    releaseEvent,
+    staleEvents,
     wakePromotion,
 } from "./eventsStore.ts"
+import { materializeCivil, resolveCivilInstant } from "./civilDomain.ts"
 import { automationGate } from "./schedulesStore.ts"
 import { serverPrefix } from "./generalSettings.ts"
 import { decode, fail, integer, name, source, configurationSourceId, type ConfigurationIdentity } from "./validation.ts"
@@ -71,6 +81,8 @@ async function closeUnclaimedCard(ctx: MutationCtx, event: Doc<"events">, now: n
         attempt = post?.attemptId ? await ctx.db.get(post.attemptId) : null
     await failUndispatched(ctx, attempt, post, now)
 }
+/** Reminder rows of an event that a change reads at most: 20 reminders on each of 26 stored dates */
+const REMINDER_ROWS = CIVIL_WINDOW * EVENTS_REMINDERS
 export async function invalidateEventDeliveries(ctx: MutationCtx, event: Doc<"events">) {
     const stale = await ctx.db
         .query("eventDeliveries")
@@ -81,7 +93,7 @@ export async function invalidateEventDeliveries(ctx: MutationCtx, event: Doc<"ev
                 .eq("attemptId", undefined)
                 .lt("revision", event.revision),
         )
-        .take(53)
+        .take(REMINDER_ROWS + 1)
     for (const row of stale) await ctx.db.delete(row._id)
     const rows = []
     for (const state of ["queued", "blocked", "reserved"] as const)
@@ -95,9 +107,9 @@ export async function invalidateEventDeliveries(ctx: MutationCtx, event: Doc<"ev
                         .eq("state", state)
                         .eq("claimedAt", undefined),
                 )
-                .take(53)),
+                .take(REMINDER_ROWS + 1)),
         )
-    if (rows.length > 52) fail(503, "Event delivery accounting unavailable")
+    if (rows.length > REMINDER_ROWS) fail(503, "Event delivery accounting unavailable")
     for (const row of rows) {
         const attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
         if (attempt?.dispatchedAt !== undefined || !["queued", "blocked", "reserved"].includes(row.state)) continue
@@ -112,10 +124,17 @@ export async function invalidateEventDeliveries(ctx: MutationCtx, event: Doc<"ev
     }
 }
 export async function queueEventReminders(ctx: MutationCtx, event: Doc<"events">) {
+    // An event stores at most 26 open dates that have not started
     const occurrences = await ctx.db
         .query("eventOccurrences")
-        .withIndex("by_event", (q) => q.eq("serverId", event.serverId).eq("eventNo", event.eventNo))
-        .take(27)
+        .withIndex("by_event_state", (q) =>
+            q
+                .eq("serverId", event.serverId)
+                .eq("eventNo", event.eventNo)
+                .eq("state", "open")
+                .gt("date.startsAt", Date.now()),
+        )
+        .take(CIVIL_WINDOW)
     for (const occurrence of occurrences)
         for (const offsetMinutes of event.reminderOffsets) {
             const dueAt = occurrence.date.startsAt - offsetMinutes * 60000
@@ -190,7 +209,12 @@ async function eventCard(
             ...(event.template ? { template: { name: event.template.name, revision: event.template.revision } } : {}),
         },
         consumer: { type: "event", eventNo: event.eventNo, revision: event.revision, purpose: "card" },
-        content: renderEvent(event, await serverPrefix(ctx, event.serverId)),
+        content: renderEvent(
+            event,
+            await serverPrefix(ctx, event.serverId),
+            undefined,
+            nextOccurrence(await liveOccurrences(ctx, event))?.date,
+        ),
         ...(existing ? { existing } : {}),
     })
     await ctx.db.patch(event._id, { cardPostNo: reserved.post.postNo })
@@ -243,7 +267,6 @@ async function forgetEvent(ctx: MutationCtx, event: Doc<"events">) {
         if (rows.length > remaining) return { complete: false, removed }
         if (removed >= 20) return { complete: false, removed }
         await ctx.db.delete(occurrence._id)
-        await eventCount(ctx, event.serverId, "occurrences", -1)
         removed++
     }
     const deliveries = await ctx.db
@@ -262,7 +285,7 @@ async function forgetEvent(ctx: MutationCtx, event: Doc<"events">) {
     )
         return { complete: false, removed }
     await ctx.db.delete(event._id)
-    await eventCount(ctx, event.serverId, "definitions", -1)
+    if (!event.released) await eventCount(ctx, event.serverId, "definitions", -1)
     return { complete: true, removed: removed + 1 }
 }
 export const manage = serviceMutation({
@@ -312,6 +335,8 @@ export const manage = serviceMutation({
     },
 })
 
+/** Replies one `mine` page reads, each with at most one event and one date read */
+const MINE_PAGE = 200
 export const query = serviceQuery({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<EventsQueryResult> => {
@@ -333,8 +358,7 @@ export const query = serviceQuery({
                 : {
                       type: "status",
                       settings,
-                      definitions: state?.definitions ?? 0,
-                      occurrences: state?.occurrences ?? 0,
+                      definitions: (state?.definitions ?? 0) - (await staleEvents(ctx, serverId)),
                       rsvps: state?.rsvps ?? 0,
                       receipts: state?.receipts ?? 0,
                   }
@@ -356,7 +380,7 @@ export const query = serviceQuery({
                 selected = visible.slice(0, 10)
             return {
                 type: "events",
-                events: selected.map(publicEvent),
+                events: selected.map((row) => publicEvent(row)),
                 ...(visible.length > 10 ? { nextBeforeEventNo: selected.at(-1)!.eventNo } : {}),
             }
         }
@@ -365,14 +389,41 @@ export const query = serviceQuery({
                 ? context.member
                 : await eventEligible(ctx, serverId, context, context.channelId, context.actor.userId)
             if (!member || member.userId !== context.actor.userId) fail(403, "Current visible membership required")
-            // A member holds RSVPs for at most 50 events of 26 dates each. Rows kept from an earlier membership do not count
-            const rows = await ctx.db
-                .query("eventRsvps")
-                .withIndex("by_member", (q) => q.eq("serverId", serverId).eq("userId", member.userId))
-                .take(50 * 26)
+            // A page reads the member's replies in event and date order from the cursor. The bot reads every page and shows the
+            // soonest overall, so no number of events, dates or kept replies limits the answer. Rows kept from an earlier
+            // membership are skipped
+            const cursor = op.cursor
+            const sameEvent = cursor
+                ? await ctx.db
+                      .query("eventRsvps")
+                      .withIndex("by_member", (q) =>
+                          q
+                              .eq("serverId", serverId)
+                              .eq("userId", member.userId)
+                              .eq("eventNo", cursor.eventNo)
+                              .gt("occurrenceNo", cursor.occurrenceNo),
+                      )
+                      .take(MINE_PAGE + 1)
+                : []
+            const rows = [
+                ...sameEvent,
+                ...(sameEvent.length > MINE_PAGE
+                    ? []
+                    : await ctx.db
+                          .query("eventRsvps")
+                          .withIndex("by_member", (q) =>
+                              q
+                                  .eq("serverId", serverId)
+                                  .eq("userId", member.userId)
+                                  .gt("eventNo", cursor?.eventNo ?? 0),
+                          )
+                          .take(MINE_PAGE + 1 - sameEvent.length)),
+            ]
+            const page = rows.slice(0, MINE_PAGE),
+                last = page.at(-1)
             const events = new Map<number, Doc<"events"> | undefined>(),
                 entries: Extract<EventsQueryResult, { type: "mine" }>["entries"][number][] = []
-            for (const row of rows) {
+            for (const row of page) {
                 const choice = row.choice
                 if ((choice !== "going" && choice !== "maybe") || row.joinedAt !== member.joinedAt) continue
                 if (!events.has(row.eventNo)) {
@@ -407,7 +458,14 @@ export const query = serviceQuery({
                 })
             }
             entries.sort((a, b) => a.startsAt - b.startsAt || a.eventNo - b.eventNo || a.occurrenceNo - b.occurrenceNo)
-            return { type: "mine", entries: entries.slice(0, 20), more: entries.length > 20 }
+            return {
+                type: "mine",
+                entries: entries.slice(0, 20),
+                more: entries.length > 20,
+                ...(rows.length > MINE_PAGE && last
+                    ? { nextCursor: { eventNo: last.eventNo, occurrenceNo: last.occurrenceNo } }
+                    : {}),
+            }
         }
         // Chat commands name an event, which is unique in a server through the by_name index
         const byName = op.type === "show" && "name" in op
@@ -423,9 +481,20 @@ export const query = serviceQuery({
                 fail(403, "Use this in the channel the event was posted in", "REFUSED")
             await eventEligible(ctx, serverId, context, event.channelId, context.actor.userId)
         }
-        if (op.type === "show") return { type: "event", event: publicEvent(event) }
+        if (op.type === "show")
+            return {
+                type: "event",
+                event: {
+                    ...publicEvent(event, nextOccurrence(await liveOccurrences(ctx, event))),
+                    ...eventResume(event, Date.now()),
+                },
+            }
         if (op.type === "dates") {
-            const after = op.afterOccurrenceNo === undefined ? 0 : op.afterOccurrenceNo
+            // The list starts at the earliest date that has not ended. Ended dates show only once none are left
+            const now = Date.now(),
+                live = (await liveOccurrences(ctx, event)).filter((row) => row.date.endsAt > now),
+                first = Math.min(...live.map((row) => row.occurrenceNo)),
+                after = Math.max(op.afterOccurrenceNo ?? 0, Number.isFinite(first) ? first - 1 : 0)
             const rows = await ctx.db
                     .query("eventOccurrences")
                     .withIndex("by_number", (q) =>
@@ -467,16 +536,18 @@ export const query = serviceQuery({
 
 /** The earliest date of an event that still takes RSVPs, which has not started and is not cancelled */
 async function nextOpenOccurrence(ctx: MutationCtx, event: Doc<"events">) {
-    const rows = await ctx.db
-        .query("eventOccurrences")
-        .withIndex("by_event", (q) => q.eq("serverId", event.serverId).eq("eventNo", event.eventNo))
-        .take(26)
-    return rows
-        .filter((row) => lifecycle({ state: row.state, ...row.date }) === "open")
-        .reduce<Doc<"eventOccurrences"> | undefined>(
-            (soonest, row) => (!soonest || row.date.startsAt < soonest.date.startsAt ? row : soonest),
-            undefined,
-        )
+    return (
+        (await ctx.db
+            .query("eventOccurrences")
+            .withIndex("by_event_state", (q) =>
+                q
+                    .eq("serverId", event.serverId)
+                    .eq("eventNo", event.eventNo)
+                    .eq("state", "open")
+                    .gt("date.startsAt", Date.now()),
+            )
+            .first()) ?? undefined
+    )
 }
 /** The date that a dateless RSVP from this message already answered for, read from its receipt */
 async function datelessReceipt(
@@ -579,7 +650,6 @@ export const rsvp = serviceMutation({
                     BigInt(identity.messageId) <= BigInt(old.acceptedMessageId)))
         if (olderEpoch || olderSource) return response(false)
         if (old && context.observedAt < old.observedAt) return response(false)
-        if (!old && occurrence.rsvps >= 1000) fail(429, "Occurrence participation capacity reached")
         const sameEpoch = old?.joinedAt === member.joinedAt,
             choice = input.choice,
             keepsGoing = sameEpoch && old.choice === "going" && choice === "going"
@@ -708,37 +778,29 @@ export async function applyEventsManagement(
     }
     if (event.forgetting || event.state === "cancelled" || publicEvent(event).state === "completed")
         fail(409, "This event is cancelled or finished, so it can no longer change", "REFUSED")
-    const occurrences = await ctx.db
-        .query("eventOccurrences")
-        .withIndex("by_event", (q) => q.eq("serverId", event.serverId).eq("eventNo", event.eventNo))
-        .take(27)
+    const occurrences = await liveOccurrences(ctx, event)
     if (op.type === "publish") {
         if (!state.enabled)
             fail(403, "Events are off. The server owner or an Administrator can turn them on", "REFUSED")
-        if (event.state !== "draft" || !event.calendar || event.calendar.dates.some((d) => d.startsAt <= now))
+        if (
+            event.state !== "draft" ||
+            !event.calendar ||
+            !occurrences.length ||
+            occurrences.some((o) => o.date.startsAt <= now)
+        )
             fail(409, "Future draft calendar required")
         if (!context) fail(403, "Native administrator required")
         const grant = await eventCard(ctx, event, identity, context)
         await ctx.db.patch(event._id, { state: "open", activatedAt: now, updatedAt: now })
         for (const occurrence of occurrences) await ctx.db.patch(occurrence._id, { state: "open" })
+        await extendEvent(ctx, (await ctx.db.get(event._id))!, now)
         await queueEventReminders(ctx, (await ctx.db.get(event._id))!)
         return { duplicate: false, type: "event", event: publicEvent((await ctx.db.get(event._id))!), grant }
     }
     if (op.type === "cancel") {
         const revision = advanceEvent(event.revision)
         await invalidateEventDeliveries(ctx, event)
-        for (const occurrence of occurrences)
-            await ctx.db.patch(occurrence._id, {
-                revision,
-                state: "cancelled",
-                workActive: false,
-                workGeneration: advanceEvent(occurrence.workGeneration),
-                claimToken: undefined,
-                leaseExpiresAt: undefined,
-                headId: undefined,
-                terminalAt: now,
-                participationExpiresAt: now + 30 * EVENTS_DAY,
-            })
+        for (const occurrence of occurrences) await cancelOccurrence(ctx, occurrence, now, revision)
         await closeUnclaimedCard(ctx, event, now)
         await ctx.db.patch(event._id, {
             state: "cancelled",
@@ -748,49 +810,113 @@ export async function applyEventsManagement(
             historyExpiresAt: now + 180 * EVENTS_DAY,
             // A discussion thread, or a forum post published with threads on, closes now, and one not yet started never starts
             threadDueAt: event.threadId || (event.postId && event.threadDueAt !== undefined) ? now : undefined,
+            extendAt: undefined,
+            notice: undefined,
+            noticeDueAt: undefined,
         })
+        await releaseEvent(ctx, event)
         return { duplicate: false, type: "event", event: publicEvent((await ctx.db.get(event._id))!) }
     }
-    const patch: Partial<Omit<Doc<"events">, "_id" | "_creationTime" | "template">> & {
-        template?: Doc<"events">["template"] | undefined
+    // Fields set to undefined are removed
+    type Cleared = "template" | "firstStartsAt" | "nextIndex" | "lastSkipped"
+    const patch: Partial<Omit<Doc<"events">, "_id" | "_creationTime" | Cleared>> & {
+        [K in Cleared]?: Doc<"events">[K] | undefined
     } = { revision: advanceEvent(event.revision), updatedAt: now }
+    const moves: NonNullable<Doc<"events">["notice"]>["moves"] = []
+    // The first date stays where it was once it has started
+    const started = (event.firstStartsAt ?? event.calendar?.dates[0]?.startsAt ?? Infinity) <= now
     if (op.type === "calendar") {
-        // A draft has no responses and has not begun, whatever its dates say
-        if (
-            event.state !== "draft" &&
-            (event.participationStarted || occurrences.some((o) => o.participationStarted || o.date.startsAt <= now))
-        )
-            fail(
-                409,
-                "The date and time are locked once members have responded or the event has begun. Cancel the event and create a new one",
-                "REFUSED",
-            )
         const calendar = validateEventCalendar(op.calendar, now)
-        await eventCount(ctx, event.serverId, "occurrences", calendar.dates.length - occurrences.length)
-        for (const occurrence of occurrences) await ctx.db.delete(occurrence._id)
-        let next = state.nextOccurrenceNo
-        for (const date of calendar.dates)
-            await ctx.db.insert("eventOccurrences", {
-                serverId: event.serverId,
-                eventNo: event.eventNo,
-                occurrenceNo: next++,
-                revision: patch.revision!,
-                date,
-                state: event.state === "draft" ? "draft" : "open",
-                participationStarted: false,
-                capacity: event.capacity,
-                going: 0,
-                waitlisted: 0,
-                rsvps: 0,
-                nextQueueOrder: 1,
-                workGeneration: 1,
-                workActive: false,
-                nextCheckAt: now,
-            })
-        await ctx.db.patch(state._id, { nextOccurrenceNo: integer(next, 1, Number.MAX_SAFE_INTEGER) })
+        // A repeat with more than 26 dates stores only its next 26, so a reminder further ahead than they reach would never come
+        const reminders = eventsReminderProblem(calendar, event.reminderOffsets)
+        if (reminders) fail(400, reminders, "REFUSED")
+        if (event.state === "draft") {
+            // A draft has no responses and has not begun, whatever its dates say
+            for (const occurrence of occurrences) await ctx.db.delete(occurrence._id)
+            await addOccurrences(ctx, event, calendar.dates, "draft", patch.revision!, now)
+            patch.endsAt = calendar.dates.at(-1)!.endsAt
+            patch.firstStartsAt = undefined
+            patch.nextIndex = undefined
+            patch.lastSkipped = undefined
+        } else {
+            // Dates that have started stay as they were. The open ones take the new dates in order and keep their numbers,
+            // replies and waitlists, new dates are added, and open dates past a shorter end are cancelled
+            const open = occurrences.filter((o) => lifecycle({ state: o.state, ...o.date }, now) === "open")
+            // The first dates end before a later time that does not resolve, so the plan's next dates are added here first, and
+            // open dates past that time keep their numbers too
+            const more =
+                open.length > calendar.dates.length
+                    ? materializeCivil(calendar, calendar.dates.length, calendar.dates.length, now)
+                    : undefined
+            const targets = [
+                ...calendar.dates,
+                ...(more?.dates ?? []).map((date) => ({
+                    localMinute: date.localMinute,
+                    startsAt: date.instantAt,
+                    endsAt: date.instantAt + calendar.durationMinutes * 60000,
+                    offsetMinutes: date.offsetMinutes,
+                })),
+            ]
+            for (const [index, occurrence] of open.entries()) {
+                const date = targets[index]
+                if (!date) {
+                    await cancelOccurrence(ctx, occurrence, now)
+                    if (occurrence.rsvps)
+                        moves.push({
+                            occurrenceNo: occurrence.occurrenceNo,
+                            fromStartsAt: occurrence.date.startsAt,
+                            cancelled: true,
+                        })
+                } else if (
+                    date.startsAt !== occurrence.date.startsAt ||
+                    date.endsAt !== occurrence.date.endsAt ||
+                    date.localMinute !== occurrence.date.localMinute
+                ) {
+                    await ctx.db.patch(occurrence._id, { date })
+                    if (occurrence.rsvps && date.startsAt !== occurrence.date.startsAt)
+                        moves.push({ occurrenceNo: occurrence.occurrenceNo, fromStartsAt: occurrence.date.startsAt })
+                }
+            }
+            await addOccurrences(ctx, event, targets.slice(open.length), "open", patch.revision!, now)
+            patch.endsAt = Math.max(
+                targets.at(-1)!.endsAt,
+                ...occurrences.filter((o) => !open.includes(o)).map((o) => o.date.endsAt),
+            )
+            patch.firstStartsAt = started
+                ? (event.firstStartsAt ?? event.calendar!.dates[0]!.startsAt)
+                : calendar.dates[0]!.startsAt
+            patch.nextIndex = more?.next
+            patch.lastSkipped = more?.skipped
+        }
         patch.calendar = calendar
-        patch.endsAt = calendar.dates.at(-1)!.endsAt
         // An open discussion closes at the new end
+        if ((event.postId || event.threadId) && event.threadDueAt !== undefined) patch.threadDueAt = patch.endsAt
+    } else if (op.type === "move") {
+        const calendar = event.calendar
+        if (!calendar) fail(409, "Calendar required")
+        const occurrence =
+                occurrences.find((o) => o.occurrenceNo === op.occurrenceNo) ??
+                (await occurrenceRow(ctx, event.serverId, event.eventNo, op.occurrenceNo)),
+            current = lifecycle({ state: occurrence.state, ...occurrence.date }, now),
+            date = op.date
+        if (current === "cancelled")
+            fail(409, `Date #${occurrence.occurrenceNo} was cancelled, so it stays as it was`, "REFUSED")
+        if (current !== "open" && current !== "draft")
+            fail(409, `Date #${occurrence.occurrenceNo} has already started, so it stays as it was`, "REFUSED")
+        const resolved = resolveCivilInstant(date.localMinute, calendar.zone, op.fold)
+        if (
+            resolved.instantAt !== date.startsAt ||
+            resolved.offsetMinutes !== date.offsetMinutes ||
+            date.endsAt !== date.startsAt + calendar.durationMinutes * 60000
+        )
+            fail(400, "Civil offset or UTC binding changed")
+        if (date.startsAt <= now) fail(400, "Choose a time in the future", "REFUSED")
+        await ctx.db.patch(occurrence._id, { date })
+        if (occurrence.rsvps && date.startsAt !== occurrence.date.startsAt)
+            moves.push({ occurrenceNo: occurrence.occurrenceNo, fromStartsAt: occurrence.date.startsAt })
+        const dates = occurrences.map((o) => (o._id === occurrence._id ? date : o.date))
+        patch.endsAt = Math.max(date.endsAt, ...dates.map((d) => d.endsAt))
+        if (!started) patch.firstStartsAt = Math.min(date.startsAt, ...dates.map((d) => d.startsAt))
         if ((event.postId || event.threadId) && event.threadDueAt !== undefined) patch.threadDueAt = patch.endsAt
     } else if (op.type === "destination") {
         if (event.state !== "draft" || event.participationStarted || event.cardPostNo !== undefined)
@@ -807,6 +933,8 @@ export async function applyEventsManagement(
             fail(409, "A date ahead already has more members going than that", "REFUSED")
     } else if (op.type === "reminders") {
         patch.reminderOffsets = eventOffsets(op.offsets)
+        const reminders = event.calendar && eventsReminderProblem(event.calendar, patch.reminderOffsets)
+        if (reminders) fail(400, reminders, "REFUSED")
     } else if (op.type === "template") {
         if (op.templateName === null) patch.template = undefined
         else {
@@ -825,28 +953,128 @@ export async function applyEventsManagement(
             }
         }
     } else fail(400, "Invalid event operation")
+    // Members who replied to a moved or cancelled date are told by DM. A change joins a notice that has not begun going out.
+    // Once members of a notice were claimed, a later change waits as its next notice, so no member hears of one change twice
+    if (moves.length) {
+        const unfinished = event.noticeDueAt !== undefined ? event.notice : undefined,
+            joined = (older: readonly (typeof moves)[number][]) =>
+                [...moves, ...older.filter((old) => !moves.some((m) => m.occurrenceNo === old.occurrenceNo))].slice(
+                    0,
+                    CIVIL_WINDOW,
+                )
+        patch.notice = unfinished?.cursor
+            ? {
+                  ...unfinished,
+                  next: { revision: patch.revision!, moves: joined(unfinished.next?.moves ?? []) },
+              }
+            : { revision: patch.revision!, moves: joined(unfinished?.moves ?? []), sent: 0, failed: 0 }
+        patch.noticeDueAt = now
+    }
     await invalidateEventDeliveries(ctx, event)
     await closeUnclaimedCard(ctx, event, now)
     await ctx.db.patch(event._id, patch)
-    if (op.type !== "calendar")
-        for (const occurrence of occurrences) {
-            await ctx.db.patch(occurrence._id, { revision: patch.revision! })
-            await wakePromotion(ctx, (await ctx.db.get(occurrence._id))!, {
-                ...(patch.capacity !== undefined && occurrence.date.startsAt > now ? { capacity: patch.capacity } : {}),
-            })
-        }
-    const next = (await ctx.db.get(event._id))!
+    for (const occurrence of await liveOccurrences(ctx, event)) {
+        await ctx.db.patch(occurrence._id, { revision: patch.revision! })
+        await wakePromotion(ctx, (await ctx.db.get(occurrence._id))!, {
+            ...(patch.capacity !== undefined && occurrence.date.startsAt > now ? { capacity: patch.capacity } : {}),
+        })
+    }
+    if (event.state !== "draft" && (op.type === "calendar" || op.type === "move"))
+        await extendEvent(ctx, (await ctx.db.get(event._id))!, now)
+    const next = (await ctx.db.get(event._id))!,
+        first = nextOccurrence(await liveOccurrences(ctx, next))
     let grant: EventsDeliveryGrant | undefined
-    if (next.calendar) renderEvent(next, await serverPrefix(ctx, next.serverId))
+    if (next.calendar) renderEvent(next, await serverPrefix(ctx, next.serverId), undefined, first?.date)
     if (next.cardPostNo !== undefined) {
         if (!context) fail(403, "Native administrator required")
         grant = await eventCard(ctx, next, identity, context)
     }
     if (next.state !== "draft") await queueEventReminders(ctx, next)
+    if (moves.length) await ringWork(ctx)
     return {
         duplicate: false,
         type: "event",
-        event: publicEvent((await ctx.db.get(event._id))!),
+        event: publicEvent((await ctx.db.get(event._id))!, first),
         ...(grant ? { grant } : {}),
     }
+}
+/** Ends a date that will not run. Its replies stay 30 days, so a notice can still reach the members who gave them */
+async function cancelOccurrence(ctx: MutationCtx, occurrence: Doc<"eventOccurrences">, now: number, revision?: number) {
+    await ctx.db.patch(occurrence._id, {
+        ...(revision !== undefined ? { revision } : {}),
+        state: "cancelled",
+        workActive: false,
+        workGeneration: advanceEvent(occurrence.workGeneration),
+        claimToken: undefined,
+        leaseExpiresAt: undefined,
+        headId: undefined,
+        terminalAt: now,
+        participationExpiresAt: now + 30 * EVENTS_DAY,
+        historyExpiresAt: now + 180 * EVENTS_DAY,
+    })
+}
+/** Stores new dates of an event under the next date numbers */
+async function addOccurrences(
+    ctx: MutationCtx,
+    event: Doc<"events">,
+    dates: readonly EventsResolvedDate[],
+    state: "draft" | "open",
+    revision: number,
+    now: number,
+) {
+    const settings = await eventState(ctx, event.serverId)
+    let next = settings.nextOccurrenceNo
+    for (const date of dates)
+        await ctx.db.insert("eventOccurrences", {
+            serverId: event.serverId,
+            eventNo: event.eventNo,
+            occurrenceNo: next++,
+            revision,
+            date,
+            state,
+            participationStarted: false,
+            capacity: event.capacity,
+            going: 0,
+            waitlisted: 0,
+            rsvps: 0,
+            nextQueueOrder: 1,
+            workGeneration: 1,
+            workActive: false,
+            nextCheckAt: now,
+        })
+    await ctx.db.patch(settings._id, { nextOccurrenceNo: integer(next, 1, Number.MAX_SAFE_INTEGER) })
+}
+/**
+ * Adds the next dates of a published event's repeat as earlier ones start, resolved here in its zone, and queues their
+ * reminders. It runs again when the soonest open date starts or the horizon reaches the next date. The event's end follows the
+ * last stored date, and it completes only once no date is left to add
+ */
+export async function extendEvent(ctx: MutationCtx, event: Doc<"events">, now: number) {
+    const calendar = event.calendar
+    if (event.state !== "open" || event.forgetting || !calendar) {
+        await ctx.db.patch(event._id, { extendAt: undefined })
+        return
+    }
+    const live = await ctx.db
+        .query("eventOccurrences")
+        .withIndex("by_event_state", (q) =>
+            q.eq("serverId", event.serverId).eq("eventNo", event.eventNo).eq("state", "open").gt("date.startsAt", now),
+        )
+        .take(CIVIL_WINDOW)
+    const window = materializeCivil(calendar, event.nextIndex ?? calendar.dates.length, live.length, now)
+    const dates = window.dates.map((date) => ({
+        localMinute: date.localMinute,
+        startsAt: date.instantAt,
+        endsAt: date.instantAt + calendar.durationMinutes * 60000,
+        offsetMinutes: date.offsetMinutes,
+    }))
+    await addOccurrences(ctx, event, dates, "open", event.revision, now)
+    const soonest = live[0]?.date.startsAt ?? dates[0]?.startsAt
+    await ctx.db.patch(event._id, {
+        nextIndex: window.next,
+        extendAt: [soonest, window.nextAt].filter((at) => at !== undefined).sort((a, b) => a - b)[0],
+        ...(dates.length ? { endsAt: Math.max(event.endsAt ?? 0, dates.at(-1)!.endsAt) } : {}),
+        ...(window.skipped ? { lastSkipped: window.skipped } : {}),
+    })
+    if (dates.length) await queueEventReminders(ctx, (await ctx.db.get(event._id))!)
 }

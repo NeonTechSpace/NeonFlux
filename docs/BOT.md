@@ -428,7 +428,7 @@ When a send or edit has an unknown outcome, `reconcile` reads the known message,
 
 ### Scheduled publishing
 
-Owners and Administrators plan finite announcements with `!publish schedule`. Schedules and the scheduling module start disabled. A schedule copies the draft or template as it is when the schedule is created or its content is replaced, so later edits to the source do not change it
+Owners and Administrators plan one-off or repeating announcements with `!publish schedule`. Schedules and the scheduling module start disabled. A schedule copies the draft or template as it is when the schedule is created or its content is replaced, so later edits to the source do not change it
 
 ```text
 !publish schedule create news draft notice #announcements 2026-11-01T18:00 Europe/Berlin reject weekly 1 3
@@ -439,21 +439,23 @@ Owners and Administrators plan finite announcements with `!publish schedule`. Sc
 
 | Task | Command |
 | --- | --- |
-| Create | `!publish schedule create <name> draft\|template <source-name> #channel YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <1-12 interval> <1-26 count>]` |
+| Create | `!publish schedule create <name> draft\|template <source-name> #channel YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <interval> [<count>\|until YYYY-MM-DD\|ongoing]]` |
 | Show or list | `!publish schedule show <name>`, `list [next]` |
-| See the planned dates or the post | `!publish schedule dates <name> [next]`, `!publish schedule preview <name>` |
+| See the upcoming dates or the post | `!publish schedule dates <name> [next]`, `!publish schedule preview <name>` |
 | Inspect settings or deliveries | `!publish schedule status [<name> [next]]` |
 | Replace content | `!publish schedule update <name> content draft\|template <source-name>` |
-| Replace time | `!publish schedule update <name> time YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <interval> <count>]` |
+| Replace time | `!publish schedule update <name> time YYYY-MM-DDTHH:mm IANA/Zone reject\|earlier\|later [daily\|weekly <interval> [<count>\|until YYYY-MM-DD\|ongoing]]` |
 | Change destination | `!publish schedule update <name> destination #channel` |
 | Enable, pause or cancel | `!publish schedule enable\|disable\|cancel <name>` |
 | Check a known post | `!publish schedule reconcile <name> <post-number>` |
 | Forget settled deliveries | `!publish schedule forget <name> [date-number ...] [confirm]` |
 | Turn the module on or off | `!publish schedule module on\|off` |
 
-Each schedule has a unique name. Dates must be in the future within 180 days, and a whole schedule spans at most 180 days. A local time that does not exist is rejected, and a repeated time needs `earlier` or `later`
+Each schedule has a unique name. The first date must be in the future and may be any time ahead. A repeat ends after a number of dates, on a date (that day's post included) or never, which is the default when you give no end. A first date whose local time does not exist is rejected, and a repeated one needs `earlier` or `later`
 
-Enabling never catches up on missed dates. A delivery that comes due while the bot is down still sends until local midnight after its due time. Cancel closes remaining dates permanently. Scheduled posts are sent as the bot and need the bot's channel permissions, the scheduling and publishing modules and DEFCON 3. A post that comes due at DEFCON 1 or 2 waits without requests and sends once DEFCON is set to 3, until local midnight after its due time. A post that comes due while its schedule, the scheduling module or publishing is off also waits without requests, and is skipped at local midnight or, if you turned the switch back on first, as before that activation, because enabling never catches up on missed dates. Forgetting removes tracking without deleting messages. Settled history is kept for 180 days. An update removes the future dates it replaces that never started sending, so updates do not use up schedule capacity
+A repeat stores up to its next 26 dates within 180 days, counted from the first date while that is further ahead, and adds the next one as each comes due. `!publish schedule show` shows the next date, and the dates list shows the stored upcoming dates. A later date whose local time does not exist, or repeats while the schedule uses `reject`, is skipped, never guessed, and `!publish schedule show` names it. A schedule counts toward the limit of 50 while it is not cancelled and has a date left to post
+
+Enabling never catches up on missed dates. A delivery that comes due while the bot is down still sends until local midnight after its due time. Cancel closes remaining dates permanently. Scheduled posts are sent as the bot and need the bot's channel permissions, the scheduling and publishing modules and DEFCON 3. A post that comes due at DEFCON 1 or 2 waits without requests and sends once DEFCON is set to 3, until local midnight after its due time. A post that comes due while its schedule, the scheduling module or publishing is off also waits without requests, and is skipped at local midnight or, if you turned the switch back on first, as before that activation, because enabling never catches up on missed dates. Forgetting removes tracking without deleting messages. Settled history is kept for 180 days. An update removes the future dates it replaces that never started sending, and a content or channel update keeps the same times
 
 ## Role panels, reaction verification, autorole and reservations
 
@@ -812,17 +814,18 @@ Commands name an event by its name, in any letter case. A new event follows this
 | --- | --- |
 | `!event list [next]` | List events in this destination |
 | `!event show <name>` | Read one event |
-| `!event dates <name> [next]` | List the dates with their numbers, 10 per page, shown in each reader's own timezone |
+| `!event dates <name> [next]` | List the dates with their numbers from the earliest date that has not ended, 10 per page, shown in each reader's own timezone |
 | `!event attendees <name> <date> [next]` | List attendees and the waitlist, 10 per page |
 | `!event rsvp <name> [date] going\|maybe\|not-going\|none` | Set or clear your RSVP for the date with that number, or without a number for the event's next date that has not started and is not cancelled. The reply names the date |
 | `!event mine` | List your Going and Maybe RSVPs for this destination's events whose date has not ended, soonest first, at most 20, each with the event's name |
 | `!event create <name> #channel "title" ["description"]` | Create a draft event with a name of up to 32 lowercase letters, numbers, underscores or hyphens that no other event of the server uses. The title has up to 256 characters and the description up to 1000, each on one line |
-| `!event time <name> YYYY-MM-DDTHH:mm <IANA zone> <1-10080 minutes> [reject\|earlier\|later]` | Set the first occurrence |
-| `!event repeat <name> off\|daily\|weekly <1-12 interval> <1-26 total>` | Set repetition |
+| `!event time <name> YYYY-MM-DDTHH:mm <IANA zone> <minutes> [reject\|earlier\|later]` | Set the first occurrence. A single date lasts any number of minutes from 1 and ends by 9999-12-31, and a date of a repeat lasts up to 259200 minutes (180 days), the window repeats store dates in. `!event repeat` checks this again |
+| `!event repeat <name> off\|daily\|weekly <interval> [<count>\|until YYYY-MM-DD\|ongoing]` | Set repetition. Without an end the event repeats until it is cancelled |
+| `!event move <name> <date> YYYY-MM-DDTHH:mm [reject\|earlier\|later]` | Move one date that has not started to a new start in the event's zone. It keeps its number, length, replies, seats and waitlist |
 | `!event title <name> "title" ["description"]` | Change the text |
 | `!event template <name> <template>\|off` | Use a snapshot of the publishing template as it is now |
-| `!event capacity <name> off\|1-500` | Limit Going seats |
-| `!event reminders <name> off\|<minutes> [minutes]` | Set up to two reminder offsets, 1 to 10080 minutes |
+| `!event capacity <name> off\|<seats>` | Limit Going seats |
+| `!event reminders <name> off\|<minutes> [minutes …]` | Set up to 20 reminder offsets in minutes before the start. A single date is stored when it is set, so its reminder can come any time before it, and a reminder whose time has already passed is skipped, never sent late. A repeat's reminders are 1 to 257760 minutes (179 days), since its later date is stored once it is 180 days ahead. A repeat with more than 26 dates stores its next 26 and adds each later date with its reminders as an earlier one starts, so its reminders reach at most 26 dates ahead less one day, such as 36000 minutes (25 days) for a daily repeat. A longer reminder, or a repeat change that would need one, is refused with that reason |
 | `!event publish\|cancel <name>` | Publish the card or cancel the event |
 | `!event status [<name> [next]]` | Show the module, or one event's card and reminder outcomes |
 | `!event reconcile <name> [post-number]` | Recheck a known card or reminder message |
@@ -830,15 +833,35 @@ Commands name an event by its name, in any letter case. A new event follows this
 | `!event module on\|off` | Turn the module on or off |
 | `!event threads on\|off` | Turn discussion threads on or off for events published afterwards |
 
-Date numbers count across the whole server, so `!event dates` shows the number of each date. Without a number, an RSVP answers for the event's next date that still takes RSVPs. When no date does, NeonFlux says so and names `!event dates`. Going takes a seat or the next waitlist place. Repeating Going keeps your place, and withdrawing then choosing Going again counts as a new answer. Maybe, Not going and None use no seat. RSVPs close at start or cancellation. Waitlisted members are promoted only while they are still members with access and pass verification, timeout and quarantine checks. Members who leave lose their seat
+Date numbers count across the whole server, so `!event dates` shows the number of each date. A date keeps its number when its time changes. Without a number, an RSVP answers for the event's next date that still takes RSVPs. When no date does, NeonFlux says so and names `!event dates`. Going takes a seat or the next waitlist place. Repeating Going keeps your place, and withdrawing then choosing Going again counts as a new answer. Maybe, Not going and None use no seat. RSVPs close at start or cancellation. Waitlisted members are promoted only while they are still members with access and pass verification, timeout and quarantine checks. Members who leave lose their seat
 
-Times use an exact local minute and an IANA zone. Repeats allow at most 26 occurrences within 180 days, and wall-clock
-times hold across offset changes. Nonexistent local minutes are rejected, and repeated minutes are rejected unless you
-choose `earlier` or `later`. Once anyone has RSVPed, the calendar cannot change. Cancel the event and create a new one
-instead. Capacity cannot drop below the Going attendance of a date that has not started
+Times use an exact local minute and an IANA zone, and wall-clock times hold across offset changes. The first date may be
+any time ahead. A repeat ends after a number of dates, on a date (that day's date included) or never. It stores up to
+its next 26 dates within 180 days, counted from the first date while that is further ahead, and adds the next date with
+its reminders as each starts. A first date whose local minute does not exist is rejected, and a repeated one is rejected
+unless you choose `earlier` or `later`. A later date whose local
+time does not exist, or repeats while the event uses `reject`, is skipped, never guessed, and `!event show` names it.
+Capacity cannot drop below the Going attendance of a date that has not started
 
-Each event has one protected publishing card that follows publishing limits. The card shows the event's first date and
-its number of dates and ends with an RSVP line, such as ``Send `!event rsvp study going` or `maybe` here``. A reminder's
+A published event's time can change until it is cancelled or completed, also after members replied. `!event time` and
+`!event repeat` give the dates that have not started the new times in order, and each keeps its number, replies, seats
+and waitlist order. New dates are added, and open dates past a shorter end are cancelled with their replies kept for 30
+days. Started and completed dates never change, and a draft simply takes the new dates. Once a repeat's first date has
+started, `!event repeat` continues from its next date that has not started, with a count counted from there, and
+`!event time` keeps the dates a count has left. Once every date of a counted repeat has started, no date is left to
+move, so `!event time` is refused and `!event repeat` sets a new repeat from the date the series would come to next.
+Reminders follow the new times and the card is edited. Members who replied Going or Maybe to a date a change moved or
+cancelled get one DM per change that lists
+their dates, up to 5 and then a count with a pointer to `!event mine`. A member who left or joined again since replying is
+not told. The DM has mentions off. NeonFlux counts each
+member as told before it sends, so a DM is never sent twice, and one that fails is counted and not retried. A change
+before a notice began going out joins it, and a later one gets its own notice once that one is done, so no member hears of
+one change twice. Notices wait while events are off or DEFCON is below 3, and a date that starts
+before its notice goes out is left out. Cancelling the whole event with `!event cancel` sends no DM and drops a notice that
+has not gone out. `!event status <name>` shows how many members were told and how many could not be reached
+
+Each event has one protected publishing card that follows publishing limits. The card shows the event's earliest date
+that has not ended and how it repeats, and ends with an RSVP line, such as ``Send `!event rsvp study going` or `maybe` here``. A reminder's
 RSVP line names its date's number. A card whose template leaves no room within the embed limits is posted without the
 line. The line uses the server's prefix when the card is posted or edited, so after a prefix change an existing card
 shows the old prefix until the event changes. `!event show` names the next date that has not ended, or says none are left. Event changes edit
@@ -853,9 +876,9 @@ the event's status shows it as cancelled. A send with an unknown result is never
 
 An event's destination can be a forum or media channel. Its card then becomes the first message of a forum post named after the event, reminders go into that post, and members and staff run event commands in any post of the forum. In a text or announcement channel, commands stay in the channel itself
 
-Discussion threads start off. With `!event threads on`, each event published afterwards gets a discussion thread on its card once the card is sent, named after the event and archived after a week without messages. In a forum the post is the discussion. Once the last occurrence ends or the event is cancelled, NeonFlux archives and locks the thread or post. It created both, so it needs only Create public threads, which `!health` checks while threads are on. A thread that cannot be started or closed is tried again every minute, and starting one twice is not possible, because a thread started on a message takes the message's ID. Threads that were open when the setting is turned off still close after their event
+Discussion threads start off. With `!event threads on`, each event published afterwards gets a discussion thread on its card once the card is sent, named after the event and archived after a week without messages. In a forum the post is the discussion. Once the last occurrence ends or the event is cancelled, NeonFlux archives and locks the thread or post, so a repeat with no end keeps its discussion open until it is cancelled. It created both, so it needs only Create public threads, which `!health` checks while threads are on. A thread that cannot be started or closed is tried again every minute, and starting one twice is not possible, because a thread started on a message takes the message's ID. Threads that were open when the setting is turned off still close after their event
 
-A server keeps at most 50 events, 200 occurrences, 1000 RSVPs per occurrence and 50000 RSVPs overall. RSVPs expire 30 days after an occurrence ends or is cancelled, and ended event history after 180 days. No message bodies, member names or avatars are stored
+A server keeps at most 50 events that are not cancelled or completed. RSVPs expire 30 days after an occurrence ends or is cancelled, the record of each ended or cancelled date with its reminders after 180 days, and ended event history after 180 days. No message bodies, member names or avatars are stored
 
 ## Birthdays and membership anniversaries
 

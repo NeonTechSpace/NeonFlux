@@ -131,7 +131,6 @@ export function eventsBoundary(overrides: Partial<EventsStore> = {}) {
                           type: "status",
                           settings: { enabled: true, revision: 1, threads: false },
                           definitions: 1,
-                          occurrences: 1,
                           rsvps: 0,
                           receipts: 0,
                       },
@@ -164,7 +163,9 @@ export function eventsBoundary(overrides: Partial<EventsStore> = {}) {
                     ? { type: "jobs", jobs: [] }
                     : input.operation.type === "claim"
                       ? { type: "head", claimed: false }
-                      : { type: "progress", recorded: true },
+                      : input.operation.type === "notice-claim"
+                        ? { type: "notices" }
+                        : { type: "progress", recorded: true },
             ),
         delivery: (input) =>
             record<EventsDeliveryResult>(

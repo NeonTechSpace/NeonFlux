@@ -1,4 +1,15 @@
-import { CivilCalendar, type CivilFoldPolicy } from "@neonflux/contracts/civil"
+import {
+    CIVIL_HORIZON_DAYS,
+    CIVIL_RANGE_REASON,
+    CIVIL_WINDOW,
+    CivilCalendar,
+    civilLocalAt,
+    civilPastRange,
+    type CivilFoldPolicy,
+    type CivilRecurrence,
+    type CivilResume,
+    type CivilSkipped,
+} from "@neonflux/contracts/civil"
 import { decode, fail } from "./validation.ts"
 
 export const CIVIL_DAY = 86400000
@@ -55,7 +66,8 @@ export function civilDayEnd(dueAt: number, zone: string) {
 export function civilDayEnded(dueAt: number, zone: string, now: number) {
     return now >= dueAt && now >= civilDayEnd(dueAt, zone)
 }
-export function resolveCivilInstant(localMinute: string, zone: string, fold: CivilFoldPolicy) {
+/** The instant a local minute names in a zone, or why it names none: it does not exist, or it repeats while fold is reject */
+export function resolveCivil(localMinute: string, zone: string, fold: CivilFoldPolicy) {
     const intended = civil(localMinute),
         format = formatter(zone),
         offsets = new Set<number>()
@@ -67,20 +79,84 @@ export function resolveCivilInstant(localMinute: string, zone: string, fold: Civ
         .map((offset) => intended.ms - offset * 60000)
         .filter((instant) => localAt(format, instant) === intended.ms)
         .sort((a, b) => a - b)
-    if (!candidates.length) fail(400, "Nonexistent local time")
-    if (candidates.length > 1 && fold === "reject") fail(400, "Ambiguous local time requires earlier or later")
+    if (!candidates.length) return "nonexistent" as const
+    if (candidates.length > 1 && fold === "reject") return "ambiguous" as const
     const instantAt = fold === "later" ? candidates.at(-1)! : candidates[0]!
     return { instantAt, offsetMinutes: (intended.ms - instantAt) / 60000 }
 }
-// The schema checks the recurrence. Each local minute must also resolve in the zone to its supplied instant, in the next 180 days
+export function resolveCivilInstant(localMinute: string, zone: string, fold: CivilFoldPolicy) {
+    const resolved = resolveCivil(localMinute, zone, fold)
+    if (resolved === "nonexistent") fail(400, "Nonexistent local time")
+    if (resolved === "ambiguous") fail(400, "Ambiguous local time requires earlier or later")
+    return resolved
+}
+// The schema checks the recurrence, and its dates must stay within the calendar's range. Each local minute must also resolve in
+// the zone to its supplied instant in the future
 export function validateCivilCalendar(value: unknown, now = Date.now()): CivilCalendar {
     const calendar = decode(CivilCalendar, value)
+    if (civilPastRange(calendar)) fail(400, CIVIL_RANGE_REASON)
     for (const date of calendar.dates) {
         const resolved = resolveCivilInstant(date.localMinute, calendar.zone, calendar.fold)
         if (date.instantAt !== resolved.instantAt || date.offsetMinutes !== resolved.offsetMinutes)
             fail(400, "Civil offset or UTC binding changed")
-        if (resolved.instantAt <= now || resolved.instantAt > now + 180 * CIVIL_DAY)
-            fail(400, "Calendar outside future 180-day horizon")
+        if (resolved.instantAt <= now) fail(400, "Calendar dates must be in the future")
     }
     return calendar
+}
+/**
+ * The next dates of a repeat to store, from the date at index from. Stored dates that have not started are at most 26, and a new
+ * one is at most 180 days ahead of now unless none would be stored. A later local time that does not exist, or repeats while the
+ * fold policy is reject, is skipped and named, never guessed. nextAt is when the horizon reaches the next date, and done says
+ * the repeat has no dates left to add
+ */
+export function materializeCivil(
+    calendar: { localMinute: string; zone: string; fold: CivilFoldPolicy; recurrence: CivilRecurrence },
+    from: number,
+    live: number,
+    now: number,
+) {
+    const dates: { localMinute: string; instantAt: number; offsetMinutes: number }[] = []
+    let index = from,
+        skipped: CivilSkipped | undefined,
+        nextAt: number | undefined
+    while (live + dates.length < CIVIL_WINDOW) {
+        const localMinute = civilLocalAt(calendar, index)
+        if (localMinute === undefined) return { dates, next: index, skipped, done: true }
+        const resolved = resolveCivil(localMinute, calendar.zone, calendar.fold)
+        if (typeof resolved === "string") skipped = { localMinute, reason: resolved }
+        else if (resolved.instantAt > now + CIVIL_HORIZON_DAYS * CIVIL_DAY && live + dates.length > 0) {
+            nextAt = resolved.instantAt - CIVIL_HORIZON_DAYS * CIVIL_DAY
+            break
+        } else if (resolved.instantAt > now) dates.push({ localMinute, ...resolved })
+        index++
+    }
+    return { dates, next: index, skipped, done: false, nextAt }
+}
+/**
+ * Where a change to a repeat continues once its first date, at firstAt, has started: The first date of its plan after now and the
+ * dates left from there under a count. A count whose dates have all started has 0 left, at the date its series would come to
+ * next. Undefined before the first date, for a single date, after the end date and while the zone cannot be read
+ */
+export function civilResume(
+    calendar: { localMinute: string; zone: string; fold: CivilFoldPolicy; recurrence: CivilRecurrence },
+    firstAt: number,
+    now: number,
+): CivilResume | undefined {
+    const r = calendar.recurrence
+    if (r.type === "none" || firstAt > now) return undefined
+    const step = r.interval * (r.type === "weekly" ? 7 : 1) * CIVIL_DAY
+    try {
+        // A clock change moves a date by hours, so the date one step before the estimate has started
+        const { count, ...series } = r
+        for (let index = Math.max(0, Math.floor((now - firstAt) / step) - 1); ; index++) {
+            const localMinute = civilLocalAt({ ...calendar, recurrence: series }, index)
+            if (localMinute === undefined) return undefined
+            const resolved = resolveCivil(localMinute, calendar.zone, calendar.fold)
+            if (typeof resolved !== "string" && resolved.instantAt > now)
+                return { localMinute, ...(count !== undefined ? { count: Math.max(0, count - index) } : {}) }
+        }
+    } catch {
+        // A zone this runtime cannot read gives no place to continue, and the answer goes out without it
+        return undefined
+    }
 }

@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { Id, Int, IsoTime, List, Millis, Name, Token, isId, origin, visibleText } from "./common.ts"
+import { CIVIL_HORIZON_DAYS, CIVIL_LAST_MINUTE } from "./civil.ts"
 
 // Message content and the publishing grants, attempts and posts that every posting feature shares
 
@@ -215,13 +216,27 @@ export const PublishingMilestoneConsumer = Schema.Struct({
     ...MilestonesDeliveryBinding.fields,
 }).check(Schema.makeFilter((v) => (v.kind === "birthday" ? v.completedYears === 0 : v.completedYears >= 1)))
 export type PublishingMilestoneConsumer = typeof PublishingMilestoneConsumer.Type
+/**
+ * The longest lead time of a repeat's reminder in minutes. A repeat's later date is stored once it is 180 days ahead, at the next
+ * 10-minute retention run, so a reminder up to 179 days before its date comes due after the date and its reminders are stored. A
+ * repeat with more than 26 dates stores only its next 26, so eventsReminderMaxMinutes in events.ts holds its reminders closer to
+ * their dates
+ */
+export const EVENTS_REMINDER_MAX_MINUTES = (CIVIL_HORIZON_DAYS - 1) * 1440
+/**
+ * The longest lead time of any event reminder in minutes: from the first to the last minute a calendar can name. A single date is
+ * stored when it is set, however far ahead, so its reminder needs no shorter bound. A reminder whose time has already passed when
+ * its date is stored or the reminders change is skipped, never sent late
+ */
+export const EVENTS_REMINDER_RANGE_MINUTES =
+    (Date.parse(`${CIVIL_LAST_MINUTE}Z`) - Date.parse("0100-01-01T00:00Z")) / 60000
 export const PublishingEventConsumer = Schema.Struct({
     type: Schema.Literal("event"),
     eventNo: Int(1),
     revision: Int(1),
     purpose: Schema.Literals(["card", "reminder"]),
     occurrenceNo: optional(Int(1)),
-    offsetMinutes: optional(Int(1, 10080)),
+    offsetMinutes: optional(Int(1, EVENTS_REMINDER_RANGE_MINUTES)),
     deliveryId: optional(Token),
 }).check(
     Schema.makeFilter((v) =>

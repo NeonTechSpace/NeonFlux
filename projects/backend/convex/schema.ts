@@ -26,11 +26,13 @@ import {
     eventsChoice,
     eventsDate,
     eventsDeliveryState,
+    eventsNotice,
     eventsState,
     eventsTemplate,
 } from "./eventsValidators.ts"
 import { publishingConsumer, publishingProvenance, publishingSource } from "./publishingConsumers.ts"
 import {
+    civilSkipped,
     scheduleCalendar,
     scheduleDeliveryReason,
     scheduleDeliveryState,
@@ -1117,7 +1119,8 @@ export default defineSchema({
         nextScheduleNo: v.number(),
         nextOccurrenceNo: v.number(),
         definitions: v.number(),
-        deliveries: v.number(),
+        // No longer counted. Rows written before the cap was removed keep it
+        deliveries: v.optional(v.number()),
         receipts: v.number(),
         discoveryCursor: v.optional(v.string()),
         discoveryThroughAt: v.optional(v.number()),
@@ -1139,9 +1142,16 @@ export default defineSchema({
         activatedAt: v.number(),
         createdAt: v.number(),
         updatedAt: v.number(),
+        // The index of the next date to add, absent for the first dates only, and when the backend next adds dates. released
+        // says the schedule no longer counts toward the 50, because it was cancelled or has no date left to post
+        nextIndex: v.optional(v.number()),
+        extendAt: v.optional(v.number()),
+        lastSkipped: v.optional(civilSkipped),
+        released: v.optional(v.boolean()),
     })
         .index("by_number", ["serverId", "scheduleNo"])
-        .index("by_name", ["serverId", "name"]),
+        .index("by_name", ["serverId", "name"])
+        .index("by_extend", ["extendAt"]),
     scheduleDeliveries: defineTable({
         serverId: v.string(),
         scheduleNo: v.number(),
@@ -1190,7 +1200,8 @@ export default defineSchema({
         nextEventNo: v.number(),
         nextOccurrenceNo: v.number(),
         definitions: v.number(),
-        occurrences: v.number(),
+        // No longer counted. Rows written before the cap was removed keep it
+        occurrences: v.optional(v.number()),
         rsvps: v.number(),
         receipts: v.number(),
     }).index("by_server", ["serverId"]),
@@ -1220,6 +1231,14 @@ export default defineSchema({
         postId: v.optional(v.string()),
         threadId: v.optional(v.string()),
         threadDueAt: v.optional(v.number()),
+        // As on schedules. firstStartsAt is the start of the event's first date once a change moved it off its calendar
+        nextIndex: v.optional(v.number()),
+        extendAt: v.optional(v.number()),
+        lastSkipped: v.optional(civilSkipped),
+        released: v.optional(v.boolean()),
+        firstStartsAt: v.optional(v.number()),
+        notice: v.optional(eventsNotice),
+        noticeDueAt: v.optional(v.number()),
     })
         .index("by_number", ["serverId", "eventNo"])
         .index("by_name", ["serverId", "name"])
@@ -1227,7 +1246,10 @@ export default defineSchema({
         .index("by_history", ["historyExpiresAt"])
         .index("by_state_end", ["state", "endsAt"])
         .index("by_thread_due", ["serverId", "threadDueAt"])
-        .index("by_global_thread_due", ["threadDueAt"]),
+        .index("by_global_thread_due", ["threadDueAt"])
+        .index("by_extend", ["extendAt"])
+        .index("by_notice_due", ["serverId", "noticeDueAt"])
+        .index("by_global_notice_due", ["noticeDueAt"]),
     eventOccurrences: defineTable({
         serverId: v.string(),
         eventNo: v.number(),
@@ -1251,9 +1273,12 @@ export default defineSchema({
         headId: v.optional(v.id("eventRsvps")),
         terminalAt: v.optional(v.number()),
         participationExpiresAt: v.optional(v.number()),
+        historyExpiresAt: v.optional(v.number()),
     })
         .index("by_number", ["serverId", "eventNo", "occurrenceNo"])
         .index("by_event", ["serverId", "eventNo"])
+        .index("by_event_state", ["serverId", "eventNo", "state", "date.startsAt"])
+        .index("by_history", ["historyExpiresAt"])
         .index("by_state_start", ["state", "date.startsAt"])
         .index("by_state_end", ["state", "date.endsAt"])
         .index("by_participation_expiry", ["participationExpiresAt"])

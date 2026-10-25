@@ -1,11 +1,14 @@
 import type { EventsMemberCursor } from "@neonflux/contracts/events"
 import type { Client } from "@neontechspace/fluxerly/effect"
-import { Cause, Clock, Effect, Queue } from "effect"
+import { Cause, Clock, Effect, Exit, Queue } from "effect"
 import type { EventsStore } from "./event-store.ts"
 import type { PublishingStore } from "./publishing-store.ts"
 import { processEventDelivery, processEventPromotion, processEventThread, eventDeliveryBinding } from "./events.ts"
 import { EventsHandlingError } from "./event-management.ts"
 import { readNativeMember } from "./member-evidence.ts"
+import { eventNoticeText } from "./event-render.ts"
+import { replyPrefix } from "./general-settings.ts"
+import { serverLabel } from "./server-scope.ts"
 
 export const eventsPassBudget = 20
 function workerEvent(store: EventsStore, serverId: string, source: { eventNo: number; channelId: string }) {
@@ -18,6 +21,52 @@ function workerEvent(store: EventsStore, serverId: string, source: { eventNo: nu
                     : Effect.fail(new EventsHandlingError({ stage: "response" })),
             ),
         )
+}
+/**
+ * Tells members by DM that dates they replied Going or Maybe to moved or were cancelled, one claimed page at a time. The backend
+ * claims a page before any DM goes out, so no DM is sent twice, and one that fails is counted and not retried. Mentions stay off
+ */
+export function processEventNotices(store: EventsStore, serverId: string, client: Client) {
+    return Effect.gen(function* () {
+        const claimed = yield* store.work({ serverId, operation: { type: "notice-claim" } })
+        if (claimed.type !== "notices") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
+        const page = claimed.page
+        if (!page?.targets.length) return 0
+        const server = yield* serverLabel(client, serverId),
+            prefix = replyPrefix(serverId, serverId)
+        let sent = 0,
+            failed = 0
+        for (const target of page.targets) {
+            // Replies from an earlier membership no longer count, so a member who left or joined again is not told
+            const member = yield* Effect.exit(readNativeMember(client, serverId, target.userId, { cached: true }))
+            if (Exit.isFailure(member) && Cause.hasInterrupts(member.cause))
+                return yield* Effect.failCause(member.cause)
+            if (Exit.isFailure(member)) {
+                failed++
+                continue
+            }
+            if (member.value.member?.joinedAt !== target.joinedAt) continue
+            const outcome = yield* Effect.exit(
+                client.directMessages.send(
+                    target.userId,
+                    {
+                        content: eventNoticeText(page, target, server, prefix),
+                        allowedMentions: { users: [], roles: [], everyone: false, repliedUser: false },
+                    },
+                    { timeoutMs: 5000 },
+                ),
+            )
+            if (Exit.isFailure(outcome) && Cause.hasInterrupts(outcome.cause))
+                return yield* Effect.failCause(outcome.cause)
+            if (Exit.isSuccess(outcome)) sent++
+            else failed++
+        }
+        yield* store.work({
+            serverId,
+            operation: { type: "notice-outcome", eventNo: page.eventNo, revision: page.revision, sent, failed },
+        })
+        return page.targets.length
+    })
 }
 export function processEventsPass(
     store: EventsStore,
@@ -76,6 +125,10 @@ export function processEventsPass(
             // Only definite progress may revisit an occurrence during this bounded pass.
             if (!result || result.type !== "progress" || !result.recorded) stalled.add(key)
         }
+        // Then one page of notices to members whose dates changed. Further pages come with the next pass
+        considered += yield* processEventNotices(store, serverId, client).pipe(
+            Effect.catchCause((cause) => (Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.succeed(0))),
+        )
         return { considered, ...(cursor ? { promotionCursor: cursor } : {}) }
     })
 }

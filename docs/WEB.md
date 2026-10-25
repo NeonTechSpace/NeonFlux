@@ -160,9 +160,9 @@ The Drafts and templates section has **Send a saved message** below the drafts. 
 
 Greetings, ticket replies, milestones, events and schedules use a saved template version, and schedules can also use a saved draft. Editing the template does not change existing uses until you choose the newer version
 
-Events and schedules take a local date and time, a time zone, a choice for repeated times and a finite repeat. Times that do not exist are rejected. Dates must be within the next 180 days. New events start as drafts and new schedules start disabled
+Events and schedules take a local date and time, a time zone, a choice for repeated times and a repeat. **Ends** sets when a repeat stops: Never, after a number of dates or on a date. Times that do not exist are rejected, and the first date may be any time ahead. New events start as drafts and new schedules start disabled. A published event's calendar stays editable until the event is cancelled or completed: Dates that have started stay as they were, upcoming dates keep their numbers and replies, and members who replied Going or Maybe are told by DM. Once a repeat's first date has started, an event's or schedule's form starts at its next date and shows the dates a count has left from there. When every counted date has started, the form shows no count and asks for a new end. Moving one date stays in chat with `!event move`
 
-Each saved schedule has a closed **What it posts and when** panel. It shows the message the schedule copied, which is not the source's latest version, and a table of the planned dates with the time in the schedule's zone and its UTC offset, the same moment in your local time, and whether the date is already past. It does not show whether a date was sent or skipped. Chat has `!publish schedule preview` and `!publish schedule dates` for the same copy
+Each saved schedule has a closed **What it posts and when** panel. It shows the message the schedule copied, which is not the source's latest version, how the schedule repeats, and a table of its stored upcoming dates with the time in the schedule's zone and its UTC offset and the same moment in your local time. It does not show whether a date was sent or skipped. Chat has `!publish schedule preview` and `!publish schedule dates` for the same copy
 
 ### Leveling
 

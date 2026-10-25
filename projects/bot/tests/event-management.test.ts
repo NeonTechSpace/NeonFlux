@@ -15,6 +15,7 @@ import type { PublishingQueryRequest, PublishingReconcileRequest } from "@neonfl
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Permissions } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
+import { TestClock } from "effect/testing"
 import { createBotOptions } from "../src/bot.ts"
 import { eventDelivery, eventNow, eventOccurrence, eventsBoundary } from "./event-fixture.ts"
 import { boundary, platform, token } from "./moderation-fixture.ts"
@@ -115,13 +116,14 @@ test("a dateless RSVP names the date the backend chose, and mine lists the membe
     const f = createFixtures(),
         base = eventsBoundary(),
         start = base.event.calendar!.dates[0]!.startsAt
-    let mine: EventsQueryResult = { type: "mine", entries: [], more: false }
+    let mine: EventsQueryResult = { type: "mine", entries: [], more: false },
+        later: EventsQueryResult | undefined
     const remote = eventsBoundary({
         query: (input) =>
             input.operation.type === "mine"
                 ? Effect.sync(() => {
                       base.calls.push({ method: "query", input })
-                      return mine
+                      return input.operation.type === "mine" && input.operation.cursor && later ? later : mine
                   })
                 : base.store.query(input),
         rsvp: (input) => base.store.rsvp(input),
@@ -175,6 +177,18 @@ test("a dateless RSVP names the date the backend chose, and mine lists the membe
                 )
                 const asked = base.calls.filter((c) => c.method === "query").map((c) => c.input as EventsQueryRequest)
                 assert(asked.some((q) => q.operation.type === "mine" && q.context.member?.userId === f.ids.user))
+                // Replies come in pages, and the soonest of every page lead
+                const study = (mine as Extract<EventsQueryResult, { type: "mine" }>).entries[0]!
+                mine = { type: "mine", entries: [study], more: false, nextCursor: { eventNo: 1, occurrenceNo: 3 } }
+                later = {
+                    type: "mine",
+                    entries: [{ ...study, eventNo: 2, name: "early", occurrenceNo: 9, startsAt: start - 3600000 }],
+                    more: false,
+                }
+                assert.equal(
+                    (yield* card(bot, p, "!event mine")).description,
+                    `**early** Study #9, <t:${start / 1000 - 3600}:f>, Going\n**study** Study #3, <t:${start / 1000}:f>, Going`,
+                )
                 assert.equal(bot.failures().length, 0)
             }),
         ),
@@ -210,7 +224,6 @@ test("a repeating event's reminders name each date by its start, share one hint,
                   type: "status",
                   settings: { enabled: true, revision: 1, threads: false },
                   definitions: 45,
-                  occurrences: 3,
                   rsvps: 39999,
                   receipts: 0,
               })
@@ -259,10 +272,9 @@ test("a repeating event's reminders name each date by its start, share one hint,
                         `^Posted in <#${f.ids.channel}> <t:\\d+:R>\\. \\[Open it\\]\\(https://\\S+/channels/${f.ids.guild}/${f.ids.channel}/${messageId}\\)$`,
                     ),
                 )
-                // Limits show only once nearly reached
+                // Limits show only once nearly reached, and dates have no total limit to show
                 assert.deepEqual((yield* card(bot, p, "!event status")).fields!.slice(2), [
                     { name: "Events", value: "45 of 50" },
-                    { name: "Dates", value: "3" },
                 ])
             }),
         ),
@@ -764,6 +776,43 @@ test("a repeated, invalid or nonexistent event time is answered, not left as a f
         ),
     )
 })
+test("a repeat may be 400 days apart, and one with a date past the year 9999 is answered with that reason", async () => {
+    const f = createFixtures(),
+        remote = eventsBoundary()
+    Object.assign(remote.event, { calendar: createEventCalendar("2026-02-01T18:00", "UTC", 60) })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.adjust(`${Date.parse("2026-01-05T00:00:00Z")} millis`)
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { events: remote.store }),
+                    ),
+                    p = platform(bot)
+                yield* bot.ready()
+                yield* bot.emit(
+                    "MESSAGE_CREATE",
+                    bot.fixtures.message({ content: "!event repeat study daily 9007199254740991" }),
+                )
+                yield* bot.idle()
+                assert.match(
+                    (p.replies.requests().at(-1)!.body as { content: string }).content,
+                    /after 9999-12-31, the last date a calendar supports/,
+                )
+                assert.equal(
+                    remote.calls.some((c) => c.method === "manage"),
+                    false,
+                )
+                yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!event repeat study daily 400 2" }))
+                yield* bot.idle()
+                const repeat = (remote.calls.find((c) => c.method === "manage")!.input as EventsManageRequest).operation
+                assert(repeat.type === "calendar")
+                assert.deepEqual(repeat.calendar.recurrence, { type: "daily", interval: 400, count: 2 })
+                assert.equal(repeat.calendar.dates.length, 1)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
 test("event reconciliation observes only an exact protected known message and unknown IDs never trigger native search", async () => {
     const f = createFixtures(),
         remote = eventsBoundary(),
@@ -830,6 +879,185 @@ test("event reconciliation observes only an exact protected known message and un
                     "NeonFlux does not know which message post #2 is, so it cannot check it. Nothing was sent again",
                 )
                 assert.equal(native.requests().length, 1)
+            }),
+        ),
+    )
+})
+test("once a published repeat has begun, a new repeat continues from its next date and a new time keeps the dates left", async () => {
+    const f = createFixtures(),
+        remote = eventsBoundary()
+    // Ten weekly dates from January 1. The first has passed on the test clock, so nine are left from the next
+    Object.assign(remote.event, {
+        participationStarted: true,
+        calendar: createEventCalendar("2026-01-01T18:00", "UTC", 60, "reject", {
+            type: "weekly",
+            interval: 1,
+            count: 10,
+        }),
+        resume: { localMinute: "2026-01-08T18:00", count: 9 },
+    })
+    remote.store.manage = (input) =>
+        Effect.sync((): EventsManageResult => {
+            remote.calls.push({ method: "manage", input })
+            const op = input.operation
+            return {
+                duplicate: false,
+                type: "event",
+                event: {
+                    ...remote.event,
+                    ...(op.type === "calendar" ? { calendar: op.calendar } : {}),
+                    notice: { sent: 0, failed: 0, done: false },
+                },
+            }
+        })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.adjust(`${Date.parse("2026-01-05T00:00:00Z")} millis`)
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { events: remote.store }),
+                    ),
+                    p = platform(bot)
+                yield* bot.ready()
+                assert.equal(
+                    yield* say(bot, p, "!event repeat study daily 2"),
+                    `Event study now runs every 2 days from <t:${Date.parse("2026-01-08T18:00Z") / 1000}:f>, with no end date. Its upcoming dates keep their numbers and replies, and members who replied Going or Maybe are told by DM`,
+                )
+                yield* say(bot, p, "!event time study 2026-01-20T19:00 UTC 60")
+                const [repeat, time] = remote.calls
+                    .filter((c) => c.method === "manage")
+                    .map((c) => (c.input as EventsManageRequest).operation)
+                assert(repeat?.type === "calendar" && time?.type === "calendar")
+                assert.equal(repeat.calendar.localMinute, "2026-01-08T18:00")
+                assert.deepEqual(repeat.calendar.recurrence, { type: "daily", interval: 2 })
+                assert.deepEqual(time.calendar.recurrence, { type: "weekly", interval: 1, count: 9 })
+                assert.equal(time.calendar.dates.length, 9)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+test("while the last date of a counted repeat runs, a new time is refused and a new repeat continues where the series comes next", async () => {
+    const f = createFixtures(),
+        remote = eventsBoundary()
+    // Two weekly dates from January 1, and the second is running on the test clock
+    Object.assign(remote.event, {
+        participationStarted: true,
+        calendar: createEventCalendar("2026-01-01T18:00", "UTC", 60, "reject", {
+            type: "weekly",
+            interval: 1,
+            count: 2,
+        }),
+        resume: { localMinute: "2026-01-15T18:00", count: 0 },
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.adjust(`${Date.parse("2026-01-08T18:30:00Z")} millis`)
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { events: remote.store }),
+                    ),
+                    p = platform(bot)
+                yield* bot.ready()
+                assert.equal(
+                    yield* say(bot, p, "!event time study 2026-01-20T19:00 UTC 60"),
+                    "Every date of this repeat has started, so no date is left to move. Choose a new repeat with `!event repeat study …`",
+                )
+                assert.equal(remote.calls.filter((c) => c.method === "manage").length, 0)
+                yield* say(bot, p, "!event repeat study weekly 1 3")
+                const [repeat] = remote.calls
+                    .filter((c) => c.method === "manage")
+                    .map((c) => (c.input as EventsManageRequest).operation)
+                assert(repeat?.type === "calendar")
+                assert.equal(repeat.calendar.localMinute, "2026-01-15T18:00")
+                assert.deepEqual(repeat.calendar.recurrence, { type: "weekly", interval: 1, count: 3 })
+                assert.equal(bot.failures().length, 0)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+test("a published event's time, repeat and single dates change after replies, keep their numbers and tell members by DM", async () => {
+    const f = createFixtures(),
+        remote = eventsBoundary(),
+        start = new Date(Math.ceil((Date.now() + 7 * 86400000) / 60000) * 60000).toISOString().slice(0, 16),
+        later = new Date(Date.parse(`${start}Z`) + 86400000).toISOString().slice(0, 16)
+    Object.assign(remote.event, { participationStarted: true, calendar: createEventCalendar(start, "UTC", 60) })
+    // Whether the change left members to tell
+    let pending = true
+    remote.store.manage = (input) =>
+        Effect.sync((): EventsManageResult => {
+            remote.calls.push({ method: "manage", input })
+            const op = input.operation
+            return {
+                duplicate: false,
+                type: "event",
+                event: {
+                    ...remote.event,
+                    ...(op.type === "calendar" ? { calendar: op.calendar } : {}),
+                    notice: { sent: 0, failed: 0, done: !pending },
+                },
+            }
+        })
+    // A later date the backend added is not one of the calendar's first dates, and still lists
+    const added = { ...eventOccurrence(remote.event), occurrenceNo: 30, startsAt: Date.parse(`${later}Z`) }
+    added.endsAt = added.startsAt + 3600000
+    const query = remote.store.query
+    remote.store.query = (input) =>
+        input.operation.type === "dates"
+            ? Effect.succeed<EventsQueryResult>({ type: "dates", dates: [added] })
+            : query(input)
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { events: remote.store }),
+                    ),
+                    p = platform(bot)
+                yield* bot.ready()
+                const at = (local: string) => `<t:${Date.parse(`${local}Z`) / 1000}:f>`
+                assert.equal(
+                    yield* say(bot, p, `!event time study ${start} UTC 60`),
+                    `Event study now runs once, ${at(start)} to <t:${Date.parse(`${start}Z`) / 1000 + 3600}:f>. Its upcoming dates keep their numbers and replies, and members who replied Going or Maybe are told by DM`,
+                )
+                assert.equal(
+                    yield* say(bot, p, "!event repeat study weekly 1"),
+                    `Event study now runs every week from ${at(start)}, with no end date. Its upcoming dates keep their numbers and replies, and members who replied Going or Maybe are told by DM`,
+                )
+                assert.equal(
+                    yield* say(bot, p, "!event repeat study daily 2 until 2099-01-01"),
+                    `Event study now runs every 2 days from ${at(start)}, until 2099-01-01. Its upcoming dates keep their numbers and replies, and members who replied Going or Maybe are told by DM`,
+                )
+                assert.equal(
+                    yield* say(bot, p, `!event move study 12 ${later}`),
+                    `Event study date #12 now starts ${at(later)}. Members who replied Going or Maybe are told by DM`,
+                )
+                const writes = remote.calls
+                    .filter((c) => c.method === "manage")
+                    .map((c) => (c.input as EventsManageRequest).operation)
+                assert.deepEqual(writes.at(-1), {
+                    type: "move",
+                    eventNo: 1,
+                    expectedRevision: 2,
+                    occurrenceNo: 12,
+                    fold: "reject",
+                    date: {
+                        localMinute: later,
+                        startsAt: Date.parse(`${later}Z`),
+                        endsAt: Date.parse(`${later}Z`) + 3600000,
+                        offsetMinutes: 0,
+                    },
+                })
+                assert.equal(writes[1]!.type === "calendar" && writes[1]!.calendar.dates.length, 26)
+                // A date nobody replied to moves without a notice, and the reply does not promise one
+                pending = false
+                assert.equal(
+                    yield* say(bot, p, `!event move study 12 ${later}`),
+                    `Event study date #12 now starts ${at(later)}`,
+                )
+                assert.equal(yield* say(bot, p, "!event move study 12 2020-01-01T00:00"), "Choose a time in the future")
+                const dates = yield* card(bot, p, "!event dates study")
+                assert.match(dates.description!, new RegExp(`^\\*\\*#30\\*\\* ${at(later)}, 0 going`))
+                assert.equal(bot.failures().length, 0)
             }),
         ),
     )

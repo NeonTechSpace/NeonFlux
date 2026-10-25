@@ -430,7 +430,7 @@ test("events and publishing adapters reconcile an omitted color with native zero
         })
 })
 
-test("normal event APIs reject retiming an empty started event and permit settled cancel or completed forgetting", async (t) => {
+test("normal event APIs retime an empty started event without moving its started date and permit settled cancel or completed forgetting", async (t) => {
     const f = await fixture(t),
         event = await f.open("past-empty"),
         occurrence = (await f.dates(event))[0]!
@@ -439,20 +439,24 @@ test("normal event APIs reject retiming an empty started event and permit settle
     f.advance(occurrence.startsAt - f.now() + 1)
     assert.equal((await f.show(event)).state, "started")
     assert.deepEqual(await f.attendees(occurrence), [])
-    await f.reject(
-        f.store.manage(
-            f.manageInput({
-                type: "calendar",
-                eventNo: event.eventNo,
-                expectedRevision: event.revision,
-                calendar: calendar("2026-03-27T12:00"),
-            }),
-        ),
-        EventsStoreError,
-        409,
+    // The started date stays as it was, and the new time becomes a new date
+    const retimed = eventResult(
+        await f.manage({
+            type: "calendar",
+            eventNo: event.eventNo,
+            expectedRevision: event.revision,
+            calendar: calendar("2026-03-27T12:00"),
+        }),
+    ).event
+    assert.deepEqual(
+        (await f.dates(event)).map((date) => [date.occurrenceNo === occurrence.occurrenceNo, date.startsAt]),
+        [
+            [true, occurrence.startsAt],
+            [false, Date.parse("2026-03-27T12:00Z")],
+        ],
     )
     const cancelled = eventResult(
-        await f.manage({ type: "cancel", eventNo: event.eventNo, expectedRevision: event.revision }),
+        await f.manage({ type: "cancel", eventNo: event.eventNo, expectedRevision: retimed.revision }),
     ).event
     const forgotten = await f.manage({
         type: "forget",
@@ -551,7 +555,7 @@ test("events adapter validates the actual bot's finite civil calendar and reject
     const before = { event: await f.show(event), dates, status: await f.status() }
     const bad: EventsCalendar[] = [
         { ...expanded, zone: "Synthetic/Invalid" },
-        { ...expanded, dates: expanded.dates.slice(0, 2) },
+        { ...expanded, dates: [...expanded.dates, expanded.dates[2]!] },
         { ...expanded, dates: expanded.dates.map((date, i) => (i === 1 ? { ...date, offsetMinutes: 60 } : date)) },
         {
             ...expanded,
@@ -682,18 +686,6 @@ test("events adapter preserves RSVP choices, FIFO, withdrawal fences and sticky 
     occurrence = waiter.occurrence
     const before = { event: await f.show(event), dates: await f.dates(event), status: await f.status() }
     await f.reject(
-        f.store.manage(
-            f.manageInput({
-                type: "calendar",
-                eventNo: event.eventNo,
-                expectedRevision: event.revision,
-                calendar: calendar("2026-03-27T12:00"),
-            }),
-        ),
-        EventsStoreError,
-        409,
-    )
-    await f.reject(
         f.store.rsvp({
             ...f.rsvpInput(occurrence, "going", member("23")),
             context: f.context({ ...actor, userId: "23" }, member("23"), "31"),
@@ -702,6 +694,21 @@ test("events adapter preserves RSVP choices, FIFO, withdrawal fences and sticky 
         403,
     )
     assert.deepEqual({ event: await f.show(event), dates: await f.dates(event), status: await f.status() }, before)
+    // A new time keeps the date's number, its replies and its waitlist order
+    const replies = await f.attendees(occurrence)
+    eventResult(
+        await f.manage({
+            type: "calendar",
+            eventNo: event.eventNo,
+            expectedRevision: before.event.revision,
+            calendar: calendar("2026-03-27T12:00"),
+        }),
+    )
+    const [moved] = await f.dates(event)
+    assert.equal(moved!.occurrenceNo, occurrence.occurrenceNo)
+    assert.equal(moved!.startsAt, Date.parse("2026-03-27T12:00Z"))
+    assert.deepEqual([moved!.going, moved!.waitlisted], [occurrence.going, occurrence.waitlisted])
+    assert.deepEqual(await f.attendees(moved!), replies)
     const capacityEvent = await f.open("capacity-floor", 2),
         capacityOccurrence = (await f.dates(capacityEvent))[0]!
     await f.rsvp(capacityOccurrence, "going", member("30"))
@@ -776,19 +783,15 @@ test("events adapter discovers seated member targets without jobs and fences sta
         targets: [],
     })
     const eventBefore = await f.show(event)
-    await f.reject(
-        f.store.manage(
-            f.manageInput({
-                type: "calendar",
-                eventNo: event.eventNo,
-                expectedRevision: eventBefore.revision,
-                calendar: calendar("2026-03-27T12:00"),
-            }),
-        ),
-        EventsStoreError,
-        409,
+    eventResult(
+        await f.manage({
+            type: "calendar",
+            eventNo: event.eventNo,
+            expectedRevision: eventBefore.revision,
+            calendar: calendar("2026-03-27T12:00"),
+        }),
     )
-    assert.deepEqual(await f.show(event), eventBefore)
+    assert.equal((await f.dates(event))[0]!.occurrenceNo, occurrence.occurrenceNo)
 })
 
 test("events adapter atomically round trips protected card ownership before dispatch and blocks composer edits", async (t) => {
@@ -1162,7 +1165,6 @@ test("events adapter explicitly forgets settled protected tracking without nativ
     )
     const remaining = await f.status()
     assert.equal(remaining.definitions, 0)
-    assert.equal(remaining.occurrences, 0)
     assert.equal(remaining.rsvps, 0)
 })
 

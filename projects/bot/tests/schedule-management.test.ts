@@ -268,7 +268,7 @@ test("a repeated, invalid or nonexistent schedule time is answered, not left as 
         ),
     )
 })
-test("create and time changes freeze a finite civil calendar and the source's current revision, with no immediate provider publication", async () => {
+test("create and time changes freeze a civil calendar and the source's current revision, with no immediate provider publication", async () => {
     const remote = schedulesBoundary(),
         publishing = publishingBoundary()
     source(publishing, "template", "notice", 3)
@@ -295,12 +295,13 @@ test("create and time changes freeze a finite civil calendar and the source's cu
                 for (const content of [
                     `!publish schedule create news template notice <#${bot.fixtures.ids.channel}> 2026-03-01T18:00 Europe/Berlin reject weekly 1 3`,
                     "!publish schedule update news time 2026-03-02T09:30 UTC reject",
+                    "!publish schedule update news time 2026-03-02T09:30 UTC reject weekly 2",
                 ]) {
                     yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content }))
                     yield* p.replies.next()
                     yield* bot.idle()
                 }
-                const [create, time] = writes(remote)
+                const [create, time, ongoing] = writes(remote)
                 assert(create?.operation.type === "create" && time?.operation.type === "calendar")
                 assert.deepEqual(create.operation.source, { kind: "template", name: "notice", revision: 3 })
                 assert.equal(create.operation.calendar.dates.length, 3)
@@ -313,11 +314,15 @@ test("create and time changes freeze a finite civil calendar and the source's cu
                     new Date(time.operation.calendar.dates[0]!.dueAt).toISOString(),
                     "2026-03-02T09:30:00.000Z",
                 )
-                assert.equal(p.replies.requests().length, 2)
+                // A repeat without an end sends its first dates within 180 days, and the backend adds the rest
+                assert(ongoing?.operation.type === "calendar")
+                assert.deepEqual(ongoing.operation.calendar.recurrence, { type: "weekly", interval: 2 })
+                assert.equal(ongoing.operation.calendar.dates.length, 13)
+                assert.equal(p.replies.requests().length, 3)
                 assert.equal(create.context.actor.userId, bot.fixtures.ids.user)
                 assert(create.createdAt > 0)
                 // A new schedule shows its detail, and a time change names the new date
-                const [created, changed] = p.replies
+                const [created, changed, repeating] = p.replies
                     .requests()
                     .map((reply) => reply.body as { content?: string; embeds?: { title: string }[] })
                 assert.equal(created!.embeds![0]!.title, "Schedule news")
@@ -325,13 +330,17 @@ test("create and time changes freeze a finite civil calendar and the source's cu
                     changed!.content,
                     `Schedule news now posts once, <t:${Date.parse("2026-03-02T09:30:00Z") / 1000}:f>`,
                 )
+                assert.equal(
+                    repeating!.content,
+                    `Schedule news now posts every 2 weeks from <t:${Date.parse("2026-03-02T09:30:00Z") / 1000}:f>, with no end date`,
+                )
             }),
         ).pipe(Effect.provide(TestClock.layer())),
     )
 })
 test("show is one short card, dates page at 10 and preview shows the post", async () => {
     const remote = schedulesBoundary()
-    // 26 weekly dates, the most a schedule plans, starting two days from now on the real clock
+    // 26 weekly dates, the most a schedule stores at once, starting two days from now on the real clock
     Object.assign(remote.schedule, {
         calendar: createScheduleCalendar(
             new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 16),
@@ -376,7 +385,7 @@ test("show is one short card, dates page at 10 and preview shows the post", asyn
                     { name: "Channel", value: `<#${remote.schedule.channelId}>` },
                     { name: "Content", value: "A copy of draft news" },
                     { name: "Next date", value: `<t:${dates[0]!.dueAt / 1000}:f>` },
-                    { name: "Dates", value: `26 dates, last <t:${dates[25]!.dueAt / 1000}:f>, planned in UTC time` },
+                    { name: "Dates", value: "Every week, 26 dates, planned in UTC time" },
                 ])
                 assert.equal(
                     shown.embeds![0]!.description,
@@ -384,12 +393,12 @@ test("show is one short card, dates page at 10 and preview shows the post", asyn
                 )
                 const first = (yield* send("!publish schedule dates news")).embeds![0]!
                 assert.equal(first.description!.split("\n").length, 11)
-                assert(first.description!.startsWith("Dates 1 to 10 of 26, planned in UTC time\n- <t:"))
+                assert(first.description!.startsWith("Upcoming dates 1 to 10 of 26, planned in UTC time\n- <t:"))
                 assert.deepEqual(first.fields, [{ name: "Next", value: "`!publish schedule dates news next`" }])
                 yield* send("!publish schedule dates news next")
                 const last = (yield* send("!publish schedule dates news next")).embeds![0]!
                 assert.equal(last.description!.split("\n").length, 7)
-                assert(last.description!.startsWith("Dates 21 to 26 of 26"))
+                assert(last.description!.startsWith("Upcoming dates 21 to 26 of 26"))
                 assert.equal(last.fields, undefined)
                 assert.equal(
                     (yield* send("!publish schedule dates news next")).content,
@@ -636,5 +645,62 @@ test("exact known post reconciliation checks schedule ownership and unknown IDs 
                 assert.equal(fetch.requests().length, 1)
             }),
         ),
+    )
+})
+test("show and dates use the stored upcoming dates and name a skipped date", async () => {
+    // A daily noon calendar that began three days before the test clock, away from any clock change
+    const remote = schedulesBoundary(),
+        start = Date.parse("2026-06-07T10:00:00Z"),
+        now = start + 3 * 86400000,
+        calendar = createScheduleCalendar("2026-06-07T12:00", "Europe/Berlin", "reject", {
+            type: "daily",
+            interval: 1,
+        }),
+        upcoming = [5, 6].map((day) => ({
+            localMinute: new Date(start + day * 86400000).toISOString().slice(0, 16),
+            dueAt: start + day * 86400000,
+            offsetMinutes: 0,
+        }))
+    Object.assign(remote.schedule, {
+        calendar,
+        upcoming,
+        lastSkipped: { localMinute: "2027-03-28T02:30", reason: "nonexistent" },
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.adjust(`${now} millis`)
+                const bot = yield* createTestBot(options(remote)),
+                    p = platform(bot)
+                yield* bot.ready()
+                const send = (content: string) =>
+                    bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content })).pipe(
+                        Effect.andThen(p.replies.next()),
+                        Effect.tap(() => bot.idle()),
+                        Effect.map(
+                            (reply) =>
+                                (
+                                    reply.body as {
+                                        embeds: { description?: string; fields?: { name: string; value: string }[] }[]
+                                    }
+                                ).embeds[0]!,
+                        ),
+                    )
+                const shown = yield* send("!publish schedule show news")
+                assert.deepEqual(shown.fields!.slice(3), [
+                    { name: "Next date", value: `<t:${upcoming[0]!.dueAt / 1000}:f>` },
+                    { name: "Dates", value: "Every day, no end date, planned in Europe/Berlin time" },
+                    { name: "Skipped", value: "2027-03-28 02:30: that time does not exist in Europe/Berlin" },
+                ])
+                const dates = yield* send("!publish schedule dates news")
+                assert.equal(
+                    dates.description,
+                    [
+                        "Upcoming dates 1 to 2 of 2, planned in Europe/Berlin time",
+                        ...upcoming.map((date) => `- <t:${date.dueAt / 1000}:f>`),
+                    ].join("\n"),
+                )
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
     )
 })

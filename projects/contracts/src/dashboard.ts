@@ -12,6 +12,7 @@ import {
     EventsContext,
     EventsDeliveryGrant,
     EventsManageOperation,
+    eventsDurationProblem,
 } from "./events.ts"
 import { validNickname } from "./general.ts"
 import { GreetingsManageRequest } from "./greetings.ts"
@@ -95,7 +96,7 @@ export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.T
 export const DashboardEventCalendar = Schema.Struct({
     ...civilIntent,
     durationMinutes: EventsCalendar.fields.durationMinutes,
-})
+}).check(Schema.makeFilter((v) => eventsDurationProblem(v) === undefined))
 export type DashboardEventCalendar = typeof DashboardEventCalendar.Type
 export const DashboardScheduleCalendar = Schema.Struct(civilIntent)
 export type DashboardScheduleCalendar = typeof DashboardScheduleCalendar.Type
@@ -115,6 +116,8 @@ const [
     eventCapacity,
     eventReminders,
     eventTemplate,
+    ,
+    // The hole above skips moving one date, which stays in chat
     eventPublish,
     eventForget,
 ] = EventsManageOperation.members

@@ -131,10 +131,17 @@ async function fixture(t: Parameters<typeof adapterFixture>[0]) {
     })
     const query = (operation: SchedulesQueryRequest["operation"], current = context()) =>
         f.run<SchedulesQueryResult>(store.query(queryInput(operation, current)))
+    // A single schedule's answer adds its upcoming dates, which change answers leave out
+    const upcoming = async (row: Pick<SchedulesDefinition, "scheduleNo">) => {
+        const value = await query({ type: "show", scheduleNo: row.scheduleNo })
+        assert.equal(value.type, "schedule")
+        return value.schedule.upcoming
+    }
     const show = async (row: Pick<SchedulesDefinition, "scheduleNo">) => {
         const value = await query({ type: "show", scheduleNo: row.scheduleNo })
         assert.equal(value.type, "schedule")
-        return value.schedule
+        const { upcoming: _upcoming, ...schedule } = value.schedule
+        return schedule
     }
     const status = async () => {
         const value = await query({ type: "status" })
@@ -244,6 +251,7 @@ async function fixture(t: Parameters<typeof adapterFixture>[0]) {
         queryInput,
         query,
         show,
+        upcoming,
         status,
         deliveries,
         delivery,
@@ -267,7 +275,6 @@ test("schedules adapters authenticate all routes and read disabled defaults with
     assert.equal(before.settings.revision, 1)
     assert.equal(before.settings.activatedAt, 0)
     assert.equal(before.definitions, 0)
-    assert.equal(before.deliveries, 0)
     assert.equal(before.receipts, 0)
     assert.deepEqual(await f.query({ type: "settings" }), { type: "settings", settings: before.settings })
     const persisted = () =>
@@ -527,7 +534,6 @@ test("actual schedule forgetting by name follows the bot's advertised continuati
     )
     const status = await f.status()
     assert.equal(status.definitions, 0)
-    assert.equal(status.deliveries, 0)
     await f.reject(f.store.query(f.queryInput({ type: "show", scheduleNo: row.scheduleNo })), SchedulesStoreError, 404)
 })
 
@@ -571,7 +577,10 @@ test("schedules copy exact source snapshots atomically and ignore later source e
         expectedRevision: changed.draft.revision,
     })
     assert.deepEqual(await f.show(row), row)
-    assert.deepEqual(await f.query({ type: "show", name: row.name }), { type: "schedule", schedule: row })
+    assert.deepEqual(await f.query({ type: "show", name: row.name }), {
+        type: "schedule",
+        schedule: { ...row, upcoming: row.calendar.dates },
+    })
     assert.deepEqual(await f.deliveries(row), frozen)
 })
 
@@ -921,6 +930,7 @@ test("schedules validate real civil expansion", async (t) => {
     const expanded = calendar("2026-03-28T09:00", "Europe/Berlin", "reject", { type: "daily", interval: 1, count: 3 })
     const row = await f.create("civil-spring", expanded)
     assert.deepEqual(row.calendar, expanded)
+    assert.deepEqual(await f.upcoming(row), expanded.dates)
     assert.deepEqual(
         (await f.deliveries(row)).map(({ localMinute, dueAt, offsetMinutes }) => ({
             localMinute,
@@ -938,8 +948,8 @@ test("schedules validate real civil expansion", async (t) => {
             ...expanded,
             dates: expanded.dates.map((date, index) => (index === 1 ? { ...date, dueAt: date.dueAt + 60000 } : date)),
         },
-        { ...expanded, dates: expanded.dates.slice(0, 2) },
-        { ...expanded, recurrence: { type: "daily", interval: 1, count: 27 } },
+        { ...expanded, dates: [...expanded.dates, expanded.dates[2]!] },
+        { ...expanded, recurrence: { type: "daily", interval: 1, count: 2 } },
         { ...expanded, localMinute: "2026-02-30T09:00" },
     ] satisfies SchedulesCalendar[]) {
         await f.reject(
@@ -1084,7 +1094,6 @@ test("schedules selectively forget settled occurrences while retaining uncertain
     )
     const after = await f.status()
     assert.equal(after.definitions, before.status.definitions)
-    assert.equal(after.deliveries, before.status.deliveries - 1)
     assert.equal(after.receipts, before.status.receipts + 1)
     f.advance(third.dueAt - f.now())
     await f.sent(await f.reserve(third))
@@ -1162,5 +1171,4 @@ test("schedules reconcile only a known exact post and forget settled tracking wi
     )
     const status = await f.status()
     assert.equal(status.definitions, 0)
-    assert.equal(status.deliveries, 0)
 })

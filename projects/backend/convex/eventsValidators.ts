@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { EventsAllocation, EventsChoice, EventsDeliveryState, EventsLifecycle } from "@neonflux/contracts/events"
 import { publishingContent } from "./publishingValidators.ts"
+import { civilRecurrence } from "./schedulesValidators.ts"
 
 export const eventsState = v.union(...EventsLifecycle.literals.map((state) => v.literal(state)))
 export const eventsChoice = v.union(...EventsChoice.literals.map((choice) => v.literal(choice)))
@@ -16,10 +17,7 @@ export const eventsCalendar = v.object({
     zone: v.string(),
     fold: v.union(v.literal("reject"), v.literal("earlier"), v.literal("later")),
     durationMinutes: v.number(),
-    recurrence: v.union(
-        v.object({ type: v.literal("none") }),
-        v.object({ type: v.union(v.literal("daily"), v.literal("weekly")), interval: v.number(), count: v.number() }),
-    ),
+    recurrence: civilRecurrence,
     dates: v.array(eventsDate),
 })
 export const eventsTemplate = v.object({ name: v.string(), revision: v.number(), content: publishingContent })
@@ -32,4 +30,23 @@ export const publishingEventConsumer = v.object({
     occurrenceNo: v.optional(v.number()),
     offsetMinutes: v.optional(v.number()),
     deliveryId: v.optional(v.string()),
+})
+/** Members whose dates changed and who are still to be told: The changed dates, and where the claimed pages stopped */
+export const eventsNotice = v.object({
+    revision: v.number(),
+    moves: v.array(
+        v.object({ occurrenceNo: v.number(), fromStartsAt: v.number(), cancelled: v.optional(v.boolean()) }),
+    ),
+    cursor: v.optional(v.object({ afterUserId: v.string() })),
+    sent: v.number(),
+    failed: v.number(),
+    // Changes made after this notice began going out. They become the next notice once this one is done
+    next: v.optional(
+        v.object({
+            revision: v.number(),
+            moves: v.array(
+                v.object({ occurrenceNo: v.number(), fromStartsAt: v.number(), cancelled: v.optional(v.boolean()) }),
+            ),
+        }),
+    ),
 })

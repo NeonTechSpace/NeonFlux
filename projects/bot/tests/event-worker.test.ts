@@ -1,4 +1,5 @@
 import type {
+    EventsNoticePage,
     EventsDeliveryGrant,
     EventsPromotionJob,
     EventsWorkRequest,
@@ -14,7 +15,13 @@ import { Permissions } from "@neontechspace/fluxerly/effect"
 import { Clock, Deferred, Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
 import { processEventDelivery, processEventPromotion } from "../src/events.ts"
-import { processEventsPass, processEventsMemberPass, startEventsWorker, eventsPassBudget } from "../src/event-worker.ts"
+import {
+    processEventNotices,
+    processEventsPass,
+    processEventsMemberPass,
+    startEventsWorker,
+    eventsPassBudget,
+} from "../src/event-worker.ts"
 import { EventsStoreError } from "../src/event-store.ts"
 import { publishingBoundary } from "./publishing-fixture.ts"
 import { eventDefinition, eventDelivery, eventTimerGrant, eventNow, eventsBoundary } from "./event-fixture.ts"
@@ -1299,5 +1306,179 @@ test("definite ineligibility and typed removal continue to the next FIFO waiter 
                 assert.equal(p.send.requests().length, 0)
             }),
         ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+test("a reminder for a date the backend added after the calendar's first dates is sent", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.adjust(`${eventNow} millis`)
+                const bot = yield* createTestBot({ token: "synthetic-event-token" }),
+                    p = native(bot)
+                const event = eventDefinition(),
+                    delivery = eventDelivery(event, {
+                        occurrenceNo: 30,
+                        startsAt: eventNow + 3600000 + 30 * 86400000,
+                        dueAt: eventNow,
+                    }),
+                    grant = eventTimerGrant(event, delivery),
+                    publishing = publishingBoundary()
+                assert(!event.calendar!.dates.some((date) => date.startsAt === delivery.startsAt))
+                addGrant(publishing, grant, eventNow)
+                const remote = eventsBoundary({
+                    delivery: () => Effect.succeed({ type: "reservation", status: "reserved", grant } as const),
+                })
+                const result = yield* processEventDelivery(
+                    remote.store,
+                    publishing.store,
+                    bot.fixtures.ids.guild,
+                    bot.client,
+                    delivery,
+                    event,
+                )
+                assert(result && typeof result === "object" && result.outcome === "sent", JSON.stringify(result))
+                assert.equal(p.send.requests().length, 1)
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})
+test("a notice page sends one DM per member with mentions off, and a failed DM is counted, not retried", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot({ token: "synthetic-event-token" }),
+                    p = native(bot),
+                    event = eventDefinition(),
+                    at = (ms: number) => `<t:${Math.floor(ms / 1000)}:f>`
+                const opens = bot.rest.respond("POST /users/@me/channels", (request) => {
+                    const recipient = (request.body as { recipient_id: string }).recipient_id
+                    return recipient === "40"
+                        ? { status: 403, body: { code: 50007, message: "Cannot send messages to this user" } }
+                        : {
+                              body: {
+                                  id: p.dmId,
+                                  type: 1,
+                                  recipients: [bot.fixtures.user({ id: recipient })],
+                                  last_message_id: null,
+                              },
+                          }
+                })
+                // Members 20 and 40 replied in their current membership, 60 joined again since and 70 left
+                const joinedAt = "2025-01-01T00:00:00.000Z"
+                bot.rest.respond(`GET /guilds/${bot.fixtures.ids.guild}/members/:id`, (request) => {
+                    const userId = request.path.split("/").at(-1)!
+                    return userId === "70"
+                        ? { status: 404, body: { code: "UNKNOWN_MEMBER", message: "Unknown Member" } }
+                        : {
+                              body: bot.fixtures.member({
+                                  user: bot.fixtures.user({ id: userId }),
+                                  joined_at: userId === "60" ? "2025-06-01T00:00:00.000Z" : joinedAt,
+                              }),
+                          }
+                })
+                const later = (userId: string) => ({
+                    userId,
+                    joinedAt,
+                    dates: [
+                        {
+                            occurrenceNo: 4,
+                            choice: "going" as const,
+                            startsAt: eventNow + 7200000,
+                            fromStartsAt: eventNow,
+                        },
+                    ],
+                    more: 0,
+                })
+                const page: EventsNoticePage = {
+                    eventNo: 1,
+                    revision: 3,
+                    title: "Study @everyone",
+                    channelId: event.channelId,
+                    targets: [
+                        {
+                            userId: "20",
+                            joinedAt,
+                            dates: [
+                                {
+                                    occurrenceNo: 4,
+                                    choice: "going",
+                                    startsAt: eventNow + 7200000,
+                                    fromStartsAt: eventNow,
+                                },
+                                {
+                                    occurrenceNo: 5,
+                                    choice: "maybe",
+                                    startsAt: eventNow + 86400000,
+                                    fromStartsAt: eventNow + 86400000,
+                                    cancelled: true,
+                                },
+                            ],
+                            more: 3,
+                        },
+                        {
+                            userId: "40",
+                            joinedAt,
+                            dates: [
+                                {
+                                    occurrenceNo: 4,
+                                    choice: "maybe",
+                                    startsAt: eventNow + 7200000,
+                                    fromStartsAt: eventNow,
+                                },
+                            ],
+                            more: 0,
+                        },
+                        later("60"),
+                        later("70"),
+                    ],
+                }
+                const outcomes: unknown[] = []
+                let claims = 0
+                const remote = eventsBoundary({
+                    work: (input) =>
+                        Effect.sync(() => {
+                            const op = input.operation
+                            if (op.type === "list") return { type: "jobs", jobs: [] } as const
+                            if (op.type === "notice-claim")
+                                return claims++ ? ({ type: "notices" } as const) : ({ type: "notices", page } as const)
+                            outcomes.push(op)
+                            return { type: "progress", recorded: true } as const
+                        }),
+                })
+                assert.equal(yield* processEventNotices(remote.store, bot.fixtures.ids.guild, bot.client), 4)
+                const dms = p.send.requests().filter((request) => request.path === `/channels/${p.dmId}/messages`)
+                assert.equal(dms.length, 1)
+                const body = dms[0]!.body as { content: string; allowed_mentions: unknown }
+                assert.deepEqual(body.content.split("\n").slice(1), [
+                    `Date #4 now starts ${at(eventNow + 7200000)}, it was ${at(eventNow)}. Your reply stays Going`,
+                    "Date #5 was cancelled",
+                    `And 3 more. See !event mine in <#${event.channelId}>`,
+                ])
+                assert.match(body.content, /^Event Study @\u200beveryone in .+ changed\n/)
+                assert.deepEqual(body.allowed_mentions, { parse: [], users: [], roles: [], replied_user: false })
+                assert.deepEqual(outcomes, [{ type: "notice-outcome", eventNo: 1, revision: 3, sent: 1, failed: 1 }])
+                const opened = () =>
+                    opens.requests().map((request) => (request.body as { recipient_id: string }).recipient_id)
+                assert.deepEqual(opened(), ["20", "40"])
+                // The next pass claims nothing new, so neither member is sent the notice again
+                assert.equal(yield* processEventNotices(remote.store, bot.fixtures.ids.guild, bot.client), 0)
+                assert.equal(
+                    p.send.requests().filter((request) => request.path === `/channels/${p.dmId}/messages`).length,
+                    1,
+                )
+                assert.equal(outcomes.length, 1)
+                assert.deepEqual(opened(), ["20", "40"])
+                // A worker pass sends a claimed page after its reminders and promotions
+                claims = 0
+                const pass = yield* processEventsPass(
+                    remote.store,
+                    publishingBoundary().store,
+                    bot.fixtures.ids.guild,
+                    bot.client,
+                )
+                assert.equal(pass.considered, 4)
+                assert.deepEqual(opened(), ["20", "40", "20", "40"])
+            }),
+        ),
     )
 })

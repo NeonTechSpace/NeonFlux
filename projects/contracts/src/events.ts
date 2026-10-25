@@ -1,8 +1,25 @@
 import { Schema } from "effect"
 import { Id, Int, IsoTime, List, Millis, Text, Token, origin } from "./common.ts"
 import { ModerationSource } from "./shared.ts"
-import { CivilLocalMinute, CivilOffset, CivilZoneName, civilAt, civilIntent, civilSeries } from "./civil.ts"
 import {
+    CIVIL_HORIZON_DAYS,
+    CIVIL_LAST_MINUTE,
+    CIVIL_WINDOW,
+    CivilFoldPolicy,
+    CivilLocalMinute,
+    CivilOffset,
+    CivilResume,
+    CivilSkipped,
+    CivilZoneName,
+    civilAt,
+    civilIntent,
+    civilLocalAt,
+    civilSeries,
+    type CivilRecurrence,
+} from "./civil.ts"
+import {
+    EVENTS_REMINDER_MAX_MINUTES,
+    EVENTS_REMINDER_RANGE_MINUTES,
     PublishingContent,
     PublishingEventConsumer,
     PublishingGrant,
@@ -14,7 +31,10 @@ import {
 import { SchedulesContext } from "./schedules.ts"
 
 export const EVENTS_DAY = 86400000,
-    EVENTS_BATCH = 20
+    EVENTS_BATCH = 20,
+    /** Members told per notice page, which is one worker pass, and dates listed in one member's notice */
+    EVENTS_NOTICE_PAGE = 10,
+    EVENTS_NOTICE_DATES = 5
 const optional = Schema.optionalKey
 const name = PublishingName
 const requestName = Schema.String.check(
@@ -42,16 +62,71 @@ export const EventsDeliveryState = Schema.Literals([
     "skipped",
     "cancelled",
 ])
-export const EventsCapacity = Schema.NullOr(Int(1, 500))
+export const EventsCapacity = Schema.NullOr(Int(1))
 export type EventsCapacity = typeof EventsCapacity.Type
-export const EventsReminderOffsets = List(Int(1, 10080), 2).check(
+export { EVENTS_REMINDER_MAX_MINUTES, EVENTS_REMINDER_RANGE_MINUTES }
+/**
+ * Reminders per event. A change cancels and queues the reminders of up to 26 stored dates in one transaction, at most 520 rows and
+ * about 1,000 document writes, well inside Convex's per-transaction limits with room for the dates the change updates
+ */
+export const EVENTS_REMINDERS = 20
+export const EventsReminderOffsets = List(Int(1, EVENTS_REMINDER_RANGE_MINUTES), EVENTS_REMINDERS).check(
     Schema.makeFilter((v) => new Set(v).size === v.length),
 )
 export type EventsReminderOffsets = typeof EventsReminderOffsets.Type
+/**
+ * A repeat's date lasts at most the 180-day window repeats store dates in. A repeat's dates are at least a day apart, so an event
+ * has at most about 200 dates running at once, which one change reads and updates in a single transaction. A single date runs
+ * alongside no other, so it may last until the last minute a calendar supports
+ */
+export const EVENTS_DURATION_MAX_MINUTES = CIVIL_HORIZON_DAYS * 1440
+const LAST_MINUTE = Date.parse(`${CIVIL_LAST_MINUTE}Z`)
+/** Whether a calendar has more than one date. A repeat of one date is a single date */
+export const eventsRepeats = (r: CivilRecurrence) => r.type !== "none" && r.count !== 1
+/** Why a calendar's date cannot last durationMinutes, or undefined when it can */
+export function eventsDurationProblem(v: {
+    localMinute: string
+    recurrence: CivilRecurrence
+    durationMinutes: number
+}) {
+    if (!Number.isSafeInteger(v.durationMinutes) || v.durationMinutes < 1)
+        return "A date lasts a whole number of minutes, at least 1"
+    if (eventsRepeats(v.recurrence))
+        return v.durationMinutes > EVENTS_DURATION_MAX_MINUTES
+            ? `A date of a repeat lasts at most ${EVENTS_DURATION_MAX_MINUTES} minutes (180 days), the window a repeat stores its dates in`
+            : undefined
+    return Date.parse(`${v.localMinute}Z`) + v.durationMinutes * 60000 > LAST_MINUTE
+        ? "This date would end after 9999-12-31, the last date a calendar supports"
+        : undefined
+}
+/**
+ * The longest reminder lead in minutes for a calendar. A single date is stored when it is set, so its reminder may come any time
+ * before it. A repeat with more than 26 dates stores its next 26 and adds each later date with its reminders when an earlier one
+ * starts, so a later date is stored 26 of its steps ahead, or 180 days ahead when that is sooner. One day of that stays free for
+ * the retention run that adds the date and for clock changes in the zone, as 179 of the 180 days do. A repeat of at most 26 dates
+ * stores its later dates as they come 180 days ahead
+ */
+export function eventsReminderMaxMinutes(v: { localMinute: string; recurrence: CivilRecurrence }) {
+    const r = v.recurrence
+    if (r.type === "none" || r.count === 1) return EVENTS_REMINDER_RANGE_MINUTES
+    if (civilLocalAt(v, CIVIL_WINDOW) === undefined) return EVENTS_REMINDER_MAX_MINUTES
+    const stepDays = r.interval * (r.type === "weekly" ? 7 : 1)
+    return Math.min(EVENTS_REMINDER_MAX_MINUTES, (CIVIL_WINDOW * stepDays - 1) * 1440)
+}
+/** Why reminders at these offsets would not come for every date of a calendar, or undefined when they do */
+export function eventsReminderProblem(
+    calendar: { localMinute: string; recurrence: CivilRecurrence },
+    offsets: readonly number[],
+) {
+    const max = eventsReminderMaxMinutes(calendar)
+    if (!offsets.some((offset) => offset > max)) return undefined
+    return max === EVENTS_REMINDER_MAX_MINUTES
+        ? `A reminder of a repeat comes at most ${max} minutes (179 days) before a date, since NeonFlux stores a repeat's later date once it is 180 days ahead`
+        : `A reminder of this repeat comes at most ${max} minutes (${max / 1440} days) before a date, since NeonFlux stores its next 26 dates and adds each later date with its reminders as an earlier one starts`
+}
 const dateFields = { localMinute: CivilLocalMinute, startsAt: Int(), endsAt: Int(), offsetMinutes: CivilOffset }
 const validDate = (v: EventsResolvedDate) =>
     v.endsAt > v.startsAt &&
-    v.endsAt - v.startsAt <= 10080 * 60000 &&
     (v.endsAt - v.startsAt) % 60000 === 0 &&
     civilAt(v.localMinute, v.startsAt, v.offsetMinutes)
 export const EventsResolvedDate = Schema.Struct(dateFields).check(Schema.makeFilter(validDate))
@@ -60,20 +135,28 @@ export type EventsResolvedDate = typeof EventsResolvedDate.Type
 export const EventsCalendar = Schema.Struct({
     ...civilIntent,
     zone: CivilZoneName,
-    durationMinutes: Int(1, 10080),
-    dates: List(EventsResolvedDate, 26),
+    durationMinutes: Int(1),
+    dates: List(EventsResolvedDate, CIVIL_WINDOW),
 }).check(
     Schema.makeFilter(
         (v) =>
+            eventsDurationProblem(v) === undefined &&
             civilSeries(
                 v,
                 v.dates.map((d) => d.startsAt),
-            ) && v.dates.every((d) => d.endsAt - d.startsAt === v.durationMinutes * 60000),
+            ) &&
+            v.dates.every((d) => d.endsAt - d.startsAt === v.durationMinutes * 60000),
     ),
 )
 export type EventsCalendar = typeof EventsCalendar.Type
 const title = Schema.String.check(Schema.makeFilter((v) => v.trim().length > 0 && v.length <= 256))
-/** postId is the forum post that holds the card in a forum or media channel, and threadId the discussion thread started on the card in another channel */
+/** How far the last notice to members whose dates changed has come */
+export const EventsNoticeProgress = Schema.Struct({ sent: Int(), failed: Int(), done: Schema.Boolean })
+/**
+ * postId is the forum post that holds the card in a forum or media channel, and threadId the discussion thread started on the card
+ * in another channel. next is the earliest date that has not ended, in a single event's answer, and resume is where a changed
+ * repeat continues once its first date has started
+ */
 export const EventsDefinition = Schema.Struct({
     eventNo: Int(1),
     name,
@@ -86,6 +169,10 @@ export const EventsDefinition = Schema.Struct({
     state: EventsLifecycle,
     participationStarted: Schema.Boolean,
     calendar: optional(EventsCalendar),
+    next: optional(EventsResolvedDate),
+    resume: optional(CivilResume),
+    lastSkipped: optional(CivilSkipped),
+    notice: optional(EventsNoticeProgress),
     template: optional(Schema.Struct({ name, revision: Int(1), content: PublishingContent })),
     cardPostNo: optional(Int(1)),
     postId: optional(Id),
@@ -106,15 +193,11 @@ export const EventsOccurrence = Schema.Struct({
     revision: Int(1),
     state: EventsLifecycle,
     participationStarted: Schema.Boolean,
-    going: Int(0, 1000),
-    waitlisted: Int(0, 1000),
+    going: Int(),
+    waitlisted: Int(),
     capacity: EventsCapacity,
     workGeneration: Int(),
-}).check(
-    Schema.makeFilter(
-        (v) => validDate(v) && v.going + v.waitlisted <= 1000 && (v.capacity === null || v.going <= v.capacity),
-    ),
-)
+}).check(Schema.makeFilter((v) => validDate(v) && (v.capacity === null || v.going <= v.capacity)))
 export type EventsOccurrence = typeof EventsOccurrence.Type
 export const EventsRsvp = Schema.Struct({
     eventNo: Int(1),
@@ -164,15 +247,17 @@ export const EventsManageResult = Schema.Union([
     }),
 ])
 export type EventsManageResult = typeof EventsManageResult.Type
+/** A place in a member's replies, in event and date order */
+export const EventsMemberCursor = Schema.Struct({ eventNo: Int(1), occurrenceNo: Int(1) })
+export type EventsMemberCursor = typeof EventsMemberCursor.Type
 export const EventsQueryResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("settings"), settings: EventsSettings }),
     Schema.Struct({
         type: Schema.Literal("status"),
         settings: EventsSettings,
         definitions: Int(0, 50),
-        occurrences: Int(0, 200),
-        rsvps: Int(0, 50000),
-        receipts: Int(0, 50000),
+        rsvps: Int(0),
+        receipts: Int(0),
     }),
     Schema.Struct({
         type: Schema.Literal("events"),
@@ -205,6 +290,8 @@ export const EventsQueryResult = Schema.Union([
             20,
         ),
         more: Schema.Boolean,
+        /** Where the next page of the member's replies starts. The bot reads every page and shows the soonest overall */
+        nextCursor: optional(EventsMemberCursor),
     }),
 ])
 export type EventsQueryResult = typeof EventsQueryResult.Type
@@ -241,8 +328,33 @@ export const EventsMemberTarget = Schema.Struct({
     rsvpRevision: Int(1),
 })
 export type EventsMemberTarget = typeof EventsMemberTarget.Type
-export const EventsMemberCursor = Schema.Struct({ eventNo: Int(1), occurrenceNo: Int(1) })
-export type EventsMemberCursor = typeof EventsMemberCursor.Type
+/** One changed date in a member's notice: When it starts now and when it started before, or that it was cancelled */
+export const EventsNoticeDate = Schema.Struct({
+    occurrenceNo: Int(1),
+    choice: Schema.Literals(["going", "maybe"]),
+    startsAt: Int(),
+    fromStartsAt: Int(),
+    cancelled: optional(Schema.Literal(true)),
+})
+export type EventsNoticeDate = typeof EventsNoticeDate.Type
+/** Members to tell by DM that dates they replied Going or Maybe to changed. The backend counts them as claimed before the bot sends */
+export const EventsNoticePage = Schema.Struct({
+    eventNo: Int(1),
+    revision: Int(1),
+    title,
+    channelId: Id,
+    targets: List(
+        Schema.Struct({
+            userId: Id,
+            /** The membership the replies were given in. A member who left or joined again since is not told */
+            joinedAt: IsoTime,
+            dates: List(EventsNoticeDate, EVENTS_NOTICE_DATES).check(Schema.isMinLength(1)),
+            more: Int(),
+        }),
+        EVENTS_NOTICE_PAGE,
+    ),
+})
+export type EventsNoticePage = typeof EventsNoticePage.Type
 export const EventsWorkResult = Schema.Union([
     Schema.Struct({
         type: Schema.Literal("jobs"),
@@ -262,6 +374,7 @@ export const EventsWorkResult = Schema.Union([
         leaseExpiresAt: Int(1),
     }),
     Schema.Struct({ type: Schema.Literal("progress"), recorded: Schema.Boolean, promoted: optional(Schema.Boolean) }),
+    Schema.Struct({ type: Schema.Literal("notices"), page: optional(EventsNoticePage) }),
 ])
 export type EventsWorkResult = typeof EventsWorkResult.Type
 export const EventsDeliveryBinding = Schema.Struct({
@@ -269,7 +382,7 @@ export const EventsDeliveryBinding = Schema.Struct({
     eventNo: Int(1),
     occurrenceNo: Int(1),
     revision: Int(1),
-    offsetMinutes: Int(1, 10080),
+    offsetMinutes: Int(1, EVENTS_REMINDER_RANGE_MINUTES),
 })
 export type EventsDeliveryBinding = typeof EventsDeliveryBinding.Type
 export const EventsDelivery = Schema.Struct({
@@ -374,6 +487,15 @@ export const EventsManageOperation = Schema.Union([
         templateName: Schema.NullOr(requestName),
         expectedTemplateRevision: optional(Int(1)),
     }).check(Schema.makeFilter((value) => value.templateName === null || value.expectedTemplateRevision !== undefined)),
+    /** Moves one date that has not started. It keeps its number and replies, in the event's zone and length */
+    Schema.Struct({
+        type: Schema.Literal("move"),
+        eventNo: Int(1),
+        expectedRevision: Int(1),
+        occurrenceNo: Int(1),
+        date: EventsResolvedDate,
+        fold: CivilFoldPolicy,
+    }),
     Schema.Struct({
         type: Schema.Literals(["publish", "cancel", "reconcile"]),
         eventNo: Int(1),
@@ -412,7 +534,7 @@ export const EventsQueryRequest = Schema.Struct({
             occurrenceNo: Int(1),
             afterUserId: optional(Id),
         }),
-        Schema.Struct({ type: Schema.Literal("mine") }),
+        Schema.Struct({ type: Schema.Literal("mine"), cursor: optional(EventsMemberCursor) }),
     ]),
 })
 export type EventsQueryRequest = typeof EventsQueryRequest.Type
@@ -457,6 +579,14 @@ export const EventsWorkRequest = Schema.Struct({
             generation: Int(1),
             observedAt: Millis,
             memberAbsent: Schema.Literal(true),
+        }),
+        Schema.Struct({ type: Schema.Literal("notice-claim") }),
+        Schema.Struct({
+            type: Schema.Literal("notice-outcome"),
+            eventNo: Int(1),
+            revision: Int(1),
+            sent: Int(0, EVENTS_NOTICE_PAGE),
+            failed: Int(0, EVENTS_NOTICE_PAGE),
         }),
     ]),
 })

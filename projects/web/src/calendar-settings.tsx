@@ -1,4 +1,9 @@
-import { EVENTS_DESCRIPTION_LIMIT } from "@neonflux/contracts/events"
+import {
+    EVENTS_DESCRIPTION_LIMIT,
+    EVENTS_REMINDERS,
+    EVENTS_REMINDER_RANGE_MINUTES,
+    eventsReminderProblem,
+} from "@neonflux/contracts/events"
 import type { EventsDefinition } from "@neonflux/contracts/events"
 import type { SchedulesDefinition } from "@neonflux/contracts/schedules"
 import { ConfigForm, ConfigurationPages, rowCard } from "./configuration-form"
@@ -11,12 +16,28 @@ import { SearchPicker } from "./search-picker"
 import { postChannels, publicationChannels } from "./catalog-options"
 import { SchedulePreview } from "./schedule-preview"
 
+// A reminder lead has at most as many digits as the longest one a calendar allows
+const REMINDER_DIGITS = String(EVENTS_REMINDER_RANGE_MINUTES).length
+
 const initialCalendar = { localMinute: "", zone: "UTC", fold: "reject", recurrence: { type: "none" } }
-function civilCalendar(calendar: EventsDefinition["calendar"] | SchedulesDefinition["calendar"]) {
+// Once a repeat's first date has started, the form starts at its next date and counts the dates left from there, so a change
+// continues the repeat instead of asking for a start in the past. A count with no date left leaves the end to choose
+function civilCalendar(
+    calendar: EventsDefinition["calendar"] | SchedulesDefinition["calendar"],
+    resume?: EventsDefinition["resume"],
+) {
     if (!calendar) return JSON.stringify({ ...initialCalendar, durationMinutes: 60 })
     const { dates: _dates, ...civil } = calendar
-    return JSON.stringify(civil)
+    if (!resume || civil.recurrence.type === "none") return JSON.stringify(civil)
+    const { count: _count, ...recurrence } = civil.recurrence
+    return JSON.stringify({
+        ...civil,
+        localMinute: resume.localMinute,
+        recurrence: { ...recurrence, ...(resume.count ? { count: resume.count } : {}) },
+    })
 }
+/** What a calendar form says once every date of a counted repeat has started, as chat does */
+const NEW_END = "Every date of this repeat has started. Choose how it ends from its next date before you save"
 type Edit = (key: string, value: string | boolean) => void
 function OwnerField({ value, edit, disabled }: { value: string; edit: Edit; disabled: boolean }) {
     return (
@@ -185,7 +206,7 @@ export function EventSettings(props: ConfigSectionProps<"events">) {
             />
             {data.events.map((event) => {
                 const binding = { eventNo: event.eventNo, expectedRevision: event.revision },
-                    calendarLocked = event.participationStarted || !["draft", "open"].includes(event.state)
+                    calendarLocked = event.state === "cancelled" || event.state === "completed"
                 const { missing, card } = rowCard(common, props.removedDefinitions, String(event.eventNo))
                 return (
                     <EditorDetails
@@ -225,15 +246,24 @@ export function EventSettings(props: ConfigSectionProps<"events">) {
                                     title={`Event calendar ${event.name}`}
                                     description={
                                         calendarLocked
-                                            ? "Calendar changes are locked after participation starts or this event becomes terminal"
-                                            : "Set explicit local dates. Native calendar validation resolves daylight-saving transitions before saving"
+                                            ? "A cancelled or completed event keeps its dates"
+                                            : event.state === "draft"
+                                              ? "Set explicit local dates. Native calendar validation resolves daylight-saving transitions before saving"
+                                              : event.resume?.count === 0
+                                                ? NEW_END
+                                                : "Dates that have started stay as they were, and the start shows the next date that has not. Upcoming dates keep their numbers and replies, and members who replied Going or Maybe are told by DM"
                                     }
-                                    snapshot={{ revision, values: { calendar: civilCalendar(event.calendar) } }}
-                                    operation={(values) => ({
-                                        type: "calendar",
-                                        ...binding,
-                                        calendar: calendarValue(values.calendar, true),
-                                    })}
+                                    snapshot={{
+                                        revision,
+                                        values: { calendar: civilCalendar(event.calendar, event.resume) },
+                                    }}
+                                    operation={(values) => {
+                                        const calendar = calendarValue(values.calendar, true)
+                                        // A repeat's reminders reach only as far ahead as its stored dates
+                                        const problem = eventsReminderProblem(calendar, event.reminderOffsets)
+                                        if (problem) throw new FormInputError(problem)
+                                        return { type: "calendar", ...binding, calendar }
+                                    }}
                                     fields={(values, edit, disabled) => (
                                         <CalendarFields
                                             event
@@ -259,7 +289,12 @@ export function EventSettings(props: ConfigSectionProps<"events">) {
                                         ...binding,
                                         capacity: values.unlimited
                                             ? null
-                                            : numberValue(values.capacity, 1, 500, "event capacity"),
+                                            : numberValue(
+                                                  values.capacity,
+                                                  1,
+                                                  Number.MAX_SAFE_INTEGER,
+                                                  "event capacity",
+                                              ),
                                     })}
                                     fields={(values, edit, disabled) => (
                                         <>
@@ -279,7 +314,7 @@ export function EventSettings(props: ConfigSectionProps<"events">) {
                                                     onChange={(value) => edit("capacity", value)}
                                                     disabled={disabled}
                                                     min={1}
-                                                    max={500}
+                                                    max={Number.MAX_SAFE_INTEGER}
                                                 />
                                             )}
                                         </>
@@ -288,17 +323,24 @@ export function EventSettings(props: ConfigSectionProps<"events">) {
                                 <ConfigForm<"events">
                                     {...card}
                                     title={`Event reminders ${event.name}`}
-                                    description="Up to two distinct reminder offsets, in minutes before the event starts"
+                                    description="Up to 20 distinct reminder offsets in minutes before the event starts. A single date takes any lead, and a reminder whose time has already passed is skipped. A repeat takes up to 257760 minutes (179 days), and less when it runs more often than weekly with more than 26 dates, since NeonFlux stores its next 26 dates"
                                     snapshot={{
                                         revision,
                                         values: { offsets: JSON.stringify(event.reminderOffsets.map(String)) },
                                     }}
                                     operation={(values) => {
-                                        const offsets = stringsValue(values.offsets, 2, 5, "reminder offsets").map(
-                                            (value) => numberValue(value, 1, 10080, "reminder minutes"),
+                                        const offsets = stringsValue(
+                                            values.offsets,
+                                            EVENTS_REMINDERS,
+                                            REMINDER_DIGITS,
+                                            "reminder offsets",
+                                        ).map((value) =>
+                                            numberValue(value, 1, EVENTS_REMINDER_RANGE_MINUTES, "reminder minutes"),
                                         )
                                         if (new Set(offsets).size !== offsets.length)
                                             throw new FormInputError("Use distinct reminder offsets")
+                                        const problem = event.calendar && eventsReminderProblem(event.calendar, offsets)
+                                        if (problem) throw new FormInputError(problem)
                                         return { type: "reminders", ...binding, offsets: offsets.sort((a, b) => b - a) }
                                     }}
                                     fields={(values, edit, disabled) => (
@@ -307,8 +349,8 @@ export function EventSettings(props: ConfigSectionProps<"events">) {
                                             value={String(values.offsets)}
                                             onChange={(value) => edit("offsets", value)}
                                             disabled={disabled}
-                                            max={2}
-                                            maxLength={5}
+                                            max={EVENTS_REMINDERS}
+                                            maxLength={REMINDER_DIGITS}
                                         />
                                     )}
                                 />
@@ -442,7 +484,7 @@ export function ScheduleSettings(props: ConfigSectionProps<"schedules">) {
             <ConfigForm<"schedules">
                 {...common}
                 title="Schedules"
-                description="Configure finite scheduled publications. Publishing must also be enabled"
+                description="Configure scheduled publications. Publishing must also be enabled"
                 snapshot={{ revision, values: { enabled: data.settings.enabled } }}
                 operation={(values) => ({
                     type: "settings",
@@ -464,7 +506,7 @@ export function ScheduleSettings(props: ConfigSectionProps<"schedules">) {
             <ConfigForm<"schedules">
                 {...common}
                 title="Create schedule"
-                description="Choose a saved draft or template version and a calendar with an end. New schedules start disabled"
+                description="Choose a saved draft or template version and a calendar. New schedules start disabled"
                 resetAfterApplied
                 snapshot={{
                     revision,
@@ -546,8 +588,15 @@ export function ScheduleSettings(props: ConfigSectionProps<"schedules">) {
                             <ConfigForm<"schedules">
                                 {...card}
                                 title={`Schedule calendar ${schedule.name}`}
-                                description="Changing the finite calendar creates a new plan. Already admitted work keeps its original bindings"
-                                snapshot={{ revision, values: { calendar: civilCalendar(schedule.calendar) } }}
+                                description={
+                                    schedule.resume?.count === 0
+                                        ? NEW_END
+                                        : "Changing the calendar creates a new plan. Already admitted work keeps its original bindings"
+                                }
+                                snapshot={{
+                                    revision,
+                                    values: { calendar: civilCalendar(schedule.calendar, schedule.resume) },
+                                }}
                                 operation={(values) => ({
                                     type: "calendar",
                                     ...binding,

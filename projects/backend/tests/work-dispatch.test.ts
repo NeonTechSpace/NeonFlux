@@ -247,6 +247,32 @@ test("Due discussion threads wake the events worker of enabled servers and name 
     assert.deepEqual(result.kinds.events, ["10"])
     assert.equal(result.nextDueIn, 60000)
 })
+test("Due event notices wake the events worker only while events are on at DEFCON 3, and name their next time", async (tc) => {
+    tc.mock.method(Date, "now", () => now)
+    const t = backend()
+    await t.run(async (ctx) => {
+        for (const [serverId, enabled, level, noticeDueAt] of [
+            ["10", true, 3, now - 1000],
+            ["20", false, 3, now - 1000],
+            ["30", true, 2, now - 1000],
+            ["40", true, 3, now + 60000],
+            ["50", true, 3, undefined],
+        ] as const) {
+            await install(ctx, serverId)
+            await insertDocument(ctx, "eventSettings", serverId, { enabled })
+            if (level !== 3) await defcon(ctx, serverId, level)
+            await insertDocument(ctx, "events", serverId, {
+                eventNo: 1,
+                revision: 1,
+                state: "open",
+                ...(noticeDueAt !== undefined ? { noticeDueAt } : {}),
+            })
+        }
+    })
+    const result = await work(t)
+    assert.deepEqual(result.kinds.events, ["10"])
+    assert.equal(result.nextDueIn, 60000)
+})
 test("Waitlist promotions are reported only for open occurrences of live events in enabled servers", async (tc) => {
     tc.mock.method(Date, "now", () => now)
     const t = backend()

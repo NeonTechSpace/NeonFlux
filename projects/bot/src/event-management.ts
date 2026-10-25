@@ -2,6 +2,8 @@ import type {
     EventsDefinition,
     EventsContext,
     EventsQueryRequest,
+    EventsQueryResult,
+    EventsMemberCursor,
     EventsDelivery,
     EventsManageOperation,
 } from "@neonflux/contracts/events"
@@ -11,7 +13,8 @@ import { neutralMentions } from "@neonflux/contracts/member-content"
 import type { BotConfig } from "./config.ts"
 import { eventHelp, eventPublic, type EventCommand } from "./event-command.ts"
 import { createEventCalendar } from "./event-calendar.ts"
-import { CivilCalendarError, calendarFailure } from "./civil-calendar.ts"
+import { CivilCalendarError, calendarFailure, expandCivilCalendar } from "./civil-calendar.ts"
+import { civilEvery } from "@neonflux/contracts/civil"
 import { eventDetail, eventAttendeeText, eventStates, eventTimes } from "./event-render.ts"
 import { EventsStoreError, eventsErrorMessage, type EventsStore } from "./event-store.ts"
 import type { PublishingStore } from "./publishing-store.ts"
@@ -43,13 +46,25 @@ function messageLink(messageId: string, channelId: string, serverId: string) {
     }
 }
 /** The one thing a change to an existing event did, with its new value */
-function eventChange(command: EventCommand, event: EventsDefinition) {
+function eventChange(command: EventCommand, event: EventsDefinition, movedTo?: number) {
     const name = `Event ${event.name}`,
-        dates = event.calendar?.dates ?? []
-    if (command.type === "time" || command.type === "repeat")
-        return !dates.length
-            ? `${name} has no dates now`
-            : `${name} now runs ${dates.length === 1 ? "once" : `on ${dates.length} dates`}, ${dates.length === 1 ? "" : "first "}${eventTimes(dates[0]!)}`
+        calendar = event.calendar,
+        first = calendar?.dates[0],
+        // A published event keeps its upcoming dates, and members who replied to a changed date hear of it by DM
+        told = event.notice?.done === false ? "members who replied Going or Maybe are told by DM" : ""
+    if (command.type === "move")
+        return `${name} date #${command.occurrenceNo} now starts ${at(movedTo!)}${told ? ". Members who replied Going or Maybe are told by DM" : ""}`
+    if (command.type === "time" || command.type === "repeat") {
+        if (!calendar || !first) return `${name} has no dates now`
+        const r = calendar.recurrence,
+            plan =
+                r.type === "none" || r.count === 1
+                    ? `${name} now runs once, ${eventTimes(first)}`
+                    : `${name} now runs ${civilEvery(r)} from ${at(first.startsAt)}, ${r.count ? `${r.count} times` : r.until ? `until ${r.until}` : "with no end date"}`
+        return event.state === "draft"
+            ? plan
+            : `${plan}. Its upcoming dates keep their numbers and replies${told ? `, and ${told}` : ""}`
+    }
     const change = command.type === "change" ? command.change : undefined
     if (change?.type === "content") return `${name} is now titled ${event.title}`
     if (change?.type === "capacity")
@@ -172,8 +187,20 @@ export function handleEventCommand(
             return
         }
         if (command.type === "mine") {
-            const result = yield* ask(yield* fresh(), { type: "mine" })
-            if (result.type !== "mine") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
+            // Each page names its own soonest replies, so the soonest of all pages are the soonest overall
+            const context = yield* fresh(),
+                entries: Extract<EventsQueryResult, { type: "mine" }>["entries"][number][] = []
+            let more = false,
+                cursor: EventsMemberCursor | undefined
+            do {
+                const page = yield* ask(context, { type: "mine", ...(cursor ? { cursor } : {}) })
+                if (page.type !== "mine") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
+                entries.push(...page.entries)
+                more ||= page.more
+                cursor = page.nextCursor
+            } while (cursor)
+            entries.sort((a, b) => a.startsAt - b.startsAt || a.eventNo - b.eventNo || a.occurrenceNo - b.occurrenceNo)
+            const result = { entries: entries.slice(0, 20), more: more || entries.length > 20 }
             yield* card({
                 title: "Your event RSVPs",
                 description:
@@ -211,18 +238,11 @@ export function handleEventCommand(
                 eventNo: event.eventNo,
                 ...(after ? { afterOccurrenceNo: after } : {}),
             })
+            // Every change to the event renews the dates that have not ended, so a change between the two reads shows here
             if (
                 result.type !== "dates" ||
                 result.dates.some(
-                    (d) =>
-                        d.revision !== event.revision ||
-                        !calendar.dates.some(
-                            (c) =>
-                                c.startsAt === d.startsAt &&
-                                c.endsAt === d.endsAt &&
-                                c.localMinute === d.localMinute &&
-                                c.offsetMinutes === d.offsetMinutes,
-                        ),
+                    (d) => ["draft", "open", "started"].includes(d.state) && d.revision !== event.revision,
                 )
             )
                 return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
@@ -278,8 +298,6 @@ export function handleEventCommand(
                     ["Status", onOff(result.settings.enabled)],
                     ["Discussion threads", onOff(result.settings.threads)],
                     ["Events", usage(result.definitions, 50)],
-                    ["Dates", usage(result.occurrences, 200)],
-                    ...(result.rsvps >= 40000 ? [["Replies", `${result.rsvps} of 50000`] as const] : []),
                 ],
             })
             return
@@ -300,7 +318,8 @@ export function handleEventCommand(
             if (result.type !== "deliveries") return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
             rememberPosition(key, result.nextAfterDeliveryId)
             const where = format.channelMention(event.channelId),
-                once = (event.calendar?.dates.length ?? 0) <= 1
+                once = event.calendar?.recurrence.type !== "daily" && event.calendar?.recurrence.type !== "weekly",
+                notice = event.notice
             const reminder = (d: EventsDelivery) =>
                 d.state === "queued"
                     ? `Due ${at(d.dueAt)}`
@@ -322,6 +341,15 @@ export function handleEventCommand(
                 fields: [
                     ["Event", eventStates[event.state]],
                     ["Card", yield* cardState(current, event)],
+                    // Members who replied to a moved or cancelled date are told by DM, counted as the notice goes out
+                    ...(notice
+                        ? [
+                              [
+                                  "Notice",
+                                  `${notice.done ? "Told" : "Telling members by DM. So far told"} ${notice.sent} member${notice.sent === 1 ? "" : "s"}${notice.failed ? `, ${notice.failed} could not be reached` : ""}`,
+                              ] as const,
+                          ]
+                        : []),
                     ...next(result.nextAfterDeliveryId ? `event status ${event.name}` : undefined),
                 ],
                 ...(result.deliveries.some((d) => d.state === "uncertain" && d.postNo)
@@ -440,6 +468,7 @@ export function handleEventCommand(
         let operation: EventsManageOperation
         let destination = here
         let found: EventsDefinition | undefined
+        let movedTo: number | undefined
         if (command.type === "create") {
             operation = { ...command }
             destination = command.channelId
@@ -476,6 +505,32 @@ export function handleEventCommand(
                         return yield* Effect.fail(new EventsHandlingError({ stage: "response" }))
                     operation = { ...change, ...target, expectedTemplateRevision: template.draft.revision }
                 }
+            } else if (command.type === "move") {
+                const current = event.calendar
+                if (!current) {
+                    yield* reply(`Set the first date with ${code(`${prefix}event time ${event.name} …`)} first`)
+                    return
+                }
+                const [date] = yield* calendarFailure(() =>
+                    expandCivilCalendar(command.localMinute, current.zone, command.fold),
+                )
+                if (date!.instantAt <= (yield* Clock.currentTimeMillis)) {
+                    yield* reply("Choose a time in the future")
+                    return
+                }
+                movedTo = date!.instantAt
+                operation = {
+                    type: "move",
+                    ...target,
+                    occurrenceNo: command.occurrenceNo,
+                    fold: command.fold,
+                    date: {
+                        localMinute: date!.localMinute,
+                        startsAt: date!.instantAt,
+                        endsAt: date!.instantAt + current.durationMinutes * 60000,
+                        offsetMinutes: date!.offsetMinutes,
+                    },
+                }
             } else {
                 const current = event.calendar
                 if (command.type === "repeat" && !current) {
@@ -484,6 +539,19 @@ export function handleEventCommand(
                     )
                     return
                 }
+                // Once a published repeat has begun, a new time keeps the dates its count has left, and a new repeat continues
+                // from its next date that has not started
+                const resume = event.resume
+                if (command.type === "time" && resume?.count === 0) {
+                    yield* reply(
+                        `Every date of this repeat has started, so no date is left to move. Choose a new repeat with ${code(`${prefix}event repeat ${event.name} …`)}`,
+                    )
+                    return
+                }
+                const recurrence =
+                    resume?.count !== undefined && current?.recurrence.type !== "none"
+                        ? { ...current!.recurrence, count: resume.count }
+                        : current?.recurrence
                 const calendar = yield* calendarFailure(() =>
                     command.type === "time"
                         ? createEventCalendar(
@@ -491,21 +559,18 @@ export function handleEventCommand(
                               command.zone,
                               command.durationMinutes,
                               command.fold,
-                              current?.recurrence,
+                              recurrence,
                           )
                         : createEventCalendar(
-                              current!.localMinute,
+                              resume?.localMinute ?? current!.localMinute,
                               current!.zone,
                               current!.durationMinutes,
                               current!.fold,
                               command.recurrence,
                           ),
                 )
-                const now = yield* Clock.currentTimeMillis
-                if (calendar.dates[0]!.startsAt <= now || calendar.dates.at(-1)!.startsAt > now + 180 * 86400000) {
-                    yield* reply(
-                        "Every date must start in the future and within 180 days. Choose fewer dates or an earlier start",
-                    )
+                if (calendar.dates[0]!.startsAt <= (yield* Clock.currentTimeMillis)) {
+                    yield* reply("The first date must start in the future. Choose a later start")
                     return
                 }
                 operation = { type: "calendar", ...target, calendar }
@@ -589,7 +654,7 @@ export function handleEventCommand(
                 yield* reply(
                     command.type === "change" && command.change.type === "publish" && posted
                         ? posted
-                        : [eventChange(command, result.event), posted].filter(Boolean).join(". "),
+                        : [eventChange(command, result.event, movedTo), posted].filter(Boolean).join(". "),
                 )
         }
     }).pipe(

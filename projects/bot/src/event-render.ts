@@ -3,10 +3,14 @@ import type {
     EventsDefinition,
     EventsLifecycle,
     EventsChoice,
+    EventsNoticePage,
     EventsRsvp,
 } from "@neonflux/contracts/events"
+import { neutralMentions } from "@neonflux/contracts/member-content"
+import { civilRepeatText } from "@neonflux/contracts/civil"
 import { format } from "@neontechspace/fluxerly/effect"
 import { at, code, duration, type Card } from "./reply-style.ts"
+import { skippedDate } from "./civil-calendar.ts"
 
 /** When a date runs, shown in each reader's own time, and the zone the event was planned in. The backend's public card uses the same words */
 export const eventTimes = (date: Pick<EventsResolvedDate, "startsAt" | "endsAt">) =>
@@ -27,8 +31,7 @@ const minutes = (offsets: readonly number[]) =>
 /** An event's staff detail. The name is what every event command takes */
 export function eventDetail(event: EventsDefinition, prefix: string, now: number): Card {
     const calendar = event.calendar,
-        dates = calendar?.dates.length ?? 0,
-        next = calendar?.dates.find((date) => date.endsAt > now)
+        next = event.next ?? calendar?.dates.find((date) => date.endsAt > now)
     return {
         title: `Event ${event.name}`,
         description: [`**${event.title}**`, event.description].filter(Boolean).join("\n"),
@@ -47,17 +50,17 @@ export function eventDetail(event: EventsDefinition, prefix: string, now: number
                 ? [
                       [
                           "Dates",
-                          dates === 1
+                          calendar.recurrence.type === "none"
                               ? "Once"
-                              : `${dates} dates. See them with ${code(`${prefix}event dates ${event.name}`)}`,
+                              : `${civilRepeatText(calendar.recurrence)}. See them with ${code(`${prefix}event dates ${event.name}`)}`,
                       ] as const,
+                      ...(event.lastSkipped
+                          ? [["Skipped", skippedDate(event.lastSkipped, calendar.zone)] as const]
+                          : []),
                   ]
                 : []),
             ["Capacity", seats(event.capacity)],
             ["Reminders", minutes(event.reminderOffsets)],
-            ...(event.participationStarted
-                ? [["Dates locked", "Members have replied, so the dates can no longer change"] as const]
-                : []),
             ...(event.cardPostNo
                 ? [
                       [
@@ -88,4 +91,23 @@ export function eventAttendeeText(rsvp: EventsRsvp, viewerId: string) {
     if (rsvp.userId === viewerId)
         return `${yours[rsvp.choice]}${rsvp.allocation === "seat" ? ", and you have a seat" : rsvp.allocation === "waitlist" ? `, and you are ${waiting}` : ""}`
     return `${format.userMention(rsvp.userId)}: ${theirs[rsvp.choice]}${rsvp.allocation === "seat" ? ", has a seat" : rsvp.allocation === "waitlist" ? `, ${waiting}` : ""}`
+}
+/** The DM that tells a member which dates they replied Going or Maybe to moved or were cancelled */
+export function eventNoticeText(
+    page: Pick<EventsNoticePage, "title" | "channelId">,
+    target: EventsNoticePage["targets"][number],
+    server: string,
+    prefix: string,
+) {
+    return [
+        `Event ${neutralMentions(page.title)} in ${server} changed`,
+        ...target.dates.map((date) =>
+            date.cancelled
+                ? `Date #${date.occurrenceNo} was cancelled`
+                : `Date #${date.occurrenceNo} now starts ${at(date.startsAt)}, it was ${at(date.fromStartsAt)}. Your reply stays ${theirs[date.choice]}`,
+        ),
+        ...(target.more
+            ? [`And ${target.more} more. See ${prefix}event mine in ${format.channelMention(page.channelId)}`]
+            : []),
+    ].join("\n")
 }

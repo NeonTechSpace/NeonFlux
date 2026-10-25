@@ -115,10 +115,9 @@ export function schedulesBoundary(overrides: Partial<SchedulesStore> = {}) {
                                 type: "status",
                                 settings: { enabled: false, revision: 1, activatedAt: 0 },
                                 definitions: 1,
-                                deliveries: 1,
                                 receipts: 0,
                                 publishing: { enabled: true },
-                                limits: { definitions: 50, deliveries: 200, receipts: 1000 },
+                                limits: { definitions: 50 },
                             },
             )
         },

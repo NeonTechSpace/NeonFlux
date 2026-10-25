@@ -1,3 +1,5 @@
+import { EVENTS_DURATION_MAX_MINUTES, eventsRepeats } from "@neonflux/contracts/events"
+import type { CivilRecurrence } from "@neonflux/contracts/civil"
 import type { PublishingKind } from "@neonflux/contracts/publishing-base"
 import type { MemberAccessLists } from "@neonflux/contracts/shared"
 import type {
@@ -352,7 +354,11 @@ export function CalendarFields({
                     label="Duration (minutes)"
                     value={String(calendar.durationMinutes ?? 60)}
                     min={1}
-                    max={10080}
+                    max={
+                        eventsRepeats(recurrence as CivilRecurrence)
+                            ? EVENTS_DURATION_MAX_MINUTES
+                            : Number.MAX_SAFE_INTEGER
+                    }
                     disabled={disabled}
                     onChange={(duration) => patch("durationMinutes", duration)}
                 />
@@ -371,7 +377,12 @@ export function CalendarFields({
                         "recurrence",
                         type === "none"
                             ? { type: "none" }
-                            : { type, interval: recurrence.interval ?? 1, count: recurrence.count ?? 2 },
+                            : {
+                                  type,
+                                  interval: recurrence.interval ?? 1,
+                                  ...(recurrence.count !== undefined ? { count: recurrence.count } : {}),
+                                  ...(recurrence.until !== undefined ? { until: recurrence.until } : {}),
+                              },
                     )
                 }
             />
@@ -381,23 +392,62 @@ export function CalendarFields({
                         label="Repeat interval"
                         value={String(recurrence.interval ?? 1)}
                         min={1}
-                        max={12}
+                        max={Number.MAX_SAFE_INTEGER}
                         disabled={disabled}
                         onChange={(interval) => patch("recurrence", { ...recurrence, interval })}
                     />
-                    <NumberField
-                        label="Total occurrences"
-                        value={String(recurrence.count ?? 2)}
-                        min={1}
-                        max={26}
+                    <ChoiceField
+                        label="Ends"
+                        value={
+                            recurrence.count !== undefined
+                                ? "count"
+                                : recurrence.until !== undefined
+                                  ? "until"
+                                  : "never"
+                        }
                         disabled={disabled}
-                        onChange={(count) => patch("recurrence", { ...recurrence, count })}
+                        options={[
+                            { value: "never", label: "Never" },
+                            { value: "count", label: "After a number of dates" },
+                            { value: "until", label: "On a date" },
+                        ]}
+                        onChange={(ends) =>
+                            patch("recurrence", {
+                                type: recurrence.type,
+                                interval: recurrence.interval ?? 1,
+                                ...(ends === "count" ? { count: 2 } : {}),
+                                ...(ends === "until" ? { until: String(calendar.localMinute ?? "").slice(0, 10) } : {}),
+                            })
+                        }
                     />
+                    {recurrence.count !== undefined && (
+                        <NumberField
+                            label="Number of dates"
+                            value={String(recurrence.count)}
+                            min={1}
+                            max={Number.MAX_SAFE_INTEGER}
+                            disabled={disabled}
+                            onChange={(count) => patch("recurrence", { ...recurrence, count })}
+                        />
+                    )}
+                    {recurrence.until !== undefined && (
+                        <label>
+                            Last date
+                            <input
+                                required
+                                type="date"
+                                value={String(recurrence.until)}
+                                disabled={disabled}
+                                onChange={(input) => patch("recurrence", { ...recurrence, until: input.target.value })}
+                            />
+                        </label>
+                    )}
                 </>
             )}
             <p className="field-help">
                 Dates stay in the selected timezone. The bot validates daylight-saving gaps and repeated times before
-                applying them. At most 26 dates within 180 days
+                applying them. A later date whose time does not exist, or repeats while repeated times are rejected, is
+                skipped and shown
             </p>
         </fieldset>
     )

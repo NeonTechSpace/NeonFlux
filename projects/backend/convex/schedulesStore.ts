@@ -13,7 +13,8 @@ import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import { canonicalPublishingContent, publishingContent } from "./publishingDomain.ts"
 import { advanceSchedule, automationContext, scheduleContentSource, SCHEDULES_DAY } from "./schedulesDomain.ts"
 import { fail } from "./validation.ts"
-import { civilDayEnded } from "./civilDomain.ts"
+import { civilDayEnded, civilResume, materializeCivil } from "./civilDomain.ts"
+import { CIVIL_WINDOW } from "@neonflux/contracts/civil"
 
 export type SchedulesRead = MutationCtx | QueryCtx
 export const scheduleSettings = (ctx: SchedulesRead, serverId: string) =>
@@ -48,20 +49,45 @@ export async function scheduleState(ctx: MutationCtx, serverId: string) {
         nextScheduleNo: 1,
         nextOccurrenceNo: 1,
         definitions: 0,
-        deliveries: 0,
         receipts: 0,
     })
     return (await ctx.db.get(id))!
 }
+/**
+ * Cancelled or finished schedules stored before they stopped counting, which the counter still holds until they are forgotten.
+ * Schedule numbers only grow and the old rule kept at most 50 schedules, so all of them are among the server's first 50
+ */
+export async function staleSchedules(ctx: SchedulesRead, serverId: string) {
+    const rows = await ctx.db
+        .query("schedules")
+        .withIndex("by_number", (q) => q.eq("serverId", serverId))
+        .take(50)
+    let stale = 0
+    for (const row of rows)
+        if (
+            !row.released &&
+            (row.cancelled ||
+                (row.extendAt === undefined &&
+                    !(await ctx.db
+                        .query("scheduleDeliveries")
+                        .withIndex("by_schedule_active_due", (q) =>
+                            q.eq("serverId", serverId).eq("scheduleNo", row.scheduleNo).eq("active", true),
+                        )
+                        .first())))
+        )
+            stale++
+    return stale
+}
+/** Schedules that are not cancelled and have a date left to post count toward the 50. Receipts are counted without a cap */
 export async function scheduleCount(
     ctx: MutationCtx,
     serverId: string,
-    key: "definitions" | "deliveries" | "receipts",
+    key: "definitions" | "receipts",
     delta: number,
 ) {
-    const row = await scheduleState(ctx, serverId),
-        cap = { definitions: 50, deliveries: 200, receipts: 1000 }[key]
-    if (row[key] + delta > cap) fail(429, "Schedule capacity reached")
+    const row = await scheduleState(ctx, serverId)
+    if (key === "definitions" && row[key] + delta > 50 && row[key] - (await staleSchedules(ctx, serverId)) + delta > 50)
+        fail(429, "Schedule capacity reached")
     if (row[key] + delta < 0) fail(503, "Schedule accounting unavailable")
     await ctx.db.patch(row._id, { [key]: row[key] + delta })
 }
@@ -87,7 +113,10 @@ export async function boundScheduleDelivery(ctx: SchedulesRead, serverId: string
         fail(409, "Schedule delivery binding changed")
     return row
 }
-export function publicSchedule(row: Doc<"schedules">): SchedulesDefinition {
+export function publicSchedule(row: Doc<"schedules">, upcoming?: Doc<"scheduleDeliveries">[]): SchedulesDefinition {
+    // Only a single schedule's answer and the dashboard, which pass upcoming, resolve dates in the zone for resume
+    const resume =
+        upcoming && !row.cancelled ? civilResume(row.calendar, row.calendar.dates[0]!.dueAt, Date.now()) : undefined
     return {
         scheduleNo: row.scheduleNo,
         name: row.name,
@@ -96,6 +125,17 @@ export function publicSchedule(row: Doc<"schedules">): SchedulesDefinition {
         createdBy: row.createdBy,
         channelId: row.channelId,
         calendar: row.calendar,
+        ...(upcoming
+            ? {
+                  upcoming: upcoming.map((date) => ({
+                      localMinute: date.localMinute,
+                      dueAt: date.dueAt,
+                      offsetMinutes: date.offsetMinutes,
+                  })),
+              }
+            : {}),
+        ...(resume ? { resume } : {}),
+        ...(row.lastSkipped ? { lastSkipped: row.lastSkipped } : {}),
         source: row.source,
         content: row.content,
         canonicalContent: row.canonicalContent,
@@ -222,9 +262,21 @@ export async function closeScheduleDelivery(
     await ctx.db.patch(row._id, { active: false, state, reason, historyExpiresAt: now + 180 * SCHEDULES_DAY })
     return true
 }
-export async function addSchedulePlan(ctx: MutationCtx, row: Doc<"schedules">, futureOnly = false, now = Date.now()) {
-    const dates = row.calendar.dates.filter((date) => !futureOnly || date.dueAt > now)
-    await scheduleCount(ctx, row.serverId, "deliveries", dates.length)
+/** The stored dates of a schedule that have not come due, soonest first. Never more than 26 */
+export const upcomingSchedule = (ctx: SchedulesRead, row: Doc<"schedules">, now: number) =>
+    ctx.db
+        .query("scheduleDeliveries")
+        .withIndex("by_schedule_active_due", (q) =>
+            q.eq("serverId", row.serverId).eq("scheduleNo", row.scheduleNo).eq("active", true).gt("dueAt", now),
+        )
+        .take(CIVIL_WINDOW)
+/** Stores dates as queued deliveries of the schedule's current plan */
+export async function addSchedulePlan(
+    ctx: MutationCtx,
+    row: Doc<"schedules">,
+    dates: readonly { localMinute: string; dueAt: number; offsetMinutes: number }[],
+    now = Date.now(),
+) {
     const current = await scheduleState(ctx, row.serverId)
     let occurrenceNo = current.nextOccurrenceNo
     for (const date of dates) {
@@ -249,6 +301,34 @@ export async function addSchedulePlan(ctx: MutationCtx, row: Doc<"schedules">, f
         occurrenceNo = advanceSchedule(occurrenceNo)
     }
     await ctx.db.patch(current._id, { nextOccurrenceNo: occurrenceNo })
+}
+/** A schedule stops counting toward the 50 once, when it is cancelled or has no date left to post */
+export async function releaseSchedule(ctx: MutationCtx, row: Doc<"schedules">) {
+    if (row.released) return
+    await scheduleCount(ctx, row.serverId, "definitions", -1)
+    await ctx.db.patch(row._id, { released: true })
+}
+/**
+ * Adds the next dates of a schedule's repeat as earlier ones come due, resolved here in its zone. It runs again when the soonest
+ * stored date comes due or the horizon reaches the next date. With nothing left to add or post, the schedule stops counting
+ */
+export async function extendSchedule(ctx: MutationCtx, row: Doc<"schedules">, now: number) {
+    const live = await upcomingSchedule(ctx, row, now)
+    const window = materializeCivil(row.calendar, row.nextIndex ?? row.calendar.dates.length, live.length, now)
+    const dates = window.dates.map((date) => ({
+        localMinute: date.localMinute,
+        dueAt: date.instantAt,
+        offsetMinutes: date.offsetMinutes,
+    }))
+    await addSchedulePlan(ctx, row, dates, now)
+    const soonest = live[0]?.dueAt ?? dates[0]?.dueAt,
+        extendAt = [soonest, window.nextAt].filter((at) => at !== undefined).sort((a, b) => a - b)[0]
+    await ctx.db.patch(row._id, {
+        nextIndex: window.next,
+        extendAt,
+        ...(window.skipped ? { lastSkipped: window.skipped } : {}),
+    })
+    if (extendAt === undefined) await releaseSchedule(ctx, row)
 }
 export async function schedulePublishingFence(
     ctx: MutationCtx,
