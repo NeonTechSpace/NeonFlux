@@ -141,7 +141,7 @@ export function executeAction<E>(
                 operation = client.members.ban(
                     target!,
                     {
-                        reason: grant.reason,
+                        ...(grant.reason ? { reason: grant.reason } : {}),
                         ...(grant.durationSeconds ? { durationMs: grant.durationSeconds * 1000 } : {}),
                     },
                     options,
@@ -163,7 +163,7 @@ export function executeAction<E>(
                     return yield* Effect.fail(new ActionExecutionError({ stage: "snapshot" }))
                 operation = client.members.timeout(target!, grant.durationSeconds! * 1000, {
                     ...options,
-                    timeoutReason: grant.reason,
+                    ...(grant.reason ? { timeoutReason: grant.reason } : {}),
                 })
                 break
             }

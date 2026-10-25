@@ -2,9 +2,11 @@ import type { Appeal, AppealCaseSummary } from "@neonflux/contracts/appeal"
 import type {
     AutomodAction,
     AutomodRule,
+    AutomodRulePatch,
     AutomodRuleType,
     ModerationActionType,
     ModerationCase,
+    ModerationCorrection,
     ModerationManageOperation,
     ModerationManageResult,
     ModerationQueryResult,
@@ -68,10 +70,17 @@ const defconMeaning = {
     1: "Only critical owner and Administrator controls",
 } as const
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+/** How many channels or roles a reply names before it counts the rest. A list may hold a server's every channel or role, one reply
+ * must fit Fluxer's message length, and the dashboard lists them all */
+const SHOWN_MENTIONS = 20
 const mentions = (ids: readonly string[], mention: (id: string) => string, empty: string) =>
-    ids.map(mention).join(", ") || empty
+    ids.length
+        ? `${ids.slice(0, SHOWN_MENTIONS).map(mention).join(", ")}${ids.length > SHOWN_MENTIONS ? ` and ${ids.length - SHOWN_MENTIONS} more` : ""}`
+        : empty
 const staff = (ids: readonly string[]) => mentions(ids, format.roleMention, "Owner and Administrators only")
 const mode = (value: "dry-run" | "enforce") => (value === "enforce" ? "Enforcing" : "Test mode (logs only, no action)")
+/** A case's reason as staff and members read it. An action may be taken without one */
+export const reasonText = (reason: string) => reason || "No reason given"
 /** A field shown only when its condition holds. Its value is read only then */
 const field = (condition: unknown, label: string, value: () => string): Field[] => (condition ? [[label, value()]] : [])
 
@@ -122,10 +131,10 @@ function caseCard(value: ModerationCase, command: SafetyCommandText): Card {
     ).flatMap(([name, outcome]) =>
         outcome === "none" || outcome === "sent" ? [] : [`${name} ${deliveryWords[outcome]}`],
     )
-    const edits = value.erased ? 0 : value.corrections.length
+    const edits = value.erased ? 0 : value.correctionCount
     return {
         title: `Case #${value.caseNo}: ${actionNames[value.action]}`,
-        description: value.erased ? "The reason was erased" : value.reason,
+        description: value.erased ? "The reason was erased" : reasonText(value.reason),
         fields: [
             ["Result", `${caseResult(value, command)}${value.voided ? ", voided" : ""}`],
             ...field(value.targetId, "Member", () => format.userMention(value.targetId!)),
@@ -145,26 +154,17 @@ function caseCard(value: ModerationCase, command: SafetyCommandText): Card {
             : {}),
     }
 }
-const CASE_HISTORY_PAGE = 10
-/** One page of a case's edits, oldest first, and where the next page starts */
-export function caseHistoryCard(value: ModerationCase, start: number): { card: Card; next: number | undefined } {
-    const corrections = value.erased ? [] : value.corrections,
-        next = start + CASE_HISTORY_PAGE < corrections.length ? start + CASE_HISTORY_PAGE : undefined
-    const line = (c: ModerationCase["corrections"][number]) =>
+/** One page of a case's edits, oldest first */
+function caseHistoryCard(value: Extract<ModerationQueryResult, { type: "case-history" }>): Card {
+    const line = (c: ModerationCorrection) =>
         c.type === "void"
             ? `Voided by ${format.userMention(c.actorId)} ${ago(c.createdAt)}`
-            : `Reason changed by ${format.userMention(c.actorId)} ${ago(c.createdAt)}: ${c.previousReason} → ${c.reason}`
+            : `Reason changed by ${format.userMention(c.actorId)} ${ago(c.createdAt)}: ${reasonText(c.previousReason)} → ${reasonText(c.reason)}`
     return {
-        card: {
-            title: `Case #${value.caseNo} history`,
-            description:
-                corrections
-                    .slice(start, start + CASE_HISTORY_PAGE)
-                    .map(line)
-                    .join("\n") ||
-                (value.erased ? "The case's text was erased, with its edits" : "This case was never edited"),
-        },
-        next,
+        title: `Case #${value.caseNo} history`,
+        description:
+            value.corrections.map(line).join("\n") ||
+            (value.erased ? "The case's text was erased, with its edits" : "This case was never edited"),
     }
 }
 const caseLine = (value: ModerationCase) =>
@@ -202,10 +202,15 @@ function ruleLimit(rule: AutomodRule) {
                 ? `${plural(rule.threshold, "mention")} in one message`
                 : undefined
 }
+/** How many patterns a reply lists. One reply must fit Fluxer's message length, and the dashboard lists them all */
+const SHOWN_PATTERNS = 20
+/** A rule's patterns, the first 20 and then how many more */
+const patternList = (patterns: readonly string[]) =>
+    `${patterns.slice(0, SHOWN_PATTERNS).map(code).join(", ")}${patterns.length > SHOWN_PATTERNS ? ` and ${patterns.length - SHOWN_PATTERNS} more` : ""}`
 /** What a rule matches: The count it acts at, or the content it looks for */
 function ruleTrigger(rule: AutomodRule) {
     const limit = ruleLimit(rule),
-        patterns = rule.patterns.map(code).join(", ")
+        patterns = patternList(rule.patterns)
     if (limit) return `at ${limit}`
     if (rule.type === "domains")
         return rule.domainMode === "block"
@@ -235,14 +240,16 @@ function ruleCard(rule: AutomodRule): Card {
     }
 }
 /** The one rule setting an update changed, with its new value in the words of the rule card */
-function ruleChange(patch: Partial<AutomodRule>, rule: AutomodRule) {
+function ruleChange(patch: AutomodRulePatch, rule: AutomodRule) {
     const name = `Automod rule ${rule.name}`,
         limit = ruleLimit(rule)
     if (patch.enabled !== undefined) return `${name} is now ${onOff(rule.enabled).toLowerCase()}`
-    if (patch.patterns)
-        return rule.patterns.length
-            ? `${name} now matches ${rule.patterns.map(code).join(", ")}`
-            : `${name} has no patterns now`
+    if (patch.patterns || patch.addPatterns || patch.removePatterns)
+        return rule.patterns.length > SHOWN_PATTERNS
+            ? `${name} now has ${rule.patterns.length} patterns`
+            : rule.patterns.length
+              ? `${name} now matches ${patternList(rule.patterns)}`
+              : `${name} has no patterns now`
     if (patch.channelIds)
         return `${name} now checks ${mentions(rule.channelIds, format.channelMention, "every channel")}`
     if (patch.exemptChannelIds)
@@ -296,6 +303,7 @@ export function settingsCard(
                         staffNames[kind as StaffClass],
                         staff(ids),
                     ]),
+                    ["Cases kept", s.caseRetentionDays ? `For ${plural(s.caseRetentionDays, "day")}` : "Until erased"],
                 ],
             }
         case "logs":
@@ -426,6 +434,10 @@ export function settingsChange(
                     return `Appeals are ${now(s.appealsEnabled)}`
                 case "defcon":
                     return `DEFCON is now ${s.defcon}: ${defconMeaning[s.defcon]}`
+                case "caseRetentionDays":
+                    return s.caseRetentionDays
+                        ? `Cases are now kept for ${plural(s.caseRetentionDays, "day")}`
+                        : "Cases are now kept until erased"
             }
         })
         .join("\n")
@@ -445,6 +457,8 @@ export function queryCard(result: ModerationQueryResult, view: SettingsView, com
             )
         case "case":
             return caseCard(result.case, command)
+        case "case-history":
+            return caseHistoryCard(result)
         case "cases":
             return {
                 title: "Cases",
@@ -581,7 +595,7 @@ export function appealCasesCard(cases: readonly AppealCaseSummary[], command: Sa
             cases
                 .map(
                     (value) =>
-                        `**Case #${value.caseNo}** ${actionNames[value.action]}, ${ago(value.createdAt)}: ${clip(value.reason, 80)}`,
+                        `**Case #${value.caseNo}** ${actionNames[value.action]}, ${ago(value.createdAt)}: ${clip(reasonText(value.reason), 80)}`,
                 )
                 .join("\n") || (more ? "No appealable cases on this page" : "You have no cases to appeal"),
         fields: cases.length ? [["Appeal", code(command("appeal", "submit <case> <your reason>"))]] : [],

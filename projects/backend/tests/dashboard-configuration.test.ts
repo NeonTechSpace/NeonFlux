@@ -687,3 +687,38 @@ test("A dashboard level-up channel must be proven in this server like other chan
     )
     assert.equal(here.channelIds, undefined)
 })
+
+test("A dashboard job holds the largest lists the families allow, such as an automod rule of 1,000 patterns of 200 characters", async () => {
+    const f = await fixture()
+    const patterns = Array.from({ length: 1000 }, (_, index) => `${String(index).padStart(4, "0")}${"x".repeat(196)}`)
+    const rule = (name: string, list: string[]) => ({
+        name,
+        type: "words" as const,
+        enabled: true,
+        priority: 0,
+        action: "warn" as const,
+        threshold: 1,
+        windowSeconds: 10,
+        durationSeconds: 30,
+        patterns: list,
+        domainMode: "block" as const,
+        channelIds: [],
+        exemptChannelIds: [],
+        exemptRoleIds: [],
+    })
+    await f.apply("moderation", { type: "rule-create", rule: rule("long", patterns) })
+    const view = await f.snapshot("moderation")
+    if (view.family !== "moderation") throw new Error("Wrong family")
+    assert.equal(view.data.rules.find((row) => row.name === "long")?.patterns.length, 1000)
+    // A request past the bound is refused before it is stored
+    await assert.rejects(
+        f.queue("moderation", {
+            type: "rule-create",
+            rule: rule(
+                "huge",
+                patterns.map((pattern) => pattern.repeat(3)),
+            ),
+        }),
+        /Configuration is too large/,
+    )
+})

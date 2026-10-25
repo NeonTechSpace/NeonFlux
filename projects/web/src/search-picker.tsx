@@ -133,6 +133,19 @@ export function SearchPicker({
                     setActive(0)
                     setOpen(true)
                 }}
+                onPaste={(event) => {
+                    // Several pasted IDs or mentions, apart or split by commas or lines, are each chosen at once, so a long list
+                    // need not be picked one by one. IDs that match no choice stay in the box to show which were not added
+                    const ids = [...event.clipboardData.getData("text").matchAll(/\d+/g)]
+                        .map((match) => match[0])
+                        .filter(isId)
+                    if (!multiple || ids.length < 2) return
+                    event.preventDefault()
+                    const known = (id: string) => allowManual || options.some((option) => option.id === id)
+                    onChange([...new Set([...value, ...ids.filter(known)])])
+                    setQuery(ids.filter((id) => !known(id)).join(" "))
+                    setActive(0)
+                }}
                 onKeyDown={(event) => {
                     if (event.key === "Escape") {
                         setOpen(false)

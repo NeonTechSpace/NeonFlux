@@ -94,7 +94,8 @@ function ListField({
     max,
     maxLength,
     ids = false,
-}: Field & { max: number; maxLength: number; ids?: boolean }) {
+    paste = false,
+}: Field & { max: number; maxLength: number; ids?: boolean; paste?: boolean }) {
     const rows = JSON.parse(value || "[]") as string[]
     const change = (next: string[]) => onChange(JSON.stringify(next))
     return (
@@ -134,16 +135,94 @@ function ListField({
             >
                 Add {label.toLowerCase()}
             </button>
+            {paste && (
+                <PasteRows
+                    label={label}
+                    rows={rows}
+                    max={max}
+                    maxLength={maxLength}
+                    disabled={disabled}
+                    onChange={change}
+                />
+            )}
+            {paste && rows.length > 0 && (
+                <button type="button" className="secondary" disabled={disabled} onClick={() => change([])}>
+                    Remove all {label.toLowerCase()}
+                </button>
+            )}
             <p className="field-help">
                 Up to {max} entries{ids ? ". Use exact IDs" : ""}
             </p>
         </fieldset>
     )
 }
+/**
+ * Adds many entries at once from pasted text, one per line, or replaces the whole list with them. Lines that are new but too long or past
+ * the limit stay in the box
+ */
+function PasteRows({
+    label,
+    rows,
+    max,
+    maxLength,
+    disabled,
+    onChange,
+}: {
+    label: string
+    rows: string[]
+    max: number
+    maxLength: number
+    disabled?: boolean | undefined
+    onChange: (next: string[]) => void
+}) {
+    const [text, setText] = useState(""),
+        [note, setNote] = useState("")
+    const name = label.toLowerCase()
+    const apply = (replace: boolean) => {
+        const kept = replace ? [] : rows
+        const fresh = [...new Set(text.split(/\r?\n/).map((line) => line.trim()))].filter(
+            (line) => line && !kept.includes(line),
+        )
+        const added = fresh.filter((line) => line.length <= maxLength).slice(0, Math.max(0, max - kept.length))
+        const left = fresh.filter((line) => !added.includes(line))
+        onChange([...kept, ...added])
+        setText(left.join("\n"))
+        setNote(
+            `${replace ? "The list now holds" : "Added"} ${added.length}` +
+                (left.length
+                    ? `. ${left.length} left in the box, each entry has at most ${maxLength} characters and the list at most ${max}`
+                    : ""),
+        )
+    }
+    return (
+        <div className="paste-rows">
+            <label>
+                Add several {name}, one per line
+                <textarea value={text} rows={4} disabled={disabled} onChange={(event) => setText(event.target.value)} />
+            </label>
+            <button
+                type="button"
+                className="secondary"
+                disabled={disabled || !text.trim()}
+                onClick={() => apply(false)}
+            >
+                Add lines
+            </button>
+            <button type="button" className="secondary" disabled={disabled || !text.trim()} onClick={() => apply(true)}>
+                Replace the list with these lines
+            </button>
+            {note && (
+                <p role="status" className="field-help">
+                    {note}
+                </p>
+            )}
+        </div>
+    )
+}
 function IdList(props: Field & { max: number }) {
     return <ListField {...props} maxLength={19} ids />
 }
-export function StringList(props: Field & { max: number; maxLength: number }) {
+export function StringList(props: Field & { max: number; maxLength: number; paste?: boolean }) {
     return <ListField {...props} />
 }
 

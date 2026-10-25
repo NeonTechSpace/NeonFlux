@@ -1,3 +1,4 @@
+import { SERVER_ROLES, STRUCTURE_CHANNELS } from "@neonflux/contracts/common"
 import type { AutomodRule, ModerationSettings, StaffClass } from "@neonflux/contracts/moderation"
 import { ConfigForm, rowCard } from "./configuration-form"
 import type { ConfigSectionProps } from "./configuration-form"
@@ -67,11 +68,11 @@ function ruleValue(values: FormValues): AutomodRule {
         threshold: numberValue(values.threshold, 1, 100, "threshold"),
         windowSeconds: numberValue(values.windowSeconds, 1, 300, "window seconds"),
         durationSeconds: numberValue(values.durationSeconds, 1, 31536000, "timeout seconds"),
-        patterns: stringsValue(values.patterns, 20, 200, "patterns"),
+        patterns: stringsValue(values.patterns, 1000, 200, "patterns"),
         domainMode: values.domainMode as AutomodRule["domainMode"],
-        channelIds: idsValue(values.channelIds, 20, "rule channels"),
-        exemptChannelIds: idsValue(values.exemptChannelIds, 20, "exempt channels"),
-        exemptRoleIds: idsValue(values.exemptRoleIds, 20, "exempt roles"),
+        channelIds: idsValue(values.channelIds, STRUCTURE_CHANNELS, "rule channels"),
+        exemptChannelIds: idsValue(values.exemptChannelIds, STRUCTURE_CHANNELS, "exempt channels"),
+        exemptRoleIds: idsValue(values.exemptRoleIds, SERVER_ROLES, "exempt roles"),
     }
 }
 export function SafetySettings(props: ConfigSectionProps<"moderation">) {
@@ -88,6 +89,8 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
         manualModerationEnabled: settings.manualModerationEnabled,
         appealsEnabled: settings.appealsEnabled,
         logChannelId: settings.logChannelId ?? "",
+        keepCases: settings.caseRetentionDays ? "days" : "keep",
+        caseRetentionDays: String(settings.caseRetentionDays ?? 180),
         ...Object.fromEntries(
             staffScopes.map((scope) => [`staff:${scope}`, JSON.stringify(settings.staffRoleIds[scope])]),
         ),
@@ -111,11 +114,16 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
                             staffRoleIds: Object.fromEntries(
                                 staffScopes.map((scope) => [
                                     scope,
-                                    idsValue(values[`staff:${scope}`], 20, `${scope} staff roles`),
+                                    idsValue(values[`staff:${scope}`], SERVER_ROLES, `${scope} staff roles`),
                                 ]),
                             ) as ModerationSettings["staffRoleIds"],
+                            caseRetentionDays:
+                                values.keepCases === "days"
+                                    ? numberValue(values.caseRetentionDays, 1, 3650, "days to keep cases")
+                                    : null,
                         },
-                        settings,
+                        // Settings saved before the choice existed keep cases until erased, the same as null
+                        { ...settings, caseRetentionDays: settings.caseRetentionDays ?? null },
                     ),
                 })}
                 fields={(values, edit, disabled) => (
@@ -151,6 +159,26 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
                                 onChange={(ids) => edit(`staff:${scope}`, JSON.stringify(ids))}
                             />
                         ))}
+                        <ChoiceField
+                            label="Keep cases"
+                            value={String(values.keepCases)}
+                            onChange={(value) => edit("keepCases", value)}
+                            disabled={disabled}
+                            options={[
+                                { value: "keep", label: "Until erased" },
+                                { value: "days", label: "For a number of days" },
+                            ]}
+                        />
+                        {values.keepCases === "days" && (
+                            <NumberField
+                                label="Days to keep cases"
+                                value={String(values.caseRetentionDays)}
+                                onChange={(value) => edit("caseRetentionDays", value)}
+                                disabled={disabled}
+                                min={1}
+                                max={3650}
+                            />
+                        )}
                     </>
                 )}
             />
@@ -264,7 +292,11 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
                             joinWindowSeconds: numberValue(values.joinWindowSeconds, 1, 300, "join window"),
                             joinDefcon2: Boolean(values.joinDefcon2),
                             honeypotEnabled: Boolean(values.honeypotEnabled),
-                            honeypotChannelIds: idsValue(values.honeypotChannelIds, 20, "honeypot channels"),
+                            honeypotChannelIds: idsValue(
+                                values.honeypotChannelIds,
+                                STRUCTURE_CHANNELS,
+                                "honeypot channels",
+                            ),
                             watchlistEnabled: Boolean(values.watchlistEnabled),
                         },
                         settings,
@@ -622,9 +654,13 @@ function RuleFields({
                 value={String(values.patterns)}
                 onChange={(value) => edit("patterns", value)}
                 disabled={disabled}
-                max={20}
+                max={1000}
                 maxLength={200}
+                paste
             />
+            {values.type === "words" && (
+                <p className="field-help">Whole words. Put * at the start or end to match part of a word</p>
+            )}
             <ChoiceField
                 label="Domain match mode"
                 value={String(values.domainMode)}

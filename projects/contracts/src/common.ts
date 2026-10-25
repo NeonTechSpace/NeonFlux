@@ -59,6 +59,8 @@ export const IsoTime = Schema.String.check(
 
 /** Fluxer's channel limit per server, which counts categories, forums and media channels but not threads */
 export const STRUCTURE_CHANNELS = 500
+/** Fluxer's role limit per server, so a list of a server's roles never needs to be longer */
+export const SERVER_ROLES = 250
 
 /**
  * The server a native read came from. The backend matches every originServerId in a request to the request's server before

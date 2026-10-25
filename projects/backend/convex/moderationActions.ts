@@ -8,7 +8,7 @@ import type {
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { LOCK_PERMISSIONS, lockMask, ownedPostingBits, RETENTION, SEND_MESSAGES } from "./moderationDomain.ts"
+import { LOCK_PERMISSIONS, lockMask, ownedPostingBits, retentionUntil, SEND_MESSAGES } from "./moderationDomain.ts"
 import { publicCase, state } from "./moderationStore.ts"
 import { fail } from "./validation.ts"
 
@@ -40,7 +40,8 @@ export async function reserveAction(
     },
 ) {
     const { serverId, settings, context, origin, now } = options,
-        input = { ...options.input }
+        input = { ...options.input },
+        reason = input.reason ?? ""
     let recovery: Doc<"securityRecoveries"> | null = null
     let writeOverwrite
     let expectedOverwrite
@@ -175,11 +176,12 @@ export async function reserveAction(
         ...(options.incident ? { incident: options.incident } : {}),
         ...fields,
         ...(options.actor ? { actorId: options.actor.userId } : {}),
-        reason: input.reason,
+        reason,
         ...(options.ruleName ? { ruleName: options.ruleName } : {}),
         ...(input.linkedCaseNo ? { linkedCaseNo: input.linkedCaseNo } : {}),
+        ...(context.targetBot ? { targetBot: true } : {}),
         createdAt: now,
-        expiresAt: now + RETENTION,
+        expiresAt: retentionUntil(settings, now),
         outcome: "pending",
         logOutcome: "none",
         notificationOutcome: "none",
@@ -223,7 +225,7 @@ export async function reserveAction(
         sourceId: options.sourceId,
         action: input.type,
         ...fields,
-        reason: input.reason,
+        reason,
         ...(input.messageIds ? { messageIds: input.messageIds } : {}),
         ...(input.durationSeconds ? { durationSeconds: input.durationSeconds } : {}),
         ...(input.slowmodeSeconds !== undefined
@@ -237,5 +239,5 @@ export async function reserveAction(
         ...(recovery ? { recoveryId: recovery._id } : {}),
     }
     await ctx.db.patch(id, { grant })
-    return { case: await publicCase(ctx, (await ctx.db.get(id))!), grant }
+    return { case: publicCase((await ctx.db.get(id))!), grant }
 }

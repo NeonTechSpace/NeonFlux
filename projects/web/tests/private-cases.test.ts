@@ -43,7 +43,7 @@ const record = (caseNo: number, extra: Partial<ModerationCase> = {}): Moderation
     notificationOutcome: "none",
     erased: false,
     voided: false,
-    corrections: [],
+    correctionCount: 0,
     ...extra,
 })
 // A live client whose access check the test publishes. Each view the section asks for is recorded and answered by the test
@@ -102,17 +102,39 @@ test("Private cases wait for the live check, then list cases newest first, open 
                 status: "ok",
                 data: {
                     type: "case",
-                    case: record(view.caseNo, {
-                        corrections: [
-                            {
-                                actorId: "99",
-                                createdAt: 3,
-                                previousReason: "First reason",
-                                reason: "Corrected reason",
-                                type: "reason",
-                            },
-                        ],
-                    }),
+                    case: record(view.caseNo, { correctionCount: 3 }),
+                    // The first page continues after the creation time of its last correction
+                    ...(view.correctionsAfter === undefined
+                        ? {
+                              corrections: [
+                                  {
+                                      actorId: "99",
+                                      createdAt: 2,
+                                      previousReason: "",
+                                      reason: "First reason",
+                                      type: "reason" as const,
+                                  },
+                                  {
+                                      actorId: "99",
+                                      createdAt: 3,
+                                      previousReason: "First reason",
+                                      reason: "Corrected reason",
+                                      type: "reason" as const,
+                                  },
+                              ],
+                              nextCorrectionsAfter: 3.5,
+                          }
+                        : {
+                              corrections: [
+                                  {
+                                      actorId: "98",
+                                      createdAt: 5,
+                                      previousReason: "Corrected reason",
+                                      reason: "Last reason",
+                                      type: "reason" as const,
+                                  },
+                              ],
+                          }),
                     appeals: [
                         {
                             appealNo: 7,
@@ -160,7 +182,18 @@ test("Private cases wait for the live check, then list cases newest first, open 
     })
     assert.ok(ui.getByRole("heading", { name: "Case 3" }))
     assert.ok(ui.getByText(/Reason corrected by 99.*First reason → Corrected reason/))
+    assert.ok(ui.getByText(/Reason corrected by 99.*No reason given → First reason/))
     assert.ok(ui.getByText("Synthetic appeal"))
+    // Corrections past the first page open from their own button, and Back returns to the first page
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Later corrections" }))
+    })
+    assert.ok(ui.getByText(/Reason corrected by 98.*Corrected reason → Last reason/))
+    assert.ok(ui.queryByText(/First reason → Corrected reason/) === null)
+    assert.ok(ui.queryByRole("button", { name: "Later corrections" }) === null)
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Back" }))
+    })
     await act(async () => {
         fireEvent.click(ui.getByRole("button", { name: "Back" }))
     })
@@ -175,6 +208,8 @@ test("Private cases wait for the live check, then list cases newest first, open 
         fireEvent.click(ui.getByRole("button", { name: "History of member 21" }))
     })
     assert.deepEqual(live.views.slice(2), [
+        { type: "case", caseNo: 3 },
+        { type: "case", caseNo: 3, correctionsAfter: 3.5 },
         { type: "case", caseNo: 3 },
         { type: "cases" },
         { type: "cases", beforeCaseNo: 2 },
@@ -225,13 +260,33 @@ test("Waiting appeals open from their own button and page forward with More", as
     ])
 })
 
+test("A case taken without a reason reads No reason given in the list and in its details", async () => {
+    const live = liveClient((view) => ({
+        status: "ok",
+        data:
+            view.type === "case"
+                ? { type: "case", case: record(7, { reason: "" }), corrections: [], appeals: [] }
+                : { type: "cases", cases: [record(7, { reason: "" })] },
+    }))
+    await live.publish(passed)
+    const ui = render(
+        createElement(PrivateCasesSection, { client: live.client, sessionToken: "synthetic-session", serverId: "2" }),
+    )
+    await act(async () => {})
+    assert.equal(ui.getAllByText("No reason given").length, 1)
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Case 7" }))
+    })
+    assert.ok(ui.getByText("Reason: No reason given"))
+})
+
 test("An accepted appeal shows the command that reverses its case, and nothing when the case is voided, the appeal is not accepted or nothing can be reversed", async () => {
     const reverse = async (extra: Partial<ModerationCase>, status: Appeal["status"] = "accepted") => {
         const live = liveClient((view) => ({
             status: "ok",
             data:
                 view.type === "case"
-                    ? { type: "case", case: record(7, extra), appeals: [appealOf(3, 7, status)] }
+                    ? { type: "case", case: record(7, extra), corrections: [], appeals: [appealOf(3, 7, status)] }
                     : { type: "cases", cases: [record(7, extra)] },
         }))
         await live.publish(passed)
@@ -252,9 +307,9 @@ test("An accepted appeal shows the command that reverses its case, and nothing w
         cleanup()
         return { block: block !== null, text, commands }
     }
-    assert.deepEqual((await reverse({ action: "ban" })).commands, ["!mod unban 21 case 7 <reason>"])
-    assert.deepEqual((await reverse({ action: "timeout" })).commands, ["!mod untimeout 21 case 7 <reason>"])
-    assert.deepEqual((await reverse({ action: "quarantine" })).commands, ["!security release 21 case 7 <reason>"])
+    assert.deepEqual((await reverse({ action: "ban" })).commands, ["!mod unban 21 case 7"])
+    assert.deepEqual((await reverse({ action: "timeout" })).commands, ["!mod untimeout 21 case 7"])
+    assert.deepEqual((await reverse({ action: "quarantine" })).commands, ["!security release 21 case 7"])
     const warned = await reverse({ action: "warn" })
     assert.deepEqual(warned.commands, ["!mod void 7"])
     assert.match(warned.text, /Check the member's current restrictions first/)

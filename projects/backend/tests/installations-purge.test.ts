@@ -73,16 +73,7 @@ const owned = (t: Backend) =>
 test("Every table is purged by its serverId index, through a purged parent or is shared", () => {
     for (const table of tableNames) {
         if (table === "serverInstallations") continue
-        if (hasServerId(table)) {
-            const index = (PURGE_INDEXES as Partial<Record<TableNames, string>>)[table]
-            assert.ok(index, `${table} holds per-server rows. Add it to PURGE_INDEXES`)
-            assert.equal(
-                serverIndexes(table).find((found) => found.indexDescriptor === index)?.fields[0],
-                "serverId",
-                `${table}.${index} must start with serverId`,
-            )
-            continue
-        }
+        // A child is purged through its parent, also when it carries a copy of its parent's serverId
         const link = (
             PURGE_CHILDREN as Partial<Record<TableNames, { parent: TableNames; index: string; field: string }>>
         )[table]
@@ -92,6 +83,16 @@ test("Every table is purged by its serverId index, through a purged parent or is
                 serverIndexes(table).find((found) => found.indexDescriptor === link.index)?.fields[0],
                 link.field,
                 `${table}.${link.index}`,
+            )
+            continue
+        }
+        if (hasServerId(table)) {
+            const index = (PURGE_INDEXES as Partial<Record<TableNames, string>>)[table]
+            assert.ok(index, `${table} holds per-server rows. Add it to PURGE_INDEXES`)
+            assert.equal(
+                serverIndexes(table).find((found) => found.indexDescriptor === index)?.fields[0],
+                "serverId",
+                `${table}.${index} must start with serverId`,
             )
             continue
         }

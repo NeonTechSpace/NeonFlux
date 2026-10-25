@@ -1,5 +1,5 @@
 import { Schema, Struct } from "effect"
-import { Id, Ids, Int, List, Millis, Str, Text, Token, origin } from "./common.ts"
+import { Id, Ids, Int, List, Millis, STRUCTURE_CHANNELS, Str, Text, Token, origin } from "./common.ts"
 import { MemberAccessOperation, ModerationActor, RolesRoleSnapshot } from "./shared.ts"
 import { PublishingAttempt, PublishingContent, PublishingGrant } from "./publishing-base.ts"
 import { civilIntent } from "./civil.ts"
@@ -265,7 +265,8 @@ export type DashboardConfigurationJob = typeof DashboardConfigurationJob.Type
 export const DashboardConfigurationNativeTarget = Schema.Struct({
     ownerId: optional(Id),
     channelId: optional(Id),
-    channelIds: optional(Ids(100).check(Schema.isUnique())),
+    /** An automod rule names up to two lists of a server's channels */
+    channelIds: optional(Ids(2 * STRUCTURE_CHANNELS).check(Schema.isUnique())),
     parentId: optional(Schema.NullOr(Id)),
     roleIds: optional(Ids(1000).check(Schema.isUnique())),
     hasEmbed: optional(Schema.Boolean),
@@ -295,7 +296,8 @@ const executeFields = {
     /** Role picker saves only. The server's current role names, stored with the menus as a display fallback */
     display: RolePickerManageRequest.fields.display,
     calendar: optional(Schema.Union([EventsCalendar, SchedulesCalendar])),
-    references: optional(List(DashboardConfigurationReference, 1100)),
+    /** Each channel and role of the native target, its channel and its parent */
+    references: optional(List(DashboardConfigurationReference, 2 * STRUCTURE_CHANNELS + 2 + 1000)),
 }
 export type DashboardConfigurationExecuteRequest = Schema.Struct.Type<typeof executeFields>
 /** What the bot sends. An add request of a voice generator or dashboard link carries the channel the bot created, and an invite job the invites the bot read afterwards */

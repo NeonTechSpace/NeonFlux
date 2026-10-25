@@ -4,12 +4,14 @@ import { BackupContext } from "./backup.ts"
 
 // The readable server export, documented field by field in docs/EXPORT.md. Times are Unix milliseconds
 
-export const SERVER_EXPORT_VERSION = 1
+// Version 2 lists case corrections in their own corrections array, where version 1 kept them inside each case
+export const SERVER_EXPORT_VERSION = 2
 /** The most records of each list in one page, so a page that is larger was not built by the backend */
 export const EXPORT_LEVELS = 500,
     EXPORT_SHOWCASES = 200,
     EXPORT_PROFILES = 500,
     EXPORT_CASES = 100,
+    EXPORT_CORRECTIONS = 500,
     EXPORT_APPEALS = 200
 const text = Str(4000)
 const optional = Schema.optionalKey
@@ -18,7 +20,7 @@ const cursor = Schema.NullOr(Str(4096))
 
 export const ServerExportLevel = Schema.Struct({ userId: Id, xp: Int(), level: Int() })
 export type ServerExportLevel = typeof ServerExportLevel.Type
-/** reason is null when the server owner erased the case. Erasure also removes its corrections */
+/** reason is null when the server owner erased the case */
 export const ServerExportCase = Schema.Struct({
     caseNo: Int(),
     action: text,
@@ -34,18 +36,18 @@ export const ServerExportCase = Schema.Struct({
     voided: Schema.Boolean,
     erased: Schema.Boolean,
     createdAt: Millis,
-    corrections: List(
-        Schema.Struct({
-            type: Schema.Literals(["reason", "void"]),
-            actorId: Id,
-            previousReason: text,
-            reason: text,
-            createdAt: Millis,
-        }),
-        21,
-    ),
 })
 export type ServerExportCase = typeof ServerExportCase.Type
+/** A reason correction or void of a case, oldest first. Erasing a case deletes its corrections */
+export const ServerExportCorrection = Schema.Struct({
+    caseNo: Int(),
+    type: Schema.Literals(["reason", "void"]),
+    actorId: Id,
+    previousReason: text,
+    reason: text,
+    createdAt: Millis,
+})
+export type ServerExportCorrection = typeof ServerExportCorrection.Type
 /** text and decisionReason are null when the server owner erased the appeal's case */
 export const ServerExportAppeal = Schema.Struct({
     appealNo: Int(),
@@ -102,6 +104,11 @@ export const ServerExportPage = Schema.Union([
         profiles: List(ServerExportProfile, EXPORT_PROFILES),
     }),
     Schema.Struct({ cursor, section: Schema.Literal("cases"), cases: List(ServerExportCase, EXPORT_CASES) }),
+    Schema.Struct({
+        cursor,
+        section: Schema.Literal("corrections"),
+        corrections: List(ServerExportCorrection, EXPORT_CORRECTIONS),
+    }),
     Schema.Struct({ cursor, section: Schema.Literal("appeals"), appeals: List(ServerExportAppeal, EXPORT_APPEALS) }),
 ])
 export type ServerExportPage = typeof ServerExportPage.Type
@@ -118,6 +125,7 @@ export const ServerExportFile = Schema.Struct({
     showcases: Schema.mutable(Schema.Array(ServerExportShowcase)),
     profiles: Schema.mutable(Schema.Array(ServerExportProfile)),
     cases: Schema.mutable(Schema.Array(ServerExportCase)),
+    corrections: Schema.mutable(Schema.Array(ServerExportCorrection)),
     appeals: Schema.mutable(Schema.Array(ServerExportAppeal)),
 })
 export type ServerExportFile = typeof ServerExportFile.Type
@@ -134,6 +142,7 @@ export const emptyServerExportFile = (serverId: string, exportedAt: number, part
     showcases: [],
     profiles: [],
     cases: [],
+    corrections: [],
     appeals: [],
 })
 /** The records of a list page */
@@ -146,7 +155,9 @@ export const serverExportRecords = (page: Exclude<ServerExportPage, { section: "
             ? page.profiles
             : page.section === "cases"
               ? page.cases
-              : page.appeals
+              : page.section === "corrections"
+                ? page.corrections
+                : page.appeals
 /** Adds a page to a file: Lists are appended, and a later settings page of a family continues only the lists it carries */
 export function appendServerExportPage(file: ServerExportFile, page: ServerExportPage) {
     if (page.section !== "settings") {

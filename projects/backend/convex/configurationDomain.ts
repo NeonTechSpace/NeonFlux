@@ -23,11 +23,14 @@ import { showcaseOperation } from "./showcasesDomain.ts"
 import { profileOperation } from "./profilesDomain.ts"
 import { youtubeOperation } from "./youtubeDomain.ts"
 
+export const CONFIGURATION_OPERATION_LENGTH = 524288
 export function configurationOperation<F extends DashboardConfigurationFamily>(
     family: F,
     value: unknown,
 ): DashboardConfigurationOperationMap[F] {
-    if (JSON.stringify(value)?.length > 65536) fail(400, "Configuration is too large")
+    // A job stores its operation, so it stays well inside Convex's 1 MiB document. The largest lists the families allow, such as 1,000
+    // automod patterns of 200 characters or 10,000 member IDs in access lists, fit with room for escaped characters
+    if (JSON.stringify(value)?.length > CONFIGURATION_OPERATION_LENGTH) fail(400, "Configuration is too large")
     return operation(family, value) as DashboardConfigurationOperationMap[F]
 }
 // Each job stores its operation as the family applies it: decoded by the family's own helper where it has one, otherwise by its

@@ -61,7 +61,7 @@ const deleteRow = {
 }
 
 const CASES =
-    "Moderation cases protect the server. They are kept for 180 days, and the server owner can erase a case's text"
+    "Moderation cases protect the server. They are kept for the period the server chose, or until erased, and the server owner can erase a case's text"
 const IN_PROGRESS = "Still being sent. Delete again once it finishes"
 export const MEMBER_DATA: readonly Entry[] = [
     entry("afkStatuses", "userId", "AFK status", (row) => ({ reason: row.reason, since: row.since }), deleteRow),
@@ -328,6 +328,20 @@ export const MEMBER_DATA: readonly Entry[] = [
             caseNo: row.caseNo,
             action: row.action,
             reason: row.erased ? undefined : row.reason,
+            createdAt: row.createdAt,
+        }),
+        { keep: CASES },
+    ),
+    // Staff changes to the reason of a case about the member. Erasing the case deletes them
+    entry(
+        "moderationCorrections",
+        "targetId",
+        "Case corrections",
+        (row) => ({
+            caseNo: row.caseNo,
+            type: row.type,
+            previousReason: row.previousReason,
+            reason: row.reason,
             createdAt: row.createdAt,
         }),
         { keep: CASES },

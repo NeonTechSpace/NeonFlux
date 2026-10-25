@@ -13,7 +13,8 @@ import { fail, type AuditActor } from "./validation.ts"
 import { valueDiff, type ValueChange } from "./valueDiff.ts"
 
 // The website audit log. Every setting change records one entry, whether it came from the website or a command, and so do
-// a member's deletions of their own data. Entries are kept as long as moderation cases and pruned by the retention chain
+// a member's deletions of their own data. Entries are kept for 180 days, long enough to look back on a change months later, and
+// pruned by the retention chain
 export const AUDIT_RETENTION_MS = 180 * 86400000
 const AUDIT_PAGE_SIZE = 25
 const AUDIT_BATCH = 256,

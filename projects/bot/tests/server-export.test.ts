@@ -40,10 +40,16 @@ const pages = (): ServerExportPage[] => [
                 voided: false,
                 erased: true,
                 createdAt: 1,
-                corrections: [],
             },
         ],
         cursor: "7",
+    },
+    {
+        section: "corrections",
+        corrections: [
+            { caseNo: 2, type: "reason", actorId: "1", previousReason: "", reason: "Synthetic reason", createdAt: 2 },
+        ],
+        cursor: "8",
     },
     { section: "appeals", appeals: [], cursor: null },
 ]
@@ -66,7 +72,7 @@ test("Export parts merge a family's continuing lists, split large exports into c
         assert.ok(Buffer.byteLength(JSON.stringify(file, null, 2)) <= partBytes, `part ${file.part}`)
         assert.deepEqual(
             [file.format, file.version, file.serverId, file.exportedAt],
-            ["neonflux-server-export", 1, f.ids.guild, 1],
+            ["neonflux-server-export", 2, f.ids.guild, 1],
         )
     }
     assert.deepEqual(files[0]!.settings.moderation, {
@@ -79,6 +85,10 @@ test("Export parts merge a family's continuing lists, split large exports into c
     assert.deepEqual(
         files.flatMap((file) => file.cases.map((row) => row.caseNo)),
         [1],
+    )
+    assert.deepEqual(
+        files.flatMap((file) => file.corrections.map((row) => row.caseNo)),
+        [2],
     )
     // A small export is one file
     const small = serverExportParts(f.ids.guild, 1)
@@ -97,7 +107,7 @@ function exportStore() {
         start: (input) =>
             Effect.sync(() => {
                 calls.push({ operation: "start", input })
-                return { version: 1 as const }
+                return { version: 2 as const }
             }),
         page: (input) =>
             Effect.sync(() => {
@@ -140,7 +150,10 @@ test("!export sends the owner the server's data as one JSON file in a DM, gives 
                 assert.match((sent.body as { content: string }).content, /readable JSON/)
                 assert.deepEqual(
                     calls.map((call) => [call.operation, call.input.cursor]),
-                    [["start", undefined], ...[null, "2", "3", "4", "5", "6", "7"].map((cursor) => ["page", cursor])],
+                    [
+                        ["start", undefined],
+                        ...[null, "2", "3", "4", "5", "6", "7", "8"].map((cursor) => ["page", cursor]),
+                    ],
                 )
                 assert.ok(
                     calls.every(
@@ -161,7 +174,7 @@ test("!export sends the owner the server's data as one JSON file in a DM, gives 
                 yield* bot.emit("MESSAGE_CREATE", { ...message, id: bot.fixtures.nextId() })
                 yield* bot.idle()
                 assert.equal(p.replies.requests().length, 3)
-                assert.equal(calls.length, 8)
+                assert.equal(calls.length, 9)
                 assert.equal(bot.failures().length, 0)
             }),
         ),

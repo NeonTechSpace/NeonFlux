@@ -42,6 +42,7 @@ const nativeFacts = [
     "isAdministrator",
     "memberAbsent",
     "privateChannelVerified",
+    "staffChannelRoleIds",
     "actorCanManage",
     "actorCanManageChannels",
     "botAuthorized",

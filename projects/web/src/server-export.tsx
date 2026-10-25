@@ -11,7 +11,12 @@ type Phase =
     | { phase: "reading"; records: number }
     | { phase: "ready"; url: string; name: string; records: number }
 const count = (file: ServerExportFile) =>
-    file.levels.length + file.showcases.length + file.profiles.length + file.cases.length + file.appeals.length
+    file.levels.length +
+    file.showcases.length +
+    file.profiles.length +
+    file.cases.length +
+    file.corrections.length +
+    file.appeals.length
 
 /** The owner's readable export of the server's data. It starts after the same live check as private cases, which must find the
  *  server owner, and reads the export page by page while that check is fresh. An export that outlasts it continues after a new check */

@@ -104,7 +104,7 @@ export function caseGrant(
         caseNo: 1,
         sourceId: request.messageId,
         action: action.type,
-        reason: action.reason,
+        reason: action.reason ?? "",
         ...(action.targetId ? { targetId: action.targetId } : {}),
         ...(action.channelId ? { channelId: action.channelId } : {}),
         ...(action.durationSeconds ? { durationSeconds: action.durationSeconds } : {}),
@@ -123,7 +123,7 @@ export function caseGrant(
         notificationOutcome: "none",
         erased: false,
         voided: false,
-        corrections: [],
+        correctionCount: 0,
         ...(action.linkedCaseNo ? { linkedCaseNo: action.linkedCaseNo } : {}),
     }
     return { duplicate: false, type: "case", case: record, grant }

@@ -313,6 +313,69 @@ export function readSafetyAuthority(
     )
 }
 
+/**
+ * The roles that can view the channel an authority read, when only roles can: Each role other than the everyone role that views it held
+ * alone beside the everyone role, leaving out Administrator roles, which may read every answer anyway. Holding several roles never shows a
+ * channel that none of them shows alone. Undefined when the everyone role views it, a member overwrite lets someone other than the bot view
+ * it, or its overwrites were not reported. The bot's own member overwrite is how NeonFlux enters a staff channel, so it is ignored. A role
+ * the bot holds still counts, since Fluxer does not mark a role as the bot's own and members may hold it too. A thread follows its parent,
+ * so a private thread in a public channel counts as public
+ */
+export function channelViewerRoles(
+    authority: Pick<SafetyAuthority, "guild" | "roles" | "channel" | "parentChannel" | "botId">,
+): string[] | undefined {
+    const channel = authority.parentChannel ?? authority.channel
+    if (!channel) return undefined
+    const overwrites = "permissionOverwrites" in channel ? channel.permissionOverwrites : undefined
+    if (overwrites === undefined) return undefined
+    const base = authority.roles.find((role) => role.id === authority.guild.id)?.permissions ?? 0n
+    const everyone = overwrites.find((item) => item.id === authority.guild.id && item.type === "role")
+    const views = (role?: GuildRole) => {
+        let bits = base | (role?.permissions ?? 0n)
+        if (permissionBits.has(bits, "Administrator")) return true
+        if (everyone) bits = (bits & ~everyone.deny) | everyone.allow
+        const own = role && overwrites.find((item) => item.id === role.id && item.type === "role")
+        if (own) bits = (bits & ~own.deny) | own.allow
+        return (bits & Permissions.ViewChannel) === Permissions.ViewChannel
+    }
+    if (
+        views() ||
+        overwrites.some(
+            (item) =>
+                item.type === "member" &&
+                item.id !== authority.botId &&
+                (item.allow & Permissions.ViewChannel) === Permissions.ViewChannel,
+        )
+    )
+        return undefined
+    return authority.roles
+        .filter(
+            (role) =>
+                role.id !== authority.guild.id && !permissionBits.has(role.permissions, "Administrator") && views(role),
+        )
+        .map((role) => role.id)
+}
+
+/**
+ * The named channels, read fresh. Several are read from the server's channel list in one request, since one request per channel
+ * would take minutes for a list of hundreds. A channel the list does not hold, such as a thread, or every channel when the list
+ * cannot be read, is fetched alone. A caller still checks each channel's server
+ */
+export function readChannels(client: Client, serverId: string, ids: readonly string[]) {
+    return Effect.gen(function* () {
+        const listed =
+            ids.length > 1
+                ? yield* client.channels.fetchAll(serverId, { timeoutMs: 5000 }).pipe(
+                      Effect.map((channels) => new Map(channels.map((channel) => [channel.id, channel]))),
+                      Effect.orElseSucceed(() => new Map<string, GuildChannel>()),
+                  )
+                : new Map<string, GuildChannel>()
+        const channels: GuildChannel[] = []
+        for (const id of ids) channels.push(listed.get(id) ?? (yield* client.channels.fetch(id, { timeoutMs: 5000 })))
+        return channels
+    })
+}
+
 export function verifyPrivateAuthor(client: Client, channelId: string, authorId: string) {
     return client.directMessages.fetch(channelId, { timeoutMs: 5000 }).pipe(
         Effect.flatMap((channel) =>

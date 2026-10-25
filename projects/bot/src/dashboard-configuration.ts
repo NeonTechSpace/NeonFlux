@@ -12,7 +12,13 @@ import { Cause, Clock, Data, Effect, Schema } from "effect"
 import { isDeepStrictEqual } from "node:util"
 import type { BotConfig } from "./config.ts"
 import { createBackendRequest } from "./backend-http.ts"
-import { readSafetyAuthority, readNativeAccount, nativeBotAccount, nativeHumanAccount } from "./safety-permissions.ts"
+import {
+    readChannels,
+    readSafetyAuthority,
+    readNativeAccount,
+    nativeBotAccount,
+    nativeHumanAccount,
+} from "./safety-permissions.ts"
 import { readCleanupContext } from "./cleanup-permissions.ts"
 import { readRoleAuthority } from "./role-permissions.ts"
 import { readTicketAuthority } from "./ticket-permissions.ts"
@@ -143,12 +149,16 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
             job.family === "leveling" && job.operation.type === "settings"
                 ? job.operation.patch.levelUp?.channelId
                 : undefined
-        for (const channelId of new Set([
-            ...(target.channelIds ?? []),
-            ...(target.channelId ? [target.channelId] : []),
-            ...(target.parentId ? [target.parentId] : []),
-        ])) {
-            const channel = yield* client.channels.fetch(channelId, { timeoutMs: 5000 })
+        const channelIds = [
+            ...new Set([
+                ...(target.channelIds ?? []),
+                ...(target.channelId ? [target.channelId] : []),
+                ...(target.parentId ? [target.parentId] : []),
+            ]),
+        ]
+        const channels = yield* readChannels(client, serverId, channelIds)
+        for (const [index, channelId] of channelIds.entries()) {
+            const channel = channels[index]!
             if (
                 channel.id !== channelId ||
                 channel.guildId !== serverId ||

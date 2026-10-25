@@ -18,7 +18,7 @@ import { recordAudit } from "./auditLog.ts"
 import { privateSession } from "./dashboard.ts"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
 import { privateDataRole } from "./memberAccess.ts"
-import { caseByNo, publicAppeal, publicCase } from "./moderationStore.ts"
+import { caseByNo, correctionPage, publicAppeal, publicCase } from "./moderationStore.ts"
 import { decode, fail, integer, requireId } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 
@@ -71,15 +71,15 @@ async function readPrivateData(
     serverId: string,
     view: DashboardPrivateView,
 ): Promise<DashboardPrivateData> {
-    const cases = async (rows: Array<Parameters<typeof publicCase>[1]>) => ({
-        cases: await Promise.all(rows.slice(0, PRIVATE_PAGE_SIZE).map((row) => publicCase(ctx, row))),
+    const cases = (rows: Array<Parameters<typeof publicCase>[0]>) => ({
+        cases: rows.slice(0, PRIVATE_PAGE_SIZE).map(publicCase),
         ...(rows.length > PRIVATE_PAGE_SIZE ? { nextBeforeCaseNo: rows[PRIVATE_PAGE_SIZE - 1]!.caseNo } : {}),
     })
     switch (view.type) {
         case "cases":
             return {
                 type: "cases",
-                ...(await cases(
+                ...cases(
                     await ctx.db
                         .query("moderationCases")
                         .withIndex("by_server_case", (q) =>
@@ -87,7 +87,7 @@ async function readPrivateData(
                         )
                         .order("desc")
                         .take(PRIVATE_PAGE_SIZE + 1),
-                )),
+                ),
             }
         case "case": {
             const row = await caseByNo(ctx, serverId, integer(view.caseNo, 1, Number.MAX_SAFE_INTEGER))
@@ -96,9 +96,12 @@ async function readPrivateData(
                 .query("moderationAppeals")
                 .withIndex("by_case_user", (q) => q.eq("serverId", serverId).eq("caseNo", row.caseNo))
                 .take(21)
+            const page = await correctionPage(ctx, row, view.correctionsAfter, PRIVATE_PAGE_SIZE)
             return {
                 type: "case",
-                case: await publicCase(ctx, row),
+                case: publicCase(row),
+                corrections: page.corrections,
+                ...(page.nextAfter !== undefined ? { nextCorrectionsAfter: page.nextAfter } : {}),
                 appeals: appeals.sort((a, b) => b.appealNo - a.appealNo).map(publicAppeal),
             }
         }
@@ -148,7 +151,7 @@ async function readPrivateData(
                 .withIndex("by_server_user", (q) => q.eq("serverId", serverId).eq("userId", userId))
                 .order("desc")
                 .take(PRIVATE_PAGE_SIZE)
-            return { type: "history", userId, ...(await cases(rows)), appeals: appeals.map(publicAppeal) }
+            return { type: "history", userId, ...cases(rows), appeals: appeals.map(publicAppeal) }
         }
     }
 }
@@ -191,7 +194,7 @@ function viewed(view: DashboardPrivateView, data: DashboardPrivateData) {
 
 const viewValidator = v.union(
     v.object({ type: v.literal("cases"), beforeCaseNo: v.optional(v.number()) }),
-    v.object({ type: v.literal("case"), caseNo: v.number() }),
+    v.object({ type: v.literal("case"), caseNo: v.number(), correctionsAfter: v.optional(v.number()) }),
     v.object({ type: v.literal("appeals"), beforeAppealNo: v.optional(v.number()) }),
     v.object({ type: v.literal("open-appeals"), afterAppealNo: v.optional(v.number()) }),
     v.object({ type: v.literal("history"), userId: v.string(), beforeCaseNo: v.optional(v.number()) }),

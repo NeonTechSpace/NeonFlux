@@ -46,12 +46,14 @@ const scalar: D.DashboardConfigurationOperation[] = [
 async function run(
     t: test.TestContext,
     input: (
-        ids: { user: string; channel: string; role: string },
+        ids: { user: string; channel: string; role: string; listed: string[] },
         owner: string,
     ) => { operation: D.DashboardConfigurationOperation; native?: D.DashboardConfigurationNativeTarget },
     scenario: "valid" | "revoked" | "malformed" | "foreign" | "missing-embed" = "valid",
     channelType?: number,
+    listedChannels = 0,
 ) {
+    let listRequests = 0
     const executions: D.DashboardConfigurationExecuteRequest[] = [],
         failures: unknown[] = []
     await Effect.runPromise(
@@ -93,7 +95,14 @@ async function run(
                     bot.rest.respond(`GET /channels/${f.ids.channel}`, { body: f.channel({ guild_id: f.nextId() }) })
                 if (channelType !== undefined)
                     bot.rest.respond(`GET /channels/${f.ids.channel}`, { body: f.channel({ type: channelType }) })
-                const selected = input({ ...f.ids, role: p.targetRole.id }, p.targetId)
+                // Channels only the server's channel list answers for, as a long list is read
+                const listed = Array.from({ length: listedChannels }, () => f.nextId())
+                if (listedChannels)
+                    bot.rest.respond(`GET /guilds/${f.ids.guild}/channels`, () => {
+                        listRequests += 1
+                        return { body: listed.map((id) => f.channel({ id })) }
+                    })
+                const selected = input({ ...f.ids, role: p.targetRole.id, listed }, p.targetId)
                 const job: D.DashboardConfigurationReadyJob = {
                     ...selected.operation,
                     native: selected.native ?? {},
@@ -140,7 +149,7 @@ async function run(
             }),
         ).pipe(Effect.provide(TestClock.layer())),
     )
-    return { executions, failures }
+    return { executions, failures, listRequests }
 }
 
 test("Dashboard configuration applies all eleven finite families using real Manage community authority", async (t) => {
@@ -246,6 +255,29 @@ test("Dashboard destination configuration preserves separate genuine action owne
         assert.equal(result.executions.length, 0)
         assert.equal(result.failures.length, 1)
     })
+})
+
+test("A dashboard automod rule may name more than 100 channels, checked with one read of the server's channels", async (t) => {
+    const result = await run(
+        t,
+        (ids) => ({
+            operation: {
+                family: "moderation",
+                operation: {
+                    type: "rule-update",
+                    name: "links",
+                    patch: { channelIds: ids.listed.slice(0, 150), exemptChannelIds: ids.listed.slice(150) },
+                },
+            },
+            native: { channelIds: ids.listed },
+        }),
+        "valid",
+        undefined,
+        300,
+    )
+    assert.equal(result.failures.length, 0)
+    assert.equal(result.listRequests, 1)
+    assert.equal(result.executions[0]?.references?.filter((reference) => reference.exists).length, 300)
 })
 
 test("A dashboard level-up channel must take plain messages, while an excluded XP channel may be a forum", async (t) => {

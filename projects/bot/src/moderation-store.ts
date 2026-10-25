@@ -150,6 +150,7 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
                 const op = input.operation
                 if (op.type === "case-show" || op.type === "recovery-case")
                     return result.type === "case" && result.case.caseNo === op.caseNo
+                if (op.type === "case-history") return result.type === "case-history" && result.caseNo === op.caseNo
                 if (op.type === "rule-show") return result.type === "rule" && result.rule.name === op.name
                 if (op.type === "settings") return result.type === "settings"
                 if (op.type === "watchlist-show")
@@ -205,7 +206,15 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
                             result.grant.targetId === input.userId &&
                             result.grant.channelId === undefined)),
             ),
-        dispatch: (input) => request("/moderation/outcome", input, ModerationDispatchResult),
+        dispatch: (input) =>
+            request(
+                "/moderation/outcome",
+                input,
+                ModerationDispatchResult,
+                (result) =>
+                    !result.notice ||
+                    (result.notice.noticeId === input.actionId && result.notice.caseNo === input.caseNo),
+            ),
         outcome: (input) =>
             request(
                 "/moderation/outcome",

@@ -140,7 +140,7 @@ test("A member sees their own data per server and feature and exports it in boun
     const ten = new Map(list.servers[0]!.features.map((feature) => [feature.feature, feature]))
     assert.equal(ten.get("AFK status")!.count, 1)
     assert.equal(ten.get("Leveling message receipts")!.count, 50)
-    assert.match(ten.get("Moderation cases")!.kept!, /180 days/)
+    assert.match(ten.get("Moderation cases")!.kept!, /kept for the period the server chose, or until erased/)
     assert.equal(ten.get("AFK status")!.kept, null)
     assert.deepEqual(
         list.servers[1]!.features.map((feature) => feature.feature),

@@ -1,7 +1,13 @@
-import type { AutomodRule, ModerationCase, ModerationSettings, SecurityRecovery } from "@neonflux/contracts/moderation"
+import type {
+    AutomodRule,
+    ModerationCase,
+    ModerationCorrection,
+    ModerationSettings,
+    SecurityRecovery,
+} from "@neonflux/contracts/moderation"
 import type { Appeal } from "@neonflux/contracts/appeal"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
-import type { Doc } from "./_generated/dataModel.js"
+import type { Doc, Id } from "./_generated/dataModel.js"
 import { DAY, actor, administrator, defaultSettings } from "./moderationDomain.ts"
 import { fail } from "./validation.ts"
 
@@ -53,11 +59,7 @@ export async function caseByNo(ctx: ReadCtx, serverId: string, caseNo: number) {
     if (!row) fail(404, "Case not found")
     return row
 }
-export async function publicCase(ctx: ReadCtx, row: Doc<"moderationCases">): Promise<ModerationCase> {
-    const corrections = await ctx.db
-        .query("moderationCorrections")
-        .withIndex("by_case", (q) => q.eq("caseId", row._id))
-        .take(21)
+export function publicCase(row: Doc<"moderationCases">): ModerationCase {
     return {
         caseNo: row.caseNo,
         actionId: row._id,
@@ -78,14 +80,46 @@ export async function publicCase(ctx: ReadCtx, row: Doc<"moderationCases">): Pro
         notificationOutcome: row.notificationOutcome as ModerationCase["notificationOutcome"],
         erased: row.erased,
         voided: row.voided,
-        corrections: corrections.map((c) => ({
-            actorId: c.actorId,
-            createdAt: c.createdAt,
-            previousReason: c.previousReason,
-            reason: c.reason,
-            type: c.type as "reason" | "void",
-        })),
+        correctionCount: row.erased ? 0 : row.correctionCount,
         ...(row.observation ? { observation: row.observation } : {}),
+    }
+}
+/** Deletes up to count of a case's corrections and says whether any are left */
+export async function deleteCorrections(ctx: MutationCtx, caseId: Id<"moderationCases">, count: number) {
+    const rows = await ctx.db
+        .query("moderationCorrections")
+        .withIndex("by_case", (q) => q.eq("caseId", caseId))
+        .take(count + 1)
+    for (const row of rows.slice(0, count)) await ctx.db.delete(row._id)
+    return { deleted: Math.min(rows.length, count), more: rows.length > count }
+}
+export function publicCorrection(row: Doc<"moderationCorrections">): ModerationCorrection {
+    return {
+        actorId: row.actorId,
+        createdAt: row.createdAt,
+        previousReason: row.previousReason,
+        reason: row.reason,
+        type: row.type as ModerationCorrection["type"],
+    }
+}
+/** Up to count of a case's corrections after a creation time, oldest first, and the creation time the next page starts after. An erased case has none */
+export async function correctionPage(
+    ctx: ReadCtx,
+    row: Doc<"moderationCases">,
+    after: number | undefined,
+    count: number,
+) {
+    if (row.erased) return { corrections: [] }
+    const rows = await ctx.db
+        .query("moderationCorrections")
+        .withIndex("by_case", (q) =>
+            after === undefined ? q.eq("caseId", row._id) : q.eq("caseId", row._id).gt("_creationTime", after),
+        )
+        .take(count + 1)
+    const selected = rows.slice(0, count)
+    return {
+        corrections: selected.map(publicCorrection),
+        ...(rows.length > count ? { nextAfter: selected.at(-1)!._creationTime } : {}),
     }
 }
 export function publicRule(row: Doc<"automodRules">): AutomodRule {

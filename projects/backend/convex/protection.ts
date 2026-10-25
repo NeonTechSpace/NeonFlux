@@ -8,7 +8,7 @@ import {
 } from "@neonflux/contracts/moderation"
 import { serviceMutation } from "./serviceGuard.ts"
 import { reserveAction } from "./moderationActions.ts"
-import { domains, domainMatches, gateFor } from "./moderationDomain.ts"
+import { domains, domainMatches, foldWords, gateFor, wordMatches } from "./moderationDomain.ts"
 import { deceptiveLink, protectedDomains } from "./moderationLinks.ts"
 import { config, readSettings, receipt, state } from "./moderationStore.ts"
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
@@ -21,8 +21,11 @@ const byPriority = (a: AutomodRule, b: AutomodRule) =>
 const contentTypes: readonly AutomodRule["type"][] = ["words", "domains", "invites", "deceptive-links"]
 function contentMatches(rule: AutomodRule, content: string) {
     if (rule.type === "deceptive-links") return deceptiveLink(content, [...protectedDomains, ...rule.patterns])
-    if (rule.type === "words" || rule.type === "invites")
-        return rule.patterns.some((p) => content.toLowerCase().includes(p))
+    if (rule.type === "words") {
+        const folded = foldWords(content)
+        return rule.patterns.some((p) => wordMatches(folded, p))
+    }
+    if (rule.type === "invites") return rule.patterns.some((p) => content.toLowerCase().includes(p))
     if (rule.type !== "domains") return false
     return rule.domainMode === "allow"
         ? domains(content).some((host) => !domainMatches([host], rule.patterns))

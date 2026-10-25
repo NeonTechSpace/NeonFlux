@@ -98,6 +98,8 @@ Last result shows whether the bot is still working on the change, whether it was
 
 **Automod policy** also has **Check webhook and other bots' messages**, the same switch as `!automod bots on|off`. New automod rules offer the types **Mentions over time**, **Links over time** and **Deceptive links** beside the others. The rule form starts every type at 5 in 10 seconds, so set the threshold and window you want. See [the bot guide](BOT.md#automod) for how each type counts. The bot learns a changed bot message switch from the server's next member message
 
+**Moderation and staff** has **Keep cases**, the same setting as `!mod retention`: **Until erased**, the default, or **For a number of days** from 1 to 3650. A rule holds up to 1000 patterns. Besides one field per pattern, the rule form takes a pasted list with one pattern per line and either adds the new ones at once or replaces the whole list with them, leaving lines that are too long or past the limit in the box. **Remove all rule patterns** clears the list in one click. For **Words** rules the form notes that patterns match whole words and that a `*` at the start or end matches part of a word, as [the bot guide](BOT.md#automod) describes
+
 ### Role picker
 
 The Role picker section under Roles turns the role picker on or off, edits its menus and sets who may use it. Each menu has a name, an optional description, single or multiple choice and up to 25 roles, and a server can have 10 menus. A role belongs to one menu. Before saving, the bot checks every menu role: It must sit below the bot's top role and yours, must not be the everyone role or a staff role, and must carry only ordinary member permissions. The chat command `!rolepicker` changes the same settings, as [the bot guide](BOT.md#role-picker) describes
@@ -132,7 +134,7 @@ Members can send 10 claims or drops and 10 role checks a minute in each server, 
 
 ### Pickers and message builder
 
-Channel and role pickers search names or IDs as you type. Arrow keys move, Enter chooses and Escape closes. Role choices exclude `@everyone`. If the list cannot load, retry or enter an exact ID
+Channel and role pickers search names or IDs as you type. Arrow keys move, Enter chooses and Escape closes. A picker that takes several choices also takes several IDs or mentions pasted at once, separated by spaces, commas or lines, and IDs that match no choice stay in the field. Role choices exclude `@everyone`. If the list cannot load, retry or enter an exact ID
 
 The server's channels and roles load once when you open a server. **Refresh** next to a channel or role picker loads them again, for example after you create a role in Fluxer. The lists loaded earlier stay usable while it runs. Each refresh is one request, at most one runs every ten seconds, and a refresh asked for sooner runs once the wait ends. The lists never reload on a timer. They reload once by themselves when you come back to the tab after opening the bot invitation, and when a temporary voice generator's channel is missing from them
 
@@ -195,7 +197,7 @@ When analytics is off, the section says the bot is not counting, and existing co
 The Private cases section under Moderation shows moderation cases, appeals and member history on the website. Only the server owner and members holding the server's private data role can view them. Administrators also need the role, and without a private data role only the owner can view them. The owner chooses the role under **Private data role** in Moderation and safety or with [`!mod private-role`](BOT.md#moderation-and-cases). Other managers see the chosen role but cannot change it
 
 - **Cases** lists cases newest first in pages of 25, with **Older cases** and **Back** to move between pages
-- Opening a case shows its details, its corrections and its appeals. When one of its appeals was accepted and the case is not voided, a **Next step** block names the command that reverses the sanction, since accepting an appeal never reverses it
+- Opening a case shows its details, its first 25 corrections, oldest first, and its appeals. **Later corrections** shows the next 25. When one of its appeals was accepted and the case is not voided, a **Next step** block names the command that reverses the sanction, since accepting an appeal never reverses it
 - A member's ID in a list, or **Member ID** with **Show history**, shows that member's cases newest first and their newest 25 appeals
 - **Appeals** lists every appeal newest first in pages of 25
 - **Waiting appeals** lists only the appeals that still wait for a decision, oldest first, with **More** for the next page
@@ -217,7 +219,7 @@ Summaries name changed settings and list items such as rules or menus by name, w
 The Server export section under Insights lets the server owner download a readable JSON file of the server's NeonFlux
 data that other bots can load: Every feature's settings, leveling XP and levels, member showcases and profiles,
 moderation cases with their corrections and appeals, without text the owner erased. [The export guide](EXPORT.md)
-documents every field of format version 1. It is separate from the encrypted backup, which only restores into NeonFlux
+documents every field of format version 2. It is separate from the encrypted backup, which only restores into NeonFlux
 
 The section prints the DM command `!export` for the same export. When the bot serves several servers, the command names the open server, such as `!export --server 123`
 

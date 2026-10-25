@@ -120,7 +120,7 @@ test("The owner exports after the live check, the export continues after a new c
     const file = JSON.parse(await blobs[0]!.text()) as ServerExportFile
     assert.deepEqual(
         [file.format, file.version, file.serverId, file.part, file.lastPart],
-        ["neonflux-server-export", 1, "2", 1, true],
+        ["neonflux-server-export", 2, "2", 1, true],
     )
     assert.deepEqual(file.settings.moderation, {
         settings: { appealsEnabled: true },

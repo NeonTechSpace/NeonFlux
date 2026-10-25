@@ -75,6 +75,7 @@ export const moderationSettings = v.object({
     watchlistEnabled: v.boolean(),
     appealsEnabled: v.boolean(),
     defcon: v.union(v.literal(1), v.literal(2), v.literal(3)),
+    caseRetentionDays: v.optional(v.union(v.number(), v.null())),
 })
 
 export const automodRule = v.object({

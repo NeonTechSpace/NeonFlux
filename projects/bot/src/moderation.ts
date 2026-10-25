@@ -4,7 +4,9 @@ import type {
     ModerationActionGrant,
     ModerationActionType,
     ModerationManageOperation,
+    ModerationNoticeGrant,
     ModerationQueryResult,
+    StaffClass,
 } from "@neonflux/contracts/moderation"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import {
@@ -26,10 +28,10 @@ import {
     appealCard,
     appealCasesCard,
     appealListCard,
-    caseHistoryCard,
     caseResult,
     manageConfirmation,
     queryCard,
+    reasonText,
     type SafetyCommandText,
 } from "./moderation-format.ts"
 import { safetyHelp, type SafetyCommand, type SafetyName } from "./moderation-command.ts"
@@ -37,7 +39,9 @@ import { ModerationStoreError, moderationErrorMessage, type ModerationStore } fr
 import { sourceTimestamp } from "./responses.ts"
 import {
     channelPermissionInput,
+    channelViewerRoles,
     ownedPostingBits,
+    readChannels,
     readSafetyAuthority,
     restorablePostingBits,
     verifyPrivateAuthor,
@@ -46,6 +50,7 @@ import {
 import { fixSentence, labelList, permissionNames } from "./permission-fix.ts"
 import { replyPrefix, serverReplyStyle, withPrefix } from "./general-settings.ts"
 import {
+    at,
     code,
     codeBlock,
     duration,
@@ -89,6 +94,7 @@ export function actionContext(
             ? { currentOverwrite: overwriteSnapshot(authority.channel, authority.guild.id) }
             : {}),
         ...(action === "lock" ? { botPostingPermissions: restorablePostingBits(authority.botServerPermissions) } : {}),
+        ...(authority.target?.isBot ? { targetBot: true as const } : {}),
         ...(authority.channel &&
         "rateLimitPerUser" in authority.channel &&
         typeof authority.channel.rateLimitPerUser === "number"
@@ -150,14 +156,94 @@ export function initializeModeration(store: ModerationStore, config: BotConfig, 
     )
 }
 
+// A post Fluxer refused, such as a DM to a member who closed them, did not arrive. Only an unknown result is uncertain
 function sendOutcome(operation: Effect.Effect<unknown, unknown>) {
     return Effect.gen(function* () {
         const result = yield* Effect.exit(operation)
         if (Exit.isFailure(result) && Cause.hasInterrupts(result.cause)) return yield* Effect.failCause(result.cause)
         if (Exit.isSuccess(result)) return { outcome: "sent" as const }
+        const outcome = errors.outcome(result.cause)
         return {
-            outcome: errors.outcome(result.cause) === "notDispatched" ? ("failed" as const) : ("uncertain" as const),
+            outcome:
+                outcome === "notDispatched" || outcome === "rejected" ? ("failed" as const) : ("uncertain" as const),
         }
+    })
+}
+
+/** How the member's notice of a warning, timeout, kick or ban went, as the staff reply reports it */
+export type NoticeDelivery = "sent" | "failed" | "uncertain"
+const noticeTitles = {
+    warn: "Warning in",
+    timeout: "Timed out in",
+    kick: "Kicked from",
+    ban: "Banned from",
+} as const
+/** Sends the member's notice once. It never fails, so a notice that cannot go out never holds back the sanction beyond the DM's own 5 seconds */
+function sendNotice(
+    client: Client,
+    serverId: string,
+    grant: ModerationActionGrant,
+    notice: ModerationNoticeGrant,
+    config?: BotConfig,
+) {
+    return Effect.gen(function* () {
+        const sent = yield* Effect.exit(
+            Effect.gen(function* () {
+                if (
+                    notice.action !== grant.action ||
+                    notice.caseNo !== grant.caseNo ||
+                    notice.targetId !== grant.targetId ||
+                    notice.reason !== grant.reason
+                )
+                    return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
+                // The member's notice is a DM, so its commands name the server in multi mode
+                const multi = config?.scope?.mode === "multi",
+                    option = multi ? ` --server ${serverId}` : ""
+                const name = yield* serverLabel(client, serverId)
+                const length =
+                    notice.action === "timeout" && notice.timeoutUntil
+                        ? ` until ${at(Date.parse(notice.timeoutUntil))}`
+                        : notice.action === "ban" && notice.durationSeconds
+                          ? ` for ${duration(notice.durationSeconds)}`
+                          : ""
+                const card: Card = {
+                    title: `${noticeTitles[notice.action]} ${name}${length}, case #${notice.caseNo}`,
+                    description: reasonText(notice.reason),
+                    // Members are offered the appeal commands only while the server takes appeals
+                    ...(notice.appeals
+                        ? {
+                              fields: [
+                                  [
+                                      "Appeal",
+                                      `Reply here with ${code(`!appeal${option} submit ${notice.caseNo} <your reason>`)}`,
+                                  ],
+                                  ["Your cases", `Reply here with ${code(`!appeal${option} cases`)}`],
+                              ],
+                          }
+                        : {}),
+                }
+                const [body] = renderCard(card, serverReplyStyle(serverId))
+                return yield* sendOutcome(
+                    client.directMessages.send(
+                        notice.targetId,
+                        { ...(multi ? serverReply(body!, name) : body!) },
+                        { timeoutMs: 5000 },
+                    ),
+                )
+            }),
+        )
+        if (Exit.isFailure(sent) && Cause.hasInterrupts(sent.cause)) return yield* Effect.failCause(sent.cause)
+        return Exit.isSuccess(sent) ? sent.value.outcome : ("uncertain" as const)
+    })
+}
+/** Records a sent notice's outcome once. A failure leaves it pending, which the next start marks not confirmed */
+function recordNotice(store: ModerationStore, serverId: string, notice: ModerationNoticeGrant, sent: NoticeDelivery) {
+    return Effect.gen(function* () {
+        const recorded = yield* Effect.exit(
+            store.noticeOutcome({ serverId, noticeId: notice.noticeId, caseNo: notice.caseNo, outcome: sent }),
+        )
+        if (Exit.isFailure(recorded) && Cause.hasInterrupts(recorded.cause))
+            return yield* Effect.failCause(recorded.cause)
     })
 }
 
@@ -172,7 +258,21 @@ export function performActionGrant(
     authorityReadAt?: number,
 ) {
     return Effect.gen(function* () {
-        const confirm = store.dispatch({ serverId, actionId: grant.actionId, caseNo: grant.caseNo, dispatch: true })
+        // A kick or ban claim carries the member's notice, sent before the action because a member who left may be unreachable
+        let early: { notice: ModerationNoticeGrant; sent: NoticeDelivery } | undefined
+        const confirm = store
+            .dispatch({ serverId, actionId: grant.actionId, caseNo: grant.caseNo, dispatch: true })
+            .pipe(
+                Effect.flatMap((claim) =>
+                    claim.notice
+                        ? sendNotice(client, serverId, grant, claim.notice, config).pipe(
+                              Effect.map((sent) => {
+                                  early = { notice: claim.notice!, sent }
+                              }),
+                          )
+                        : Effect.void,
+                ),
+            )
         // A command's authority is trusted for 15 seconds, so a moderator revoked during a slow reservation never dispatches
         const expired = authorityReadAt !== undefined && (yield* Clock.currentTimeMillis) - authorityReadAt > 15000
         // A grant that stopped being pending is never dispatched and its stored outcome is left alone
@@ -185,13 +285,11 @@ export function performActionGrant(
                           : Effect.succeed({ outcome: "failed" as const }),
                   ),
               )
+        if (early) yield* recordNotice(store, serverId, early.notice, early.sent)
         const result = yield* store.outcome({ serverId, actionId: grant.actionId, caseNo: grant.caseNo, ...executed })
         if (!result.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
-        // The member's notice is a DM, so its commands name the server in multi mode. Staff type the log post's commands in the server, which needs no selector
-        const multi = config?.scope?.mode === "multi",
-            server = multi ? ` --server ${serverId}` : ""
+        // Staff type the log post's commands in the server, which needs no selector
         const command: SafetyCommandText = (feature, rest) => `${replyPrefix(serverId, serverId)}${feature} ${rest}`
-        // Log content excludes narratives because a configured channel is not proof of confidentiality
         const logDelivery = yield* Effect.exit(
             Effect.gen(function* () {
                 if (result.log) {
@@ -202,7 +300,9 @@ export function performActionGrant(
                             ["Result", caseResult(log, command)],
                             ...(log.targetId ? [["Member", format.userMention(log.targetId)] as const] : []),
                             ["By", format.userMention(actorId)],
-                            ["Details", `${code(command("mod", `show ${log.caseNo}`))}, sent by DM`],
+                            ["Reason", reasonText(log.reason)],
+                            ...(log.durationSeconds ? [["Duration", duration(log.durationSeconds)] as const] : []),
+                            ["Details", code(command("mod", `show ${log.caseNo}`))],
                         ],
                     }
                     const sent = yield* sendOutcome(
@@ -225,49 +325,17 @@ export function performActionGrant(
         )
         if (Exit.isFailure(logDelivery) && Cause.hasInterrupts(logDelivery.cause))
             return yield* Effect.failCause(logDelivery.cause)
-        const noticeDelivery = yield* Effect.exit(
-            Effect.gen(function* () {
-                if (result.notice) {
-                    const notice = result.notice
-                    if (grant.action !== "warn" || notice.targetId !== grant.targetId || notice.reason !== grant.reason)
-                        return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
-                    const card: Card = {
-                        title: `Warning, case #${notice.caseNo}`,
-                        description: notice.reason,
-                        fields: [
-                            [
-                                "Appeal",
-                                `Reply here with ${code(`!appeal${server} submit ${notice.caseNo} <your reason>`)}`,
-                            ],
-                            ["Your cases", `Reply here with ${code(`!appeal${server} cases`)}`],
-                        ],
-                    }
-                    const [body] = renderCard(card, serverReplyStyle(serverId)),
-                        label = multi ? yield* serverLabel(client, serverId) : undefined
-                    const sent = yield* sendOutcome(
-                        client.directMessages.send(
-                            notice.targetId,
-                            { ...(label ? serverReply(body!, label) : body!) },
-                            { timeoutMs: 5000 },
-                        ),
-                    )
-                    const acknowledged = yield* store.noticeOutcome({
-                        serverId,
-                        noticeId: notice.noticeId,
-                        caseNo: notice.caseNo,
-                        ...sent,
-                    })
-                    if (!acknowledged.recorded)
-                        return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
-                }
-            }),
-        )
-        if (Exit.isFailure(noticeDelivery) && Cause.hasInterrupts(noticeDelivery.cause))
-            return yield* Effect.failCause(noticeDelivery.cause)
+        // A warning or timeout notice follows the action, since the member stays in the server
+        let notice: NoticeDelivery | undefined = early?.sent
+        if (result.notice) {
+            notice = yield* sendNotice(client, serverId, grant, result.notice, config)
+            yield* recordNotice(store, serverId, result.notice, notice)
+        }
         return {
             outcome: executed.outcome,
             expired,
-            ancillaryUncertain: Exit.isFailure(logDelivery) || Exit.isFailure(noticeDelivery),
+            logUncertain: Exit.isFailure(logDelivery),
+            ...(notice ? { notice } : {}),
         }
     })
 }
@@ -313,11 +381,10 @@ function validateReferences(
         }
         if (roleIds.some((id) => !authority.roles.some((role) => role.id === id && role.guildId === serverId)))
             return yield* Effect.fail(new ModerationHandlingError({ stage: "input" }))
-        for (const id of new Set(channelIds)) {
-            const channel = yield* client.channels.fetch(id)
-            if (channel.id !== id || channel.guildId !== serverId)
-                return yield* Effect.fail(new ModerationHandlingError({ stage: "input" }))
-        }
+        const ids = [...new Set(channelIds)]
+        const channels = yield* readChannels(client, serverId, ids)
+        if (channels.some((channel, index) => channel.id !== ids[index] || channel.guildId !== serverId))
+            return yield* Effect.fail(new ModerationHandlingError({ stage: "input" }))
     }).pipe(
         Effect.timeout("5 seconds"),
         Effect.mapError(() => new ModerationHandlingError({ stage: "input" })),
@@ -362,8 +429,8 @@ function moderationFix(
     }
 }
 
-/** A list operation that starts at a remembered position: The case or appeal its page continues before, or a page number */
-const startAt = <T extends { type: string }>(operation: T, position: number | undefined): T =>
+/** A list operation that starts at a remembered position: The case, appeal, member or recovery its page continues from, or a page number */
+const startAt = <T extends { type: string }>(operation: T, position: number | string | undefined): T =>
     position === undefined
         ? operation
         : {
@@ -374,7 +441,11 @@ const startAt = <T extends { type: string }>(operation: T, position: number | un
                     ? { beforeAppealNo: position }
                     : operation.type === "queue"
                       ? { afterAppealNo: position }
-                      : { page: position }),
+                      : operation.type === "watchlist-list"
+                        ? { afterUserId: position }
+                        : operation.type === "recovery-list" || operation.type === "case-history"
+                          ? { after: position }
+                          : { page: position }),
           }
 /** Where the page after a list result starts, or undefined after its last page */
 const following = (result: ModerationQueryResult | AppealMemberResult | AppealStaffResult) =>
@@ -384,9 +455,13 @@ const following = (result: ModerationQueryResult | AppealMemberResult | AppealSt
           ? result.nextBeforeAppealNo
           : "nextAfterAppealNo" in result
             ? result.nextAfterAppealNo
-            : "totalPages" in result && result.page < result.totalPages
-              ? result.page + 1
-              : undefined
+            : "nextAfterUserId" in result
+              ? result.nextAfterUserId
+              : "nextAfter" in result
+                ? result.nextAfter
+                : "totalPages" in result && result.page < result.totalPages
+                  ? result.page + 1
+                  : undefined
 
 /** A purge of everyone waits for the same command once more, within this long of its preview, from the same actor in the same channel */
 const purgePreviewMs = 120000
@@ -455,14 +530,9 @@ export function handleSafetyCommand(
         // A list's next continues where this member's last page of the same list in this channel ended, also when the pages went to a DM
         const page = "page" in command ? command.page : undefined
         const key = page ? pageKey(config.serverId, message, name, page.list) : ""
-        const position = page?.next ? nextPosition<number>(key) : undefined
-        const continued = (
-            card: Card,
-            result: Parameters<typeof following>[0],
-            text: SafetyCommandText,
-            after?: { next: number | undefined },
-        ): Card => {
-            const next = after ? after.next : page ? following(result) : undefined
+        const position = page?.next ? nextPosition<number | string>(key) : undefined
+        const continued = (card: Card, result: Parameters<typeof following>[0], text: SafetyCommandText): Card => {
+            const next = page ? following(result) : undefined
             if (page) rememberPosition(key, next)
             return next === undefined || !page
                 ? card
@@ -588,12 +658,17 @@ export function handleSafetyCommand(
                 type: "purge",
                 channelId: message.channelId,
                 messageIds: selection.selectedMessages.map((item) => item.id),
-                reason: command.reason,
+                ...(command.reason ? { reason: command.reason } : {}),
             }
         }
+        // Case and watchlist lookups read the channel they were sent in fresh, since only a staff channel may show their answer
+        const lookup =
+            !privateInvocation &&
+            (command.kind === "history" || command.kind === "recover" || (command.kind === "query" && command.private))
         const authority =
             purgeAuthority ??
             (yield* readSafetyAuthority(client, config.serverId, message.author.id, {
+                ...(lookup ? { channelId: message.channelId } : {}),
                 ...(action && actionPermission(action.type) !== undefined
                     ? { permission: actionPermission(action.type)! }
                     : {}),
@@ -604,9 +679,37 @@ export function handleSafetyCommand(
             }))
         const authorityReadAt = purgeReadAt ?? (yield* Clock.currentTimeMillis)
         const actor = moderationActor(authority)
+        // A lookup answers where it was asked in a server channel that only Administrators and staff roles allowed this answer can
+        // view. A reason posted to members cannot be taken back, so any other server channel gets the answer by DM. A recovery check
+        // may need the moderation or security staff as well as the case readers, so its channel needs roles staff in each
+        const viewers = lookup ? channelViewerRoles(authority) : undefined
+        const scopes: StaffClass[] =
+            command.kind === "recover"
+                ? name === "security"
+                    ? ["security", "moderation"]
+                    : ["cases", "security", "moderation"]
+                : command.kind === "query" && !command.operation.type.startsWith("case-")
+                  ? ["security"]
+                  : ["cases"]
+        const staffRoles = viewers?.length
+            ? yield* store.query({ serverId: config.serverId, actor, operation: { type: "settings" } }).pipe(
+                  Effect.map((result) => (result.type === "settings" ? result.settings.staffRoleIds : undefined)),
+                  Effect.orElseSucceed(() => undefined),
+              )
+            : undefined
+        const staffChannel =
+            viewers !== undefined &&
+            viewers.every((id) => scopes.every((scope) => staffRoles?.[scope].includes(id) === true))
+        const sentByDm = "Details sent by DM, since members who may not read them can see this channel"
+        const verified = (dm: string | undefined) =>
+            dm
+                ? { originServerId: config.serverId, privateChannelVerified: true }
+                : staffChannel
+                  ? { originServerId: config.serverId, staffChannelRoleIds: viewers! }
+                  : {}
         if (command.kind === "query" || command.kind === "history") {
             const dm =
-                command.kind === "history" || command.private
+                (command.kind === "history" || command.private) && !staffChannel
                     ? yield* privateChannel(
                           client,
                           message.author.id,
@@ -615,30 +718,23 @@ export function handleSafetyCommand(
                     : undefined
             const operation =
                 command.kind === "history"
-                    ? { type: "case-show" as const, caseNo: command.caseNo }
+                    ? startAt({ type: "case-history" as const, caseNo: command.caseNo }, position)
                     : startAt(command.operation, position)
             const result = yield* store.query({
                 serverId: config.serverId,
                 actor,
                 operation,
-                ...(dm ? { originServerId: config.serverId, privateChannelVerified: true } : {}),
+                ...verified(dm),
             })
             const text = dm ? dmText : commandText
-            // A case's history pages its edits from the case itself, so its position is the edit the next page starts at
-            const history =
-                command.kind === "history" && result.type === "case"
-                    ? caseHistoryCard(result.case, position ?? 0)
-                    : undefined
-            const card = history
-                ? continued(history.card, result, text, history)
-                : continued(
-                      queryCard(result, (command.kind === "query" ? command.view : undefined) ?? name, text),
-                      result,
-                      text,
-                  )
+            const card = continued(
+                queryCard(result, (command.kind === "query" ? command.view : undefined) ?? name, text),
+                result,
+                text,
+            )
             if (dm) {
                 yield* sendCard(client, dm, config, card)
-                if (!privateInvocation) yield* respond("Details sent by DM")
+                if (!privateInvocation) yield* respond(sentByDm)
             } else yield* replyCard(context, config.serverId, card)
             return
         }
@@ -680,16 +776,13 @@ export function handleSafetyCommand(
             return
         }
         if (command.kind === "recover") {
-            const dm = yield* privateChannel(
-                client,
-                message.author.id,
-                privateInvocation ? message.channelId : undefined,
-            )
+            const dm = staffChannel
+                ? undefined
+                : yield* privateChannel(client, message.author.id, privateInvocation ? message.channelId : undefined)
             const record = yield* store.query({
                 serverId: config.serverId,
                 actor,
-                originServerId: config.serverId,
-                privateChannelVerified: true,
+                ...verified(dm),
                 operation: { type: name === "security" ? "recovery-case" : "case-show", caseNo: command.caseNo },
             })
             if (record.type !== "case") return yield* Effect.fail(new ModerationHandlingError({ stage: "input" }))
@@ -705,16 +798,23 @@ export function handleSafetyCommand(
             const result = yield* store.reconcile({
                 serverId: config.serverId,
                 actor: moderationActor(recoveryAuthority),
-                originServerId: config.serverId,
-                privateChannelVerified: true,
+                ...verified(dm),
                 ...source,
                 actionId: record.case.actionId,
                 observation,
             })
             if (!result.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
+            if (!dm) {
+                yield* replyCard(
+                    context,
+                    config.serverId,
+                    queryCard({ type: "case", case: result.case }, name, commandText),
+                )
+                return
+            }
             yield* sendCard(client, dm, config, queryCard({ type: "case", case: result.case }, name, dmText))
             if (!privateInvocation)
-                yield* respond(`Case #${result.case.caseNo} checked. Nothing was done again. Details sent by DM`)
+                yield* respond(`Case #${result.case.caseNo} checked. Nothing was done again. ${sentByDm}`)
             return
         }
         let operation: ModerationManageOperation
@@ -724,17 +824,6 @@ export function handleSafetyCommand(
             yield* respond(
                 `Threads follow their parent channel's permissions. ${action.type === "lock" ? "Lock" : "Unlock"} ${format.channelMention(authority.channel.parentId)} instead`,
             )
-            return
-        }
-        // Automod may act on a bot's messages, but a command never moderates another bot. NeonFlux itself gets the
-        // protected target answer
-        if (
-            action?.targetId &&
-            action.type !== "log" &&
-            authority.target?.isBot &&
-            action.targetId !== authority.botId
-        ) {
-            yield* respond("NeonFlux never moderates other bots")
             return
         }
         if (action) {
@@ -798,9 +887,19 @@ export function handleSafetyCommand(
                 outcome.outcome === "uncertain"
                     ? `is not confirmed yet. Run ${code(commandText("mod", `recover ${c.caseNo}`))} to check it`
                     : outcome.outcome
-            const uncertain = outcome.ancillaryUncertain
-                ? ". The staff log or the member's notice may not have arrived, and NeonFlux does not send them again"
+            const logged = outcome.logUncertain
+                ? ". The staff log may not have arrived, and NeonFlux does not send it again"
                 : ""
+            const notified =
+                outcome.notice === "sent"
+                    ? outcome.outcome === "succeeded"
+                        ? ". Member notified by DM"
+                        : ". The member was already sent the notice"
+                    : outcome.notice === "failed"
+                      ? ". The member's DM could not be delivered"
+                      : outcome.notice === "uncertain"
+                        ? ". The member's DM may not have arrived, and NeonFlux does not send it again"
+                        : ""
             const expired = outcome.expired
                 ? ". Your permissions were checked too long before the action, so nothing was done. Run the command again"
                 : ""
@@ -816,12 +915,12 @@ export function handleSafetyCommand(
                 lasting && ["ban", "timeout", "quarantine"].includes(c.action) ? ` for ${duration(lasting)}` : ""
             // A void is saved with its log case, which only the log delivery can fail
             if (operation.type === "case-void") {
-                yield* answer(context, `Case #${c.linkedCaseNo} voided. Logged as case #${c.caseNo}${uncertain}`)
+                yield* answer(context, `Case #${c.linkedCaseNo} voided. Logged as case #${c.caseNo}${logged}`)
                 return
             }
             yield* answer(
                 context,
-                `Case #${c.caseNo}: ${name}${c.targetId ? ` of ${format.userMention(c.targetId)}` : c.channelId ? ` in ${format.channelMention(c.channelId)}` : ""}${length} ${done}${linked}${expired}${uncertain}${lock}`,
+                `Case #${c.caseNo}: ${name}${c.targetId ? ` of ${format.userMention(c.targetId)}` : c.channelId ? ` in ${format.channelMention(c.channelId)}` : ""}${length} ${done}${linked}${expired}${notified}${logged}${lock}`,
             )
         } else
             yield* respond(

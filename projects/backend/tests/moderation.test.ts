@@ -4,6 +4,7 @@ import type { TestContext } from "node:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { cleanupModeration } from "../convex/moderation.ts"
+import { blockingContentRule } from "../convex/protection.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import { internal } from "../convex/_generated/api.js"
 import type {
@@ -14,7 +15,8 @@ import type {
     ModerationActionContext,
 } from "@neonflux/contracts/moderation"
 import type { ModerationActor } from "@neonflux/contracts/shared"
-import { DAY } from "../convex/moderationDomain.ts"
+import { BATCH, CORRECTION_BATCH, DAY, KEEP, wordMatches, foldWords } from "../convex/moderationDomain.ts"
+import { memberDataExport } from "../convex/memberData.ts"
 import { botCall } from "./bot-service.ts"
 
 const originalServer = process.env.NEONFLUX_SERVER_ID
@@ -42,6 +44,7 @@ const modules = {
     "../convex/levelingWork.ts": () => import("../convex/levelingWork.ts"),
     "../convex/protection.ts": () => import("../convex/protection.ts"),
     "../convex/appeals.ts": () => import("../convex/appeals.ts"),
+    "../convex/moderationRetention.ts": () => import("../convex/moderationRetention.ts"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
@@ -226,6 +229,71 @@ test("Configuration defaults are disabled and dry-run and reject unknown or inhe
     await f.settings({ staffRoleIds: { moderation: ["42"] } })
     assert.deepEqual((await read(await f.query({ type: "settings" }))).settings.staffRoleIds.cases, ["41"])
 })
+test("Channel and role lists hold as many channels and roles as a server can have", async (ctx) => {
+    const f = fixture(ctx)
+    const many = (count: number, from: number) => Array.from({ length: count }, (_, index) => String(from + index))
+    await f.settings({ honeypotChannelIds: many(500, 1000), staffRoleIds: { cases: many(250, 3000) } })
+    const { settings } = await read(await f.query({ type: "settings" }))
+    assert.deepEqual([settings.honeypotChannelIds.length, settings.staffRoleIds.cases.length], [500, 250])
+    for (const patch of [{ honeypotChannelIds: many(501, 1000) }, { staffRoleIds: { cases: many(251, 3000) } }])
+        await status(await f.post("/moderation/manage", f.manageRequest({ type: "settings", patch })), 400)
+    const lists = { channelIds: many(500, 1000), exemptChannelIds: many(500, 2000), exemptRoleIds: many(250, 3000) }
+    await f.manage({ type: "rule-create", rule: rule("spam", lists) })
+    const stored = (await read(await f.query({ type: "rule-show", name: "test" }))).rule
+    assert.deepEqual([stored.channelIds, stored.exemptChannelIds, stored.exemptRoleIds], Object.values(lists))
+    for (const patch of [
+        { channelIds: many(501, 1000) },
+        { exemptChannelIds: many(501, 2000) },
+        { exemptRoleIds: many(251, 3000) },
+    ])
+        await status(
+            await f.post("/moderation/manage", f.manageRequest({ type: "rule-update", name: "test", patch })),
+            400,
+        )
+})
+test("The watchlist and recovery lists page after their last row shown, to their true end", async (ctx) => {
+    const f = fixture(ctx)
+    await f.t.run(async (ctx) => {
+        for (let i = 0; i < 5005; i++)
+            await ctx.db.insert("securityWatchlist", {
+                serverId: "1",
+                userId: String(100000 + i),
+                reason: "Synthetic",
+                createdAt: f.now(),
+            })
+        for (let i = 0; i < 1005; i++)
+            await ctx.db.insert("securityRecoveries", {
+                serverId: "1",
+                generation: 1,
+                type: "timeout",
+                targetId: String(100000 + i),
+                caseNo: i + 1,
+                status: "active",
+                createdAt: f.now(),
+            })
+    })
+    // A list of 5005 needs 501 pages, so a cursor that never moves stops at 600
+    const users: string[] = []
+    for (let after: string | undefined, pages = 0; (pages === 0 || after !== undefined) && pages < 600; pages++) {
+        const page = await read(await f.query({ type: "watchlist-list", ...(after ? { afterUserId: after } : {}) }))
+        users.push(...page.entries.map((entry: { userId: string }) => entry.userId))
+        after = page.nextAfterUserId
+    }
+    assert.deepEqual(
+        users,
+        Array.from({ length: 5005 }, (_, i) => String(100000 + i)),
+    )
+    const cases: number[] = []
+    for (let after: number | undefined, pages = 0; (pages === 0 || after !== undefined) && pages < 600; pages++) {
+        const page = await read(await f.query({ type: "recovery-list", ...(after ? { after } : {}) }))
+        cases.push(...page.recoveries.map((recovery: { caseNo: number }) => recovery.caseNo))
+        after = page.nextAfter
+    }
+    assert.deepEqual(
+        cases,
+        Array.from({ length: 1005 }, (_, i) => i + 1),
+    )
+})
 test("Staff role access is operation-scoped and requires native permissions and private case reads", async (ctx) => {
     const f = fixture(ctx)
     await f.settings({ staffRoleIds: { moderation: ["40"] } })
@@ -356,12 +424,106 @@ test("Case corrections preserve attribution and warning void produces a linked a
     await f.outcome(created.case)
     const corrected = await f.manage({ type: "case-reason", caseNo: created.case.caseNo, reason: "Corrected" })
     assert.ok(!corrected.duplicate && corrected.type === "case")
-    assert.equal(corrected.case.corrections[0]?.previousReason, "Synthetic reason")
-    assert.equal(corrected.case.corrections[0]?.actorId, owner.userId)
+    assert.equal(corrected.case.correctionCount, 1)
+    const history = await read(await f.query({ type: "case-history", caseNo: created.case.caseNo }))
+    assert.equal(history.corrections[0]?.previousReason, "Synthetic reason")
+    assert.equal(history.corrections[0]?.actorId, owner.userId)
     const voided = await f.manage({ type: "case-void", caseNo: created.case.caseNo })
     assert.ok(!voided.duplicate && voided.type === "case" && voided.grant)
     assert.equal(voided.case.linkedCaseNo, created.case.caseNo)
     assert.equal((await read(await f.query({ type: "case-show", caseNo: created.case.caseNo }))).case.voided, true)
+})
+test("A case takes any number of corrections, pages them oldest first and shows them in the member's data", async (ctx) => {
+    const f = fixture(ctx)
+    const created = await f.action()
+    await f.outcome(created.case)
+    for (let no = 1; no <= 25; no++) {
+        f.advance(1000)
+        const corrected = await f.manage({ type: "case-reason", caseNo: created.case.caseNo, reason: `Reason ${no}` })
+        assert.ok(!corrected.duplicate && corrected.type === "case")
+        assert.equal(corrected.case.correctionCount, no)
+    }
+    const pages: string[][] = []
+    let after: number | undefined
+    for (;;) {
+        const page = await read(
+            await f.query({ type: "case-history", caseNo: created.case.caseNo, ...(after ? { after } : {}) }),
+        )
+        assert.equal(page.erased, false)
+        pages.push(page.corrections.map((row: { reason: string }) => row.reason))
+        after = page.nextAfter
+        if (after === undefined) break
+    }
+    assert.deepEqual(
+        pages.map((page) => page.length),
+        [10, 10, 5],
+    )
+    assert.deepEqual(
+        pages.flat(),
+        Array.from({ length: 25 }, (_, index) => `Reason ${index + 1}`),
+    )
+    // The member's own data lists each correction of a case about them, without the staff member who made it
+    const exported = await f.t.run((ctx) => memberDataExport(ctx, "20", "1", null))
+    const corrections = exported.records.filter((record) => record.feature === "Case corrections")
+    assert.equal(corrections.length, 25)
+    assert.deepEqual(corrections[24]!.data, {
+        caseNo: created.case.caseNo,
+        type: "reason",
+        previousReason: "Reason 24",
+        reason: "Reason 25",
+        createdAt: f.now(),
+    })
+})
+test("Erasure and retention delete a case's corrections past one run's batch in the next runs", async (ctx) => {
+    const f = fixture(ctx)
+    // Scheduled runs wait for the test to start them
+    ctx.mock.timers.enable({ apis: ["setTimeout"] })
+    const many = async () => {
+        const created = await f.action()
+        await f.outcome(created.case)
+        await f.manage({ type: "case-reason", caseNo: created.case.caseNo, reason: "Corrected" })
+        await f.t.run(async (ctx) => {
+            const row = (await ctx.db
+                .query("moderationCases")
+                .withIndex("by_server_case", (q) => q.eq("serverId", "1").eq("caseNo", created.case.caseNo))
+                .unique())!
+            for (let no = 1; no < CORRECTION_BATCH + 6; no++)
+                await ctx.db.insert("moderationCorrections", {
+                    caseId: row._id,
+                    actorId: owner.userId,
+                    createdAt: f.now(),
+                    previousReason: "Corrected",
+                    reason: "Corrected",
+                    type: "reason",
+                    serverId: "1",
+                    caseNo: row.caseNo,
+                    targetId: "20",
+                })
+        })
+        return created.case.caseNo
+    }
+    const left = () => f.t.run(async (ctx) => (await ctx.db.query("moderationCorrections").collect()).length)
+    // Erasure hides the corrections at once and schedules the rest
+    const erased = await many()
+    await f.manage({ type: "erase", caseNo: erased })
+    const history = await read(await f.query({ type: "case-history", caseNo: erased }))
+    assert.deepEqual([history.erased, history.corrections], [true, []])
+    assert.equal(await left(), 6)
+    const scheduled = await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())
+    const job = scheduled.find((row) => row.name.includes("eraseCorrections"))
+    assert.ok(job)
+    await f.t.mutation(internal.moderationRetention.eraseCorrections, job.args[0])
+    assert.equal(await left(), 0)
+    // A case due for retention stays until a run has deleted all of its corrections
+    await f.settings({ caseRetentionDays: 30 })
+    const retired = await many()
+    f.advance(31 * DAY)
+    await f.t.run((ctx) => retentionPass(ctx, cleanupModeration))
+    await read(await f.query({ type: "case-show", caseNo: retired }))
+    assert.equal(await left(), 6)
+    await f.t.run((ctx) => retentionPass(ctx, cleanupModeration))
+    await status(await f.query({ type: "case-show", caseNo: retired }), 404)
+    assert.equal(await left(), 0)
 })
 test("Only a warning can be voided, and the refusal says so", async (ctx) => {
     const f = fixture(ctx)
@@ -572,13 +734,95 @@ test("Restart observation consumes pending outcomes, blocks stale dispatch and r
     }
     assert.equal((await read(await f.post("/moderation/reconcile", older))).recorded, false)
 })
-test("Dispatch confirmation is a one-time claim of the pending grant", async (ctx) => {
+test("Dispatch confirmation is a one-time claim of the pending grant, and a kick or ban claim reserves the member's notice", async (ctx) => {
     const f = fixture(ctx)
     const created = await f.action("kick")
     const dispatch = { serverId: "1", actionId: created.case.actionId, caseNo: created.case.caseNo, dispatch: true }
-    assert.deepEqual(await read(await f.post("/moderation/outcome", dispatch)), { recorded: false })
+    assert.deepEqual(await read(await f.post("/moderation/outcome", dispatch)), {
+        recorded: false,
+        notice: {
+            noticeId: created.case.actionId,
+            caseNo: created.case.caseNo,
+            targetId: "20",
+            action: "kick",
+            reason: "Synthetic reason",
+            appeals: true,
+        },
+    })
+    const pending = await read(await f.query({ type: "case-show", caseNo: created.case.caseNo }))
+    assert.equal(pending.case.notificationOutcome, "pending")
+    // A second claim is refused and carries no notice, and the outcome adds no second notice
     await status(await f.post("/moderation/outcome", dispatch), 409)
-    assert.equal((await read(await f.outcome(created.case))).recorded, true)
+    const done = await read(await f.outcome(created.case))
+    assert.equal(done.recorded, true)
+    assert.equal(done.notice, undefined)
+    // A temporary ban's notice carries its length and the appeals switch, and a startup turns an unsent notice uncertain
+    await f.settings({ appealsEnabled: false })
+    const ban = await f.action("ban", { durationSeconds: 604800 })
+    const claimed = await read(
+        await f.post("/moderation/outcome", { ...dispatch, actionId: ban.case.actionId, caseNo: ban.case.caseNo }),
+    )
+    assert.equal(claimed.notice.durationSeconds, 604800)
+    assert.equal(claimed.notice.appeals, false)
+    f.advance(1000)
+    await read(await f.post("/moderation/observe", { serverId: "1" }))
+    const observed = await read(await f.query({ type: "case-show", caseNo: ban.case.caseNo }))
+    assert.equal(observed.case.notificationOutcome, "uncertain")
+    // A bot target and an unban get no notice
+    const bot = await f.action("kick", {}, { ...context, targetBot: true })
+    assert.deepEqual(
+        await read(
+            await f.post("/moderation/outcome", { ...dispatch, actionId: bot.case.actionId, caseNo: bot.case.caseNo }),
+        ),
+        { recorded: false },
+    )
+    assert.equal(
+        (await read(await f.query({ type: "case-show", caseNo: bot.case.caseNo }))).case.notificationOutcome,
+        "none",
+    )
+    const unban = await f.action("unban")
+    assert.deepEqual(
+        await read(
+            await f.post("/moderation/outcome", {
+                ...dispatch,
+                actionId: unban.case.actionId,
+                caseNo: unban.case.caseNo,
+            }),
+        ),
+        { recorded: false },
+    )
+})
+
+test("A timeout notice follows its success with the provider deadline, and the staff log carries the duration", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings({ logChannelId: "31" })
+    // An action without a reason stores empty text
+    const reserved = await f.manage({
+        type: "action",
+        action: { type: "timeout", targetId: "20", durationSeconds: 600 },
+        context,
+    })
+    assert.ok(!reserved.duplicate && reserved.type === "case" && reserved.grant)
+    const created = { case: reserved.case }
+    assert.equal(created.case.reason, "")
+    assert.equal(reserved.grant.reason, "")
+    const until = new Date(f.now() + 600000).toISOString()
+    const result = await read(await f.outcome(created.case, "succeeded", { timeoutUntil: until }))
+    assert.equal(result.log.durationSeconds, 600)
+    assert.equal(result.log.reason, "")
+    assert.deepEqual(result.notice, {
+        noticeId: created.case.actionId,
+        caseNo: created.case.caseNo,
+        targetId: "20",
+        action: "timeout",
+        reason: "",
+        durationSeconds: 600,
+        timeoutUntil: until,
+        appeals: true,
+    })
+    // A failed timeout sends no notice, and a kick's outcome never adds one
+    const failed = await f.action("timeout", { durationSeconds: 600 })
+    assert.equal((await read(await f.outcome(failed.case, "failed"))).notice, undefined)
 })
 test("Startup sweep continuations keep the startup cutoff and leave current actions pending", async (ctx) => {
     const f = fixture(ctx)
@@ -1087,7 +1331,7 @@ test("Owner erasure redacts all selected narratives without affecting another ca
     await f.manage({ type: "erase", caseNo: created.case.caseNo })
     const erased = await read(await f.query({ type: "case-show", caseNo: created.case.caseNo }))
     assert.equal(erased.case.reason, "[Erased by owner]")
-    assert.deepEqual(erased.case.corrections, [])
+    assert.equal(erased.case.correctionCount, 0)
     assert.equal(
         (
             await f.t.run((ctx) =>
@@ -1108,6 +1352,7 @@ test("Owner erasure redacts all selected narratives without affecting another ca
 })
 test("Audit expiry protects active recovery and open appeals, and known timeout expiry retires only metadata", async (ctx) => {
     const f = fixture(ctx)
+    await f.settings({ caseRetentionDays: 180 })
     const timeoutCase = await f.action("timeout", { durationSeconds: 60 })
     await f.outcome(timeoutCase.case, "succeeded", { timeoutUntil: new Date(f.now() + 60000).toISOString() })
     f.advance(60001)
@@ -1332,6 +1577,7 @@ test("A page of appealable cases ends after 200 newer log cases and the next pag
 })
 test("Closed appeals keep their linked cases until the appeal's own retention ends", async (ctx) => {
     const f = fixture(ctx)
+    await f.settings({ caseRetentionDays: 180 })
     const created = await f.action()
     await f.outcome(created.case)
     f.advance(179 * DAY)
@@ -1382,7 +1628,7 @@ test("Manual module off blocks new sanctions but preserves case reads and explic
 })
 test("A genuinely fresh edit may be evaluated after audit history expires but stale originals remain rejected", async (ctx) => {
     const f = fixture(ctx)
-    await f.settings({ automodEnabled: true, automodMode: "enforce" })
+    await f.settings({ automodEnabled: true, automodMode: "enforce", caseRetentionDays: 180 })
     await f.manage({ type: "rule-create", rule: rule() })
     const original = f.event("blocked")
     const first = await read<ModerationEvaluateResult>(await f.post("/moderation/evaluate", original))
@@ -1543,4 +1789,243 @@ test("Webhook and bot messages are checked only while bot message checks are on,
     await f.settings({ defcon: 1 })
     await f.settings({ automodBotMessagesEnabled: false })
     assert.equal(await gate(), false)
+})
+
+test("Case, watchlist and recovery reads answer for a verified DM or a staff channel the bot checked, and nothing else", async (ctx) => {
+    const f = fixture(ctx)
+    const created = await f.action()
+    const lookup = (proof: Record<string, unknown>, operation: unknown) =>
+        f.post("/moderation/query", { serverId: "1", actor: owner, ...proof, operation })
+    for (const operation of [
+        { type: "case-show", caseNo: created.case.caseNo },
+        { type: "case-list" },
+        { type: "watchlist-list" },
+    ]) {
+        await read(await lookup({ originServerId: "1", staffChannelRoleIds: [] }, operation))
+        await read(await lookup({ privateChannelVerified: true }, operation))
+        await status(await lookup({}, operation), 403)
+        await status(await lookup({ privateChannelVerified: false }, operation), 403)
+        // A channel a role sees that may not make this read is no staff channel
+        await status(await lookup({ originServerId: "1", staffChannelRoleIds: ["900"] }, operation), 403)
+    }
+    // Each role that sees the channel must be a staff role of the read, case readers for cases and security staff for the watchlist
+    await f.settings({ staffRoleIds: { cases: ["900"] } })
+    await read(await lookup({ originServerId: "1", staffChannelRoleIds: ["900"] }, { type: "case-list" }))
+    await status(await lookup({ originServerId: "1", staffChannelRoleIds: ["900", "901"] }, { type: "case-list" }), 403)
+    await status(await lookup({ originServerId: "1", staffChannelRoleIds: ["900"] }, { type: "watchlist-list" }), 403)
+    await f.settings({ staffRoleIds: { cases: [] } })
+    await status(await lookup({ staffChannelRoleIds: "900" }, { type: "case-show", caseNo: 1 }), 400)
+    const check = (proof: Record<string, unknown>) =>
+        f.post("/moderation/reconcile", {
+            ...f.source(),
+            actor: owner,
+            ...proof,
+            actionId: created.case.actionId,
+            observation: { observedAt: f.now() },
+        })
+    assert.equal((await read(await check({ originServerId: "1", staffChannelRoleIds: [] }))).recorded, true)
+    await status(await check({}), 403)
+    await status(await check({ originServerId: "1", staffChannelRoleIds: ["900"] }), 403)
+})
+
+test("Words rules match whole words by default, a star at an edge opens that edge, and folding covers case and fullwidth", () => {
+    const hit = (content: string, pattern: string) => wordMatches(foldWords(content), pattern)
+    assert.equal(hit("you ass!", "ass"), true)
+    assert.equal(hit("ass", "ass"), true)
+    assert.equal(hit("class", "ass"), false)
+    assert.equal(hit("pass the salt", "ass"), false)
+    assert.equal(hit("class", "*ass*"), true)
+    assert.equal(hit("cats", "cat*"), true)
+    assert.equal(hit("bobcat", "cat*"), false)
+    assert.equal(hit("bobcat", "*cat"), true)
+    assert.equal(hit("snake_case", "case"), false)
+    assert.equal(hit("a 5*star review", "5*star"), true)
+    assert.equal(hit("ＢＡＤ day", "bad"), true)
+    assert.equal(hit("BAD", "bad"), true)
+    assert.equal(hit("très bien", "très"), true)
+    assert.equal(hit("trèsbien", "très"), false)
+    // Scripts written without spaces need no boundary at a word's edge
+    assert.equal(hit("これは禁止語です", "禁止語"), true)
+    assert.equal(hit("ข้อความต้องห้ามนี้", "ต้องห้าม"), true)
+    // A later occurrence still matches when an earlier one sits inside a word
+    assert.equal(hit("classy ass", "ass"), true)
+    assert.equal(hit("anything", "*"), false)
+})
+
+test("Automod words rules use whole words, rules hold 1000 patterns and a server 2000, and patterns are added and removed in place", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings({ automodEnabled: true, automodMode: "enforce" })
+    await read(
+        await f.post(
+            "/moderation/manage",
+            f.manageRequest({ type: "rule-create", rule: rule("words", { patterns: ["ass"], action: "log" }) }),
+        ),
+    )
+    const caught = async (content: string) => !!(await read<ModerationEvaluateResult>(await f.evaluate(content))).case
+    assert.equal(await caught("first class"), false)
+    assert.equal(await caught("you ass!"), true)
+    // A words pattern of only its * marks would never match, so it is refused with the reason
+    for (const pattern of ["*", "**", " ** "]) {
+        const starred = await f.post(
+            "/moderation/manage",
+            f.manageRequest({ type: "rule-update", name: "test", patch: { addPatterns: [pattern] } }),
+        )
+        assert.equal(starred.status, 400)
+        assert.match((await starred.json()).error, /A words pattern needs text besides its \* marks/)
+    }
+    // Member content NeonFlux posts uses the same words matching
+    assert.equal(await f.t.run((ctx) => blockingContentRule(ctx, "1", "a classic", [])), null)
+    assert.equal(await f.t.run((ctx) => blockingContentRule(ctx, "1", "what an ass.", [])), "test")
+    const patterns = (count: number, prefix = "w") => Array.from({ length: count }, (_, i) => `${prefix}${i}`)
+    await read(
+        await f.post(
+            "/moderation/manage",
+            f.manageRequest({ type: "rule-update", name: "test", patch: { patterns: patterns(1000) } }),
+        ),
+    )
+    await status(
+        await f.post(
+            "/moderation/manage",
+            f.manageRequest({ type: "rule-update", name: "test", patch: { patterns: patterns(1001) } }),
+        ),
+        400,
+    )
+    // Adding past a rule's 1000 says why
+    const full = await f.post(
+        "/moderation/manage",
+        f.manageRequest({ type: "rule-update", name: "test", patch: { addPatterns: ["extra"] } }),
+    )
+    assert.equal(full.status, 429)
+    assert.match((await full.json()).error, /An automod rule holds at most 1000 patterns/)
+    const create = (name: string, list: string[]) =>
+        f.post(
+            "/moderation/manage",
+            f.manageRequest({ type: "rule-create", rule: rule("words", { name, patterns: list }) }),
+        )
+    await read(await create("second", patterns(900, "v")))
+    const over = await create("third", patterns(101, "u"))
+    assert.equal(over.status, 429)
+    assert.match((await over.json()).error, /at most 2000 patterns together/)
+    await read(await create("third", patterns(100, "u")))
+    await status(
+        await f.post(
+            "/moderation/manage",
+            f.manageRequest({ type: "rule-update", name: "second", patch: { addPatterns: ["extra"] } }),
+        ),
+        429,
+    )
+    // Removing makes room, adding skips patterns already there, and an edit that does not grow is never refused
+    const removed = await read(
+        await f.post(
+            "/moderation/manage",
+            f.manageRequest({ type: "rule-update", name: "second", patch: { removePatterns: ["v0", "V1 "] } }),
+        ),
+    )
+    assert.equal(removed.rule.patterns.length, 898)
+    assert.ok(!removed.rule.patterns.includes("v0") && !removed.rule.patterns.includes("v1"))
+    const added = await read(
+        await f.post(
+            "/moderation/manage",
+            f.manageRequest({ type: "rule-update", name: "second", patch: { addPatterns: ["v2", "Extra", "more"] } }),
+        ),
+    )
+    assert.equal(added.rule.patterns.length, 900)
+    assert.deepEqual(added.rule.patterns.slice(-2), ["extra", "more"])
+    await read(
+        await f.post(
+            "/moderation/manage",
+            f.manageRequest({ type: "rule-update", name: "second", patch: { enabled: false } }),
+        ),
+    )
+})
+
+test("Cases are kept until erased by default, a chosen period removes them, and a change moves stored expiries", async (ctx) => {
+    const f = fixture(ctx)
+    const kept = await f.action()
+    await f.outcome(kept.case)
+    assert.equal(kept.case.expiresAt, KEEP)
+    f.advance(181 * DAY)
+    await f.t.run((ctx) => retentionPass(ctx, cleanupModeration))
+    await read(await f.query({ type: "case-show", caseNo: kept.case.caseNo }))
+    // Thirty days removes a case and its corrections after 31 days
+    await f.settings({ caseRetentionDays: 30 })
+    const short = await f.action()
+    await f.outcome(short.case)
+    await f.manage({ type: "case-reason", caseNo: short.case.caseNo, reason: "Corrected" })
+    f.advance(31 * DAY)
+    await f.t.run((ctx) => retentionPass(ctx, cleanupModeration))
+    await status(await f.query({ type: "case-show", caseNo: short.case.caseNo }), 404)
+    assert.equal((await f.t.run((ctx) => ctx.db.query("moderationCorrections").collect())).length, 0)
+    // A case stamped under the old rule survives once the setting keeps it longer, even before any restamp
+    const old = await f.action()
+    await f.settings({ caseRetentionDays: null })
+    f.advance(31 * DAY)
+    await f.t.run((ctx) => retentionPass(ctx, cleanupModeration))
+    await read(await f.query({ type: "case-show", caseNo: old.case.caseNo }))
+    // The change schedules a restamp, which stamps every case and closed appeal with the current setting
+    const scheduled = await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())
+    assert.ok(scheduled.some((job) => job.name.includes("moderationRetention") && job.args[0].table === "cases"))
+    await f.settings({ caseRetentionDays: 90 })
+    await f.t.mutation(internal.moderationRetention.restamp, { serverId: "1", table: "cases", after: 0 })
+    const stamped = await read(await f.query({ type: "case-show", caseNo: old.case.caseNo }))
+    assert.equal(stamped.case.expiresAt, old.case.createdAt + 90 * DAY)
+    await f.settings({ caseRetentionDays: null })
+    await f.t.mutation(internal.moderationRetention.restamp, { serverId: "1", table: "cases", after: 0 })
+    assert.equal((await read(await f.query({ type: "case-show", caseNo: old.case.caseNo }))).case.expiresAt, KEEP)
+    // The setting is bounded and reads back in the settings
+    await status(
+        await f.post("/moderation/manage", f.manageRequest({ type: "settings", patch: { caseRetentionDays: 0 } })),
+        400,
+    )
+    await status(
+        await f.post("/moderation/manage", f.manageRequest({ type: "settings", patch: { caseRetentionDays: 3651 } })),
+        400,
+    )
+    const longest = await f.settings({ caseRetentionDays: 3650 })
+    assert.ok(!longest.duplicate && longest.type === "settings" && longest.settings.caseRetentionDays === 3650)
+})
+
+test("A restamp past one page of cases goes on from the last case of that page", async (ctx) => {
+    const f = fixture(ctx)
+    // Scheduled pages run only when this test runs them
+    ctx.mock.timers.enable({ apis: ["setTimeout"] })
+    const first = await f.action()
+    // Copies of the case fill more than one page
+    await f.t.run(async (ctx) => {
+        const { _id, _creationTime, ...row } = (await ctx.db.query("moderationCases").first())!
+        for (let caseNo = 2; caseNo <= BATCH + 2; caseNo++) await ctx.db.insert("moderationCases", { ...row, caseNo })
+    })
+    await f.settings({ caseRetentionDays: 7 })
+    const expiries = async () =>
+        (await f.t.run((ctx) => ctx.db.query("moderationCases").collect()))
+            .sort((a, b) => a.caseNo - b.caseNo)
+            .map((row) => row.expiresAt)
+    const week = first.case.createdAt + 7 * DAY
+    await f.t.mutation(internal.moderationRetention.restamp, { serverId: "1", table: "cases", after: 0 })
+    assert.deepEqual(await expiries(), [...Array<number>(BATCH).fill(week), KEEP, KEEP])
+    const next = (await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter(
+        (job) => job.name.includes("moderationRetention") && job.args[0].after === BATCH,
+    )
+    assert.deepEqual(
+        next.map((job) => job.args[0].table),
+        ["cases"],
+    )
+    await f.t.mutation(internal.moderationRetention.restamp, { serverId: "1", table: "cases", after: BATCH })
+    assert.deepEqual(await expiries(), Array<number>(BATCH + 2).fill(week))
+})
+test("A closed appeal takes the server's case retention from its closing, and a restamp pages appeals after cases", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings({ caseRetentionDays: 10 })
+    const created = await f.action()
+    await f.outcome(created.case)
+    const opened = await read(await f.member({ type: "submit", caseNo: created.case.caseNo, text: "Appeal" }))
+    await read(await f.staff({ type: "decide", appealNo: opened.appeal.appealNo, decision: "rejected", reason: "No" }))
+    const appeal = async () => (await f.t.run((ctx) => ctx.db.query("moderationAppeals").collect()))[0]!
+    assert.equal((await appeal()).expiresAt, f.now() + 10 * DAY)
+    await f.settings({ caseRetentionDays: null })
+    await f.t.mutation(internal.moderationRetention.restamp, { serverId: "1", table: "appeals", after: 0 })
+    assert.equal((await appeal()).expiresAt, KEEP)
+    f.advance(11 * DAY)
+    await f.t.run((ctx) => retentionPass(ctx, cleanupModeration))
+    assert.ok(await appeal())
 })

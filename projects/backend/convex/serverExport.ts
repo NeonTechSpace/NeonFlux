@@ -4,6 +4,7 @@ import { Int } from "@neonflux/contracts/common"
 import {
     EXPORT_APPEALS,
     EXPORT_CASES,
+    EXPORT_CORRECTIONS,
     EXPORT_LEVELS,
     EXPORT_PROFILES,
     EXPORT_SHOWCASES,
@@ -36,7 +37,7 @@ import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
 import { defaultLevelingSettings, levelForXp } from "./levelingDomain.ts"
 import { currentXp, readLeveling } from "./levelingStore.ts"
 import { publicMetadataSettings, readMetadataSettings } from "./metadataLogsStore.ts"
-import { publicCase } from "./moderationStore.ts"
+import { publicCase, publicCorrection } from "./moderationStore.ts"
 import { freshOwnerCheck, privateCheck } from "./privateData.ts"
 import { defaultRolesSettings } from "./rolesDomain.ts"
 import { publicRolePanel, readRolesSettings } from "./rolesStore.ts"
@@ -65,16 +66,16 @@ const FAMILIES = [
     "logs",
     ...configurationFamilies.filter((family) => !["presets", "memberlist", "nickname"].includes(family)),
 ]
-const PARTS = [...FAMILIES, "levels", "showcases", "profiles", "cases", "appeals"]
+const PARTS = [...FAMILIES, "levels", "showcases", "profiles", "cases", "corrections", "appeals"]
 type Cursor = { part: number; after?: string | number; cursors?: DashboardConfigurationCursors }
 
 const CURSOR_PREFIX = "nf-export-v1:"
 const encode = (cursor: Cursor) => `${CURSOR_PREFIX}${JSON.stringify(cursor)}`
 // The bot and the website pass the cursor back unread. Leveling profiles and member profiles continue after a user ID, the other
-// lists after a number. Configuration cursors are scoped to their server, family and list, and configurationData checks them
+// lists after a number, corrections after a creation time. Configuration cursors are scoped to their server, family and list, and configurationData checks them
 const ExportCursor = Schema.Struct({
     part: Int(0, PARTS.length - 1),
-    after: Schema.optionalKey(Schema.Union([Schema.String, Int(1)])),
+    after: Schema.optionalKey(Schema.Union([Schema.String, Schema.Finite])),
     cursors: Schema.optionalKey(Schema.Unknown),
 }).check(
     Schema.makeFilter(
@@ -113,15 +114,6 @@ function exportCase(row: Awaited<ReturnType<typeof publicCase>>): ServerExportCa
         voided: row.voided,
         erased: row.erased,
         createdAt: row.createdAt,
-        corrections: row.erased
-            ? []
-            : row.corrections.map((item) => ({
-                  type: item.type,
-                  actorId: item.actorId,
-                  previousReason: item.previousReason,
-                  reason: item.reason,
-                  createdAt: item.createdAt,
-              })),
     }
 }
 function exportAppeal(row: Doc<"moderationAppeals">): ServerExportAppeal {
@@ -193,7 +185,7 @@ async function settingsPage(
     return { data: view, ...(Object.keys(continuing).length ? { cursors: continuing } : {}) }
 }
 
-/** One bounded page: One family's settings, or up to 500 leveling profiles, 200 member showcases, 500 member profiles, 100 cases with their corrections or 200 appeals */
+/** One bounded page: One family's settings, or up to 500 leveling profiles, 200 member showcases, 500 member profiles, 100 cases, 500 case corrections or 200 appeals */
 export async function serverExportPage(ctx: QueryCtx, serverId: string, value: unknown): Promise<ServerExportPage> {
     const cursor = readCursor(value),
         kind = PARTS[cursor.part]!
@@ -282,13 +274,32 @@ export async function serverExportPage(ctx: QueryCtx, serverId: string, value: u
             .query("moderationCases")
             .withIndex("by_server_case", (q) => q.eq("serverId", serverId).gt("caseNo", after))
             .take(EXPORT_CASES)
-        const cases = await Promise.all(rows.map(async (row) => exportCase(await publicCase(ctx, row))))
+        const cases = rows.map((row) => exportCase(publicCase(row)))
         return {
             section: "cases",
             cases,
             cursor:
                 rows.length === EXPORT_CASES
                     ? encode({ part: cursor.part, after: rows.at(-1)!.caseNo })
+                    : next(cursor.part),
+        }
+    }
+    if (kind === "corrections") {
+        const after = cursor.after as number | undefined
+        const rows = await ctx.db
+            .query("moderationCorrections")
+            .withIndex("by_server", (q) =>
+                after === undefined
+                    ? q.eq("serverId", serverId)
+                    : q.eq("serverId", serverId).gt("_creationTime", after),
+            )
+            .take(EXPORT_CORRECTIONS)
+        return {
+            section: "corrections",
+            corrections: rows.map((row) => ({ caseNo: row.caseNo!, ...publicCorrection(row) })),
+            cursor:
+                rows.length === EXPORT_CORRECTIONS
+                    ? encode({ part: cursor.part, after: rows.at(-1)!._creationTime })
                     : next(cursor.part),
         }
     }

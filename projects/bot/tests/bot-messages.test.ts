@@ -87,7 +87,7 @@ test("a checked webhook message is evaluated without a member read, a granted de
                     notificationOutcome: "none",
                     erased: false,
                     voided: false,
-                    corrections: [],
+                    correctionCount: 0,
                 },
             })
         },

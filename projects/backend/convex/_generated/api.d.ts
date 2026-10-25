@@ -95,6 +95,7 @@ import type * as moderation from "../moderation.js";
 import type * as moderationActions from "../moderationActions.js";
 import type * as moderationDomain from "../moderationDomain.js";
 import type * as moderationLinks from "../moderationLinks.js";
+import type * as moderationRetention from "../moderationRetention.js";
 import type * as moderationStore from "../moderationStore.js";
 import type * as moderationValidators from "../moderationValidators.js";
 import type * as motionCaptcha from "../motionCaptcha.js";
@@ -275,6 +276,7 @@ declare const fullApi: ApiFromModules<{
   moderationActions: typeof moderationActions;
   moderationDomain: typeof moderationDomain;
   moderationLinks: typeof moderationLinks;
+  moderationRetention: typeof moderationRetention;
   moderationStore: typeof moderationStore;
   moderationValidators: typeof moderationValidators;
   motionCaptcha: typeof motionCaptcha;

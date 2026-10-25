@@ -13,7 +13,7 @@ import type {
     ModerationQueryRequest,
     SecurityRecovery,
     StaffLogGrant,
-    WarningNoticeGrant,
+    ModerationNoticeGrant,
 } from "@neonflux/contracts/moderation"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import { Effect, Redacted } from "effect"
@@ -76,7 +76,7 @@ function actionResult(
         caseNo: 11,
         sourceId: messageId,
         action: action.type,
-        reason: action.reason,
+        reason: action.reason ?? "",
         ...(action.targetId ? { targetId: action.targetId } : {}),
         ...(action.channelId ? { channelId: action.channelId } : {}),
         ...(action.durationSeconds ? { durationSeconds: action.durationSeconds } : {}),
@@ -101,7 +101,7 @@ function actionResult(
         notificationOutcome: "none",
         erased: false,
         voided: false,
-        corrections: [],
+        correctionCount: 0,
         ...(grant.targetId ? { targetId: grant.targetId } : {}),
         ...(grant.channelId ? { channelId: grant.channelId } : {}),
         ...(action.linkedCaseNo ? { linkedCaseNo: action.linkedCaseNo } : {}),
@@ -369,7 +369,14 @@ test("Outcome delivery grants are bound to the acknowledged action", async (t) =
         targetId,
         reason: "Synthetic reason",
     }
-    const notice: WarningNoticeGrant = { noticeId: request.actionId, caseNo: 11, targetId, reason: "Synthetic reason" }
+    const notice: ModerationNoticeGrant = {
+        noticeId: request.actionId,
+        caseNo: 11,
+        targetId,
+        action: "warn",
+        reason: "Synthetic reason",
+        appeals: true,
+    }
     f.respond({ recorded: true, log, notice })
     await Effect.runPromise(f.store.outcome(request))
     for (const payload of [
@@ -383,6 +390,28 @@ test("Outcome delivery grants are bound to the acknowledged action", async (t) =
     }
     f.respond({ recorded: false })
     await Effect.runPromise(f.store.outcome(request))
+})
+
+test("A kick claim's member notice is bound to the claimed action", async (t) => {
+    const f = fixture(t)
+    const claim = { serverId, actionId: "synthetic_case_11", caseNo: 11, dispatch: true as const }
+    const notice: ModerationNoticeGrant = {
+        noticeId: claim.actionId,
+        caseNo: 11,
+        targetId,
+        action: "kick",
+        reason: "",
+        appeals: false,
+    }
+    f.respond({ recorded: false, notice })
+    assert.deepEqual(await Effect.runPromise(f.store.dispatch(claim)), { recorded: false, notice })
+    for (const payload of [
+        { recorded: false, notice: { ...notice, noticeId: "unrelated_case" } },
+        { recorded: false, notice: { ...notice, caseNo: 12 } },
+    ]) {
+        f.respond(payload)
+        await rejected(f.store.dispatch(claim))
+    }
 })
 
 test("Lock grants may own SendMessages and the thread bits only", async (t) => {

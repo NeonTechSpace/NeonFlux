@@ -13,17 +13,19 @@ import type {
     ModerationOutcomeRequest,
     ModerationQueryOperation,
     ModerationQueryRequest,
+    ModerationQueryResult,
     ModerationReconcileRequest,
 } from "@neonflux/contracts/moderation"
+import { ModerationManageRequest as ManageRequestSchema } from "@neonflux/contracts/moderation"
 import { MessageType, Permissions } from "@neontechspace/fluxerly/effect"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
-import { Deferred, Effect, Fiber } from "effect"
+import { Deferred, Effect, Fiber, Schema } from "effect"
 import { TestClock } from "effect/testing"
 import type { GeneralSettingsStore } from "../src/general-settings.ts"
 import { createBotOptions } from "../src/bot.ts"
 import { performActionGrant } from "../src/moderation.ts"
 import { parseSafetyCommand, safetyGateClass, safetyNames, type SafetyName } from "../src/moderation-command.ts"
-import { caseHistoryCard, manageConfirmation, queryCard } from "../src/moderation-format.ts"
+import { manageConfirmation, queryCard } from "../src/moderation-format.ts"
 import { ModerationStoreError } from "../src/moderation-store.ts"
 import { boundary, caseGrant, platform, token } from "./moderation-fixture.ts"
 
@@ -147,6 +149,28 @@ test("a rule reads as one sentence with exemptions only when set, and a case kee
         ).description,
         `Links to domains rule, off: Times the member out for 10 minutes when a message links to a domain other than \`example.com\`, in <#${id(1)}>, skipping <#${id(2)}> and members with <@&${id(3)}>. Priority 5`,
     )
+    // A list of a server's every channel or role names the first 20 and counts the rest, so the reply fits one message
+    const many = Array.from({ length: 500 }, (_, index) => id(100 + index))
+    const first = (mention: string) =>
+        many
+            .slice(0, 20)
+            .map((value) => `<${mention}${value}>`)
+            .join(", ")
+    assert.equal(
+        queryCard(
+            { type: "rule", rule: { ...rule, exemptChannelIds: many, exemptRoleIds: many.slice(0, 250) } },
+            "automod",
+            command,
+        ).description,
+        `Spam rule, on: Deletes the message at 5 messages in 10 seconds, in every channel, skipping ${first("#")} and 480 more and members with ${first("@&")} and 230 more`,
+    )
+    assert.equal(
+        manageConfirmation(
+            { duplicate: false, type: "rule", rule: { ...rule, channelIds: many.slice(0, 21) } },
+            { type: "rule-update", name: "flood", patch: { channelIds: many.slice(0, 21) } },
+        ),
+        `Automod rule flood now checks ${first("#")} and 1 more`,
+    )
     // Every optional fact at once, with both deliveries missing, stays within eight fields and moves the edits to one note
     const record: ModerationCase = {
         actionId: "synthetic",
@@ -167,15 +191,7 @@ test("a rule reads as one sentence with exemptions only when set, and a case kee
         voided: true,
         linkedCaseNo: 3,
         observation: { observedAt: 1_700_000_000_000, memberPresent: true },
-        corrections: [
-            {
-                type: "void",
-                actorId: id(7),
-                createdAt: 1_700_000_000_000,
-                previousReason: "Spam wave",
-                reason: "Spam wave",
-            },
-        ],
+        correctionCount: 1,
     } as ModerationCase
     const detail = queryCard({ type: "case", case: record }, "mod", command)
     assert.deepEqual(
@@ -184,10 +200,26 @@ test("a rule reads as one sentence with exemptions only when set, and a case kee
     )
     assert.equal(Object.fromEntries(detail.fields!)["Not delivered"], "Staff log failed, member notice not confirmed")
     assert.equal(detail.note, "Edited once. `!mod history 7`")
-    assert.deepEqual(caseHistoryCard(record, 0), {
-        card: { title: "Case #7 history", description: `Voided by <@${id(7)}> <t:1700000000:R>` },
-        next: undefined,
-    })
+    const history = (corrections: Extract<ModerationQueryResult, { type: "case-history" }>["corrections"]) =>
+        queryCard({ type: "case-history", caseNo: 7, erased: false, corrections }, "mod", command)
+    assert.deepEqual(
+        history([
+            {
+                type: "void",
+                actorId: id(7),
+                createdAt: 1_700_000_000_000,
+                previousReason: "Spam wave",
+                reason: "Spam wave",
+            },
+        ]),
+        { title: "Case #7 history", description: `Voided by <@${id(7)}> <t:1700000000:R>` },
+    )
+    // A reason given later to a case that had none names the missing one
+    assert.equal(
+        history([{ type: "reason", actorId: id(7), createdAt: 1_700_000_000_000, previousReason: "", reason: "Spam" }])
+            .description,
+        `Reason changed by <@${id(7)}> <t:1700000000:R>: No reason given → Spam`,
+    )
     assert.deepEqual(parseSafetyCommand("mod", ["history", "7"]), {
         kind: "history",
         caseNo: 7,
@@ -423,7 +455,7 @@ test("DEFCON 2 allows security role lock with ManageRoles alone and the executor
     )
 })
 
-test("a warning remains successful when the log acknowledgement is lost and its independently reserved private notice still sends", async () => {
+test("a warning remains successful when the log acknowledgement is lost, its log shows the reason and its notice still sends", async () => {
     const f = createFixtures()
     const outcomes: ModerationOutcomeRequest[] = []
     const notices: ModerationNoticeOutcomeRequest[] = []
@@ -443,7 +475,14 @@ test("a warning remains successful when the log acknowledgement is lost and its 
                     targetId,
                     reason: "private reason",
                 },
-                notice: { noticeId: input.actionId, caseNo: input.caseNo, targetId, reason: "private reason" },
+                notice: {
+                    noticeId: input.actionId,
+                    caseNo: input.caseNo,
+                    targetId,
+                    action: "warn",
+                    reason: "private reason",
+                    appeals: true,
+                },
             })
         },
         logOutcome: () => Effect.fail(new ModerationStoreError({ operation: "log-outcome", status: null })),
@@ -474,15 +513,15 @@ test("a warning remains successful when the log acknowledgement is lost and its 
                             { name: "Result", value: "Done" },
                             { name: "Member", value: `<@${targetId}>` },
                             { name: "By", value: `<@${f.ids.user}>` },
-                            { name: "Details", value: "`!mod show 1`, sent by DM" },
+                            { name: "Reason", value: "private reason" },
+                            { name: "Details", value: "`!mod show 1`" },
                         ],
                     },
                 ])
-                assert.ok(!shown(log).includes("private reason"))
                 assert.deepEqual(notice!.embeds, [
                     {
                         color: 0x5560e6,
-                        title: "Warning, case #1",
+                        title: "Warning in Fixture Guild, case #1",
                         description: "private reason",
                         fields: [
                             { name: "Appeal", value: "Reply here with `!appeal submit 1 <your reason>`" },
@@ -492,7 +531,7 @@ test("a warning remains successful when the log acknowledgement is lost and its 
                 ])
                 assert.equal(
                     reply!.content,
-                    `Case #1: Warning of <@${targetId}> succeeded. The staff log or the member's notice may not have arrived, and NeonFlux does not send them again`,
+                    `Case #1: Warning of <@${targetId}> succeeded. Member notified by DM. The staff log may not have arrived, and NeonFlux does not send it again`,
                 )
                 for (const body of bodies(p)) assert.deepEqual(body.allowed_mentions, safeMentions)
                 assert.equal(bot.failures().length, 0)
@@ -501,7 +540,7 @@ test("a warning remains successful when the log acknowledgement is lost and its 
     )
 })
 
-test("private warning delivery rejection records an uncertain notice without changing the durable warning outcome", async () => {
+test("a refused warning DM records a failed notice without changing the durable warning outcome", async () => {
     const f = createFixtures()
     let targetId = ""
     let actionOutcome = ""
@@ -512,7 +551,14 @@ test("private warning delivery rejection records an uncertain notice without cha
             actionOutcome = input.outcome
             return Effect.succeed({
                 recorded: true,
-                notice: { noticeId: input.actionId, caseNo: input.caseNo, targetId, reason: "reason" },
+                notice: {
+                    noticeId: input.actionId,
+                    caseNo: input.caseNo,
+                    targetId,
+                    action: "warn",
+                    reason: "reason",
+                    appeals: true,
+                },
             })
         },
         noticeOutcome: (input) => {
@@ -535,8 +581,11 @@ test("private warning delivery rejection records an uncertain notice without cha
                 yield* bot.ready()
                 yield* emit(bot, `!mod warn ${targetId} reason`)
                 assert.equal(actionOutcome, "succeeded")
-                assert.equal(noticeOutcome, "uncertain")
-                assert.match(bodies(p).at(-1)!.content, /^Case #1: Warning of <@\d+> succeeded$/)
+                assert.equal(noticeOutcome, "failed")
+                assert.match(
+                    bodies(p).at(-1)!.content,
+                    /^Case #1: Warning of <@\d+> succeeded\. The member's DM could not be delivered$/,
+                )
             }),
         ),
     )
@@ -669,9 +718,15 @@ test("voiding a case confirms the void instead of reporting its log case", async
     )
 })
 
-test("a command never kicks another bot and records no case", async () => {
+test("staff can kick another bot, which the backend is told is a bot so it gets no notice", async () => {
     const f = createFixtures()
-    const b = boundary({ manage: (input) => Effect.succeed(caseGrant(input)) })
+    const requests: ModerationManageRequest[] = []
+    const b = boundary({
+        manage: (input) => {
+            requests.push(input)
+            return Effect.succeed(caseGrant(input))
+        },
+    })
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
@@ -681,10 +736,12 @@ test("a command never kicks another bot and records no case", async () => {
                 const p = platform(bot, { targetIsBot: true })
                 const kick = bot.rest.respond("DELETE /guilds/:id/members/:id", { status: 204 })
                 yield* bot.ready()
-                yield* emit(bot, `!mod kick ${p.targetId} reason`)
-                assert.equal(kick.requests().length, 0)
-                assert.equal(b.calls.filter((call) => call.method === "manage").length, 0)
-                assert.equal(bodies(p).at(-1)!.content, "NeonFlux never moderates other bots")
+                yield* emit(bot, `!mod kick ${p.targetId} rogue bot`)
+                assert.equal(kick.requests().length, 1)
+                const operation = requests[0]!.operation
+                assert.equal(operation.type === "action" && operation.context.targetBot, true)
+                assert.equal(p.open.requests().length, 0)
+                assert.equal(bodies(p).at(-1)!.content, `Case #1: Kick of <@${p.targetId}> succeeded`)
             }),
         ),
     )
@@ -850,20 +907,35 @@ test("case lists stay compact, details include actor audits, and private narrati
                 },
             },
         }).case,
-        corrections: Array.from({ length: 20 }, () => ({
-            type: "reason",
-            actorId: f.ids.user,
-            createdAt: 1_700_000_000_000,
-            previousReason: "x".repeat(512),
-            reason: "y".repeat(512),
-        })),
+        correctionCount: 25,
     }
+    // More edits than the 20 a case once held, paged by the backend after the creation time of the last one shown
+    const corrections = Array.from({ length: 25 }, (_, i) => ({
+        type: "reason" as const,
+        actorId: f.ids.user,
+        createdAt: 1_700_000_000_000 + i,
+        previousReason: "x".repeat(512),
+        reason: "y".repeat(512),
+    }))
     const lists: ModerationQueryOperation[] = []
     const b = boundary({
         query: (input) => {
-            if (input.operation.type === "case-list") lists.push(input.operation)
+            const operation = input.operation
+            if (operation.type === "case-list" || operation.type === "case-history") lists.push(operation)
+            if (operation.type === "case-history") {
+                const rest = corrections.filter(
+                    (row) => operation.after === undefined || row.createdAt > operation.after,
+                )
+                return Effect.succeed({
+                    type: "case-history" as const,
+                    caseNo: operation.caseNo,
+                    erased: false,
+                    corrections: rest.slice(0, 10),
+                    ...(rest.length > 10 ? { nextAfter: rest[9]!.createdAt } : {}),
+                })
+            }
             return Effect.succeed(
-                input.operation.type === "case-list"
+                operation.type === "case-list"
                     ? {
                           type: "cases",
                           cases: Array.from({ length: 10 }, (_, i) => ({ ...record, caseNo: 20 - i })),
@@ -879,7 +951,7 @@ test("case lists stay compact, details include actor audits, and private narrati
                 const bot = yield* createTestBot(
                     createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
                 )
-                const p = platform(bot)
+                const p = platform(bot, { everyonePermissions: Permissions.ViewChannel })
                 yield* bot.ready()
                 yield* emit(bot, `!mod list <@${f.ids.user}>`)
                 assert.equal(p.replies.requests().length, 2)
@@ -894,7 +966,10 @@ test("case lists stay compact, details include actor audits, and private narrati
                     { name: "Next", value: `\`!mod list ${f.ids.user} next\`` },
                 ])
                 assert.ok(!shown(bodies(p)[0]).includes("private narrative"))
-                assert.equal(bodies(p)[1]!.content, "Details sent by DM")
+                assert.equal(
+                    bodies(p)[1]!.content,
+                    "Details sent by DM, since members who may not read them can see this channel",
+                )
                 // next continues the same member's list from where the last page ended. The unfiltered list has no page to continue
                 yield* emit(bot, "!mod list next")
                 assert.equal(
@@ -902,7 +977,7 @@ test("case lists stay compact, details include actor audits, and private narrati
                     "There is no next page to show. Send !mod list to start the list again",
                 )
                 yield* emit(bot, `!mod list ${f.ids.user} next`)
-                assert.deepEqual(lists, [
+                assert.deepEqual(lists.splice(0), [
                     { type: "case-list", userId: f.ids.user },
                     { type: "case-list", userId: f.ids.user, beforeCaseNo: 11 },
                 ])
@@ -913,7 +988,7 @@ test("case lists stay compact, details include actor audits, and private narrati
                     .map((request) => request.body as Body)
                 const detail = privateBodies.find((body) => body.embeds?.[0]?.title === "Case #1: Warning")!.embeds![0]!
                 // A case shows its reason and four facts, and counts its edits with the command that lists them
-                assert.equal(detail.description, "private narrative\nEdited 20 times. `!mod history 1`")
+                assert.equal(detail.description, "private narrative\nEdited 25 times. `!mod history 1`")
                 assert.deepEqual(
                     detail.fields!.map((x) => [x.name, x.value]),
                     [
@@ -959,13 +1034,26 @@ test("case lists stay compact, details include actor audits, and private narrati
                     first.embeds.flatMap((e) => e.fields ?? []),
                     [{ name: "Next", value: "`!mod history 1 next`" }],
                 )
-                assert.deepEqual(first.inServer, ["Details sent by DM"])
+                assert.deepEqual(first.inServer, [
+                    "Details sent by DM, since members who may not read them can see this channel",
+                ])
                 const second = yield* history("!mod history 1 next")
                 assert.equal(edits(second.embeds).length, 10)
                 assert.deepEqual(
                     second.embeds.flatMap((e) => e.fields ?? []),
+                    [{ name: "Next", value: "`!mod history 1 next`" }],
+                )
+                const third = yield* history("!mod history 1 next")
+                assert.equal(edits(third.embeds).length, 5)
+                assert.deepEqual(
+                    third.embeds.flatMap((e) => e.fields ?? []),
                     [],
                 )
+                assert.deepEqual(lists, [
+                    { type: "case-history", caseNo: 1 },
+                    { type: "case-history", caseNo: 1, after: 1_700_000_000_009 },
+                    { type: "case-history", caseNo: 1, after: 1_700_000_000_019 },
+                ])
                 assert.deepEqual((yield* history("!mod history 1 next")).inServer, [
                     "There is no next page to show. Send !mod history 1 to start the list again",
                 ])
@@ -1425,7 +1513,7 @@ test("native management with free-text reasons exposes complete settings, rules,
                     ),
                 )
                 const count = managed.length
-                // Typed page numbers, a link to a case without a reason and an extra word after a case number are not forms of these commands
+                // Typed page numbers, a too short ban length and an extra word after a case number are not forms of these commands
                 const malformed = [
                     "!mod module sometimes",
                     "!mod erase @someone",
@@ -1434,7 +1522,6 @@ test("native management with free-text reasons exposes complete settings, rules,
                     "!mod ban 123456789012345679 1s reason",
                     "!automod list 2",
                     "!security recovery list 2",
-                    "!mod warn 123456789012345679 case 4",
                     "!mod void 1 now",
                     '!mod warn 123456789012345679 "unclosed',
                 ]
@@ -1449,6 +1536,105 @@ test("native management with free-text reasons exposes complete settings, rules,
                     bodies(p).at(-1)?.content,
                     "A double quote was opened but never closed. Use !mod help for examples",
                 )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("watchlist and recovery list next continue after the last row shown", async () => {
+    const f = createFixtures()
+    const lists: ModerationQueryOperation[] = []
+    const b = boundary({
+        query: (input) => {
+            lists.push(input.operation)
+            const first = !("afterUserId" in input.operation) && !("after" in input.operation)
+            return Effect.succeed(
+                input.operation.type === "watchlist-list"
+                    ? {
+                          type: "watchlist",
+                          entries: [{ userId: f.ids.user, reason: "Synthetic", createdAt: 1_700_000_000_000 }],
+                          ...(first ? { nextAfterUserId: f.ids.user } : {}),
+                      }
+                    : { type: "recoveries", recoveries: [], ...(first ? { nextAfter: 1_700_000_000_000.5 } : {}) },
+            )
+        },
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                )
+                const p = platform(bot)
+                yield* bot.ready()
+                for (const command of [
+                    "!security watchlist list",
+                    "!security watchlist list next",
+                    "!security watchlist list next",
+                    "!security recovery list",
+                    "!security recovery list next",
+                ])
+                    yield* emit(bot, command)
+                assert.deepEqual(lists, [
+                    { type: "watchlist-list" },
+                    { type: "watchlist-list", afterUserId: f.ids.user },
+                    { type: "recovery-list" },
+                    { type: "recovery-list", after: 1_700_000_000_000.5 },
+                ])
+                // The second page was the last, so a third next starts nothing
+                assert.ok(
+                    bodies(p).some(
+                        (body) =>
+                            body.content ===
+                            "There is no next page to show. Send !security watchlist list to start the list again",
+                    ),
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("a long channel list is checked with one read of the server's channels, and a channel from another server is refused", async () => {
+    const f = createFixtures()
+    const managed: ModerationManageRequest[] = []
+    const b = boundary({
+        manage: (input) => {
+            managed.push(input)
+            return Effect.succeed({ duplicate: true })
+        },
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                )
+                const p = platform(bot)
+                const ids = Array.from({ length: 30 }, () => bot.fixtures.nextId())
+                const list = bot.rest.respond(`GET /guilds/${f.ids.guild}/channels`, {
+                    body: ids.map((id) => f.channel({ id })),
+                })
+                const single = bot.rest.respond("GET /channels/:id", { body: f.channel() })
+                yield* bot.ready()
+                yield* emit(bot, `!automod update badwords exempt-channels ${ids.map((id) => `<#${id}>`).join(",")}`)
+                assert.deepEqual(managed.at(-1)?.operation, {
+                    type: "rule-update",
+                    name: "badwords",
+                    patch: { exemptChannelIds: ids },
+                })
+                assert.equal(list.requests().length, 1)
+                assert.equal(single.requests().length, 0)
+                // A channel the list does not hold is read alone, and one of another server is refused
+                const foreign = bot.fixtures.nextId()
+                bot.rest.respond(`GET /channels/${foreign}`, {
+                    body: f.channel({ id: foreign, guild_id: bot.fixtures.nextId() }),
+                })
+                yield* emit(bot, `!automod update badwords exempt-channels ${[...ids, foreign].join(" ")}`)
+                assert.equal(managed.length, 1)
+                assert.equal(list.requests().length, 2)
+                assert.notEqual(p.replies.requests().length, 0)
                 assert.equal(bot.failures().length, 0)
             }),
         ),
@@ -1512,7 +1698,7 @@ test("ordinary uncertain case recovery observes current state without resending 
                 const bot = yield* createTestBot(
                     createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
                 )
-                const p = platform(bot)
+                const p = platform(bot, { everyonePermissions: Permissions.ViewChannel })
                 record = {
                     ...caseGrant({
                         serverId: f.ids.guild,
@@ -1549,8 +1735,20 @@ test("ordinary uncertain case recovery observes current state without resending 
                 )
                 assert.ok(
                     observations.every(
-                        (input) => input.privateChannelVerified && input.observation.memberPresent === true,
+                        (input) =>
+                            input.privateChannelVerified &&
+                            input.staffChannelRoleIds === undefined &&
+                            input.observation.memberPresent === true,
                     ),
+                )
+                assert.deepEqual(
+                    bodies(p)
+                        .filter((body) => body.content)
+                        .map((body) => body.content),
+                    [
+                        "Case #1 checked. Nothing was done again. Details sent by DM, since members who may not read them can see this channel",
+                        "Case #1 checked. Nothing was done again. Details sent by DM, since members who may not read them can see this channel",
+                    ],
                 )
                 assert.equal(writes.requests().length, 0)
                 assert.equal(
@@ -2266,11 +2464,16 @@ function purgeWorld(
 ) {
     const f = createFixtures()
     let failures = options.failManage ?? 0
+    // Each manual action passes the backend's own request validation, as the real store would send it
+    const decode = Schema.decodeUnknownSync(ManageRequestSchema, { onExcessProperty: "error" })
     const b = boundary({
         manage: (input) =>
             failures-- > 0
                 ? Effect.fail(new ModerationStoreError({ operation: "manage", status: null }))
-                : Effect.succeed(caseGrant(input)),
+                : Effect.try({
+                      try: () => caseGrant(decode(input)),
+                      catch: () => new ModerationStoreError({ operation: "manage", status: 400 }),
+                  }),
     })
     return Effect.runPromise(
         Effect.scoped(
@@ -2828,24 +3031,18 @@ test("a confirm without a preview stores its reason without confirm and echoes i
     )
 })
 
-test("a purge names its member right after the count and needs a reason, and nothing else makes it narrower or wider", async () => {
+test("a purge names its member right after the count, needs no reason, and nothing else makes it narrower or wider", async () => {
     await purgeWorld(({ send, deleted, reads, member, mine }) =>
         Effect.gen(function* () {
-            // A member with no reason is refused like any missing reason, never previewed as everyone
-            for (const content of [
-                `!mod purge 2 ${member}`,
-                `!mod purge 2 <@${member}>`,
-                "!mod purge 2",
-                "!mod purge 2 confirm",
-            ])
-                assert.match(yield* send(content), /^Check quoting and values/, content)
+            // A count alone is a purge of everyone without a reason, previewed first
+            assert.equal(yield* send("!mod purge 2"), previewOf(2, "!mod purge 2 confirm"))
             // Text that is not a member is a reason, and the reply shows the exact confirm command
             for (const reason of ["spammer spam", "@spammer spam", `<@&${member}> spam`, `${member}0 spam`, "all spam"])
                 assert.equal(yield* send(`!mod purge 2 ${reason}`), previewOf(2, `!mod purge 2 ${reason} confirm`))
             assert.equal(reads(), 0)
             assert.deepEqual(deleted(), [])
-            // A member runs at once and touches only their messages, even with confirm as the last word of the reason
-            yield* send(`!mod purge 2 ${member} spam confirm`)
+            // A member runs at once without a reason and touches only their messages
+            yield* send(`!mod purge 2 <@${member}>`)
             assert.deepEqual(deleted(), [mine.id])
         }),
     )
@@ -3248,9 +3445,13 @@ test("free-text reasons, linked cases, paged lists and the merged appeal command
         userId: user,
         confirmed: false,
     })
-    // A member without a reason is refused like any missing reason, and never becomes a purge of everyone
+    // A member without a reason purges that member, and never becomes a purge of everyone
     for (const word of [user, `<@${user}>`, `<@!${user}>`])
-        assert.ok("error" in parseSafetyCommand("mod", ["purge", "20", word]), word)
+        assert.deepEqual(
+            parseSafetyCommand("mod", ["purge", "20", word]),
+            { kind: "purge", count: 20, reason: "", userId: user, confirmed: false },
+            word,
+        )
     // Without a member, the reason is everything after the count, and the purge of everyone needs a final "confirm"
     for (const words of [
         ["spam", "wave"],
@@ -3273,9 +3474,40 @@ test("free-text reasons, linked cases, paged lists and the merged appeal command
             reason: "spam wave",
             confirmed: true,
         })
-    // A reason is required, so a bare confirm is refused like a missing reason
-    for (const words of [[], ["confirm"], ["CONFIRM"]])
-        assert.ok("error" in parseSafetyCommand("mod", ["purge", "20", ...words]), words.join(" "))
+    // A reason is optional, so a bare count previews a purge of everyone and a bare confirm confirms it
+    assert.deepEqual(parseSafetyCommand("mod", ["purge", "20"]), {
+        kind: "purge",
+        count: 20,
+        reason: "",
+        confirmed: false,
+    })
+    for (const words of [["confirm"], ["CONFIRM"]])
+        assert.deepEqual(
+            parseSafetyCommand("mod", ["purge", "20", ...words]),
+            { kind: "purge", count: 20, reason: "", confirmed: true },
+            words.join(" "),
+        )
+    // Every quick action works without a reason, and a ban's length rule is unchanged
+    assert.deepEqual(action("mod", "kick", `<@${user}>`), { type: "kick", targetId: user })
+    assert.deepEqual(action("mod", "timeout", `<@${user}>`, "10m"), {
+        type: "timeout",
+        targetId: user,
+        durationSeconds: 600,
+    })
+    assert.deepEqual(action("mod", "ban", `<@${user}>`), { type: "ban", targetId: user })
+    assert.deepEqual(action("mod", "ban", `<@${user}>`, "7d"), { type: "ban", targetId: user, durationSeconds: 604800 })
+    assert.deepEqual(action("mod", "warn", user, "case", "4"), { type: "warn", targetId: user, linkedCaseNo: 4 })
+    assert.deepEqual(action("security", "lock", `<#${channel}>`), { type: "lock", channelId: channel })
+    assert.deepEqual(action("mod", "slowmode", `<#${channel}>`, "10"), {
+        type: "slowmode",
+        channelId: channel,
+        slowmodeSeconds: 10,
+    })
+    assert.match(String((action("mod", "ban", `<@${user}>`, "3") as { error?: string }).error), /A ban length/)
+    assert.ok("error" in action("mod", "kick", `<@${user}>`, "x".repeat(513)))
+    // Correcting a reason and watchlist entries still need text
+    assert.ok("error" in parseSafetyCommand("mod", ["reason", "3"]))
+    assert.ok("error" in parseSafetyCommand("security", ["watchlist", "add", `<@${user}>`]))
     assert.deepEqual(parseSafetyCommand("mod", ["reason", "3", "corrected", "reason"]), {
         kind: "manage",
         operation: { type: "case-reason", caseNo: 3, reason: "corrected reason" },
@@ -3376,10 +3608,6 @@ test("free-text reasons, linked cases, paged lists and the merged appeal command
         ["mod", "list", "user", user],
         ["logs", "list", `<@${user}>`],
         ["logs", "list", "11"],
-        ["mod", "warn", user],
-        ["mod", "ban", user, "1d"],
-        ["mod", "slowmode", channel, "10"],
-        ["mod", "purge", "20"],
         ["mod", "reason", "3"],
         ["security", "watchlist", "add", user],
         ["appeal", "cases", "11"],
@@ -3443,6 +3671,36 @@ test("safety command arguments accept only their own kind of mention, and number
     assert.ok("error" in parseSafetyCommand("security", ["watchlist", "show", `<#${channel}>`]))
     assert.ok("error" in parseSafetyCommand("automod", ["update", "spam", "exempt-roles", `<#${channel}>`]))
     assert.ok("error" in parseSafetyCommand("automod", ["update", "spam", "channels", `<@&${role}>`]))
+    // Lists hold as many channels or roles as a server can have, given apart or split by commas
+    const many = (count: number, from: number) => Array.from({ length: count }, (_, index) => String(from + index))
+    const update = (field: string, values: string[]) =>
+        parseSafetyCommand("automod", ["update", "spam", field, ...values])
+    assert.deepEqual(
+        update("channels", [
+            many(11, 1000)
+                .map((id) => `<#${id}>`)
+                .join(","),
+            ...many(10, 1011),
+        ]),
+        {
+            kind: "manage",
+            operation: { type: "rule-update", name: "spam", patch: { channelIds: many(21, 1000) } },
+        },
+    )
+    assert.deepEqual(update("exempt-channels", many(500, 1000)), {
+        kind: "manage",
+        operation: { type: "rule-update", name: "spam", patch: { exemptChannelIds: many(500, 1000) } },
+    })
+    assert.ok("error" in update("exempt-channels", many(501, 1000)))
+    assert.deepEqual(update("exempt-roles", [many(250, 1000).join(",")]), {
+        kind: "manage",
+        operation: { type: "rule-update", name: "spam", patch: { exemptRoleIds: many(250, 1000) } },
+    })
+    assert.ok("error" in update("exempt-roles", many(251, 1000)))
+    assert.deepEqual(parseSafetyCommand("mod", ["staff", "cases", ...many(21, 1000)]), {
+        kind: "manage",
+        operation: { type: "settings", patch: { staffRoleIds: { cases: many(21, 1000) } } },
+    })
     assert.deepEqual(parseSafetyCommand("mod", ["list", `<@${user}>`]), {
         kind: "query",
         operation: { type: "case-list", userId: user },
@@ -3705,12 +3963,22 @@ test("cases and appeals staff without timeout permission can read their class an
                     const bot = yield* createTestBot(
                         createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
                     )
-                    const p = platform(bot, { actorOwner: false, actorPermissions: 0n })
+                    const p = platform(bot, {
+                        actorOwner: false,
+                        actorPermissions: 0n,
+                        everyonePermissions: Permissions.ViewChannel,
+                    })
                     currentRole = p.actorRole.id
                     b.current.staffRoleIds[staffClass] = [currentRole]
                     yield* bot.ready()
                     yield* emit(bot, staffClass === "cases" ? "!mod list" : "!appeal review")
-                    assert.ok(bodies(p).some((body) => /sent by DM$/.test(body.content ?? "")))
+                    assert.ok(
+                        bodies(p).some((body) =>
+                            /sent by DM(, since members who may not read them can see this channel)?$/.test(
+                                body.content ?? "",
+                            ),
+                        ),
+                    )
                     yield* emit(bot, staffClass === "cases" ? "!appeal review" : "!mod list")
                     assert.match(bodies(p).at(-1)!.content, /current permissions/)
                     assert.equal(bot.failures().length, 0)
@@ -3883,4 +4151,425 @@ test("each safety status command shows its own feature, and !appeal status shows
             }),
         ),
     )
+})
+
+test("case lookups answer in a channel only staff can view, and by DM from a public channel or its threads", async () => {
+    const f = createFixtures()
+    const queries: ModerationQueryRequest[] = []
+    const reconciles: ModerationReconcileRequest[] = []
+    let record: ModerationCase
+    const b = boundary({
+        query: (input) => {
+            queries.push(input)
+            return Effect.succeed(
+                input.operation.type === "case-list"
+                    ? { type: "cases", cases: [record] }
+                    : input.operation.type === "settings"
+                      ? { type: "settings", settings: b.current }
+                      : { type: "case", case: record },
+            )
+        },
+        reconcile: (input) => {
+            reconciles.push(input)
+            return Effect.succeed({ recorded: true, case: record })
+        },
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                )
+                // NeonFlux is no Administrator, as its invite does not ask for it
+                const p = platform(bot, {
+                    everyonePermissions: Permissions.ViewChannel,
+                    targetPermissions: Permissions.ManageMessages,
+                    botPermissions: Permissions.ManageMessages | Permissions.KickMembers | Permissions.BanMembers,
+                })
+                const threadId = bot.fixtures.nextId()
+                record = {
+                    ...caseGrant({
+                        serverId: f.ids.guild,
+                        messageId: bot.fixtures.nextId(),
+                        createdAt: 1_700_000_000_000,
+                        actor: {
+                            userId: f.ids.user,
+                            roleIds: [],
+                            isOwner: true,
+                            isAdministrator: true,
+                            nativePermissionAuthorized: true,
+                        },
+                        operation: {
+                            type: "action",
+                            action: { type: "warn", targetId: p.targetId },
+                            context: {
+                                botId: f.ids.bot,
+                                botActionAuthorized: true,
+                                actorCanManageTarget: true,
+                                botCanManageTarget: true,
+                                targetProtected: false,
+                            },
+                        },
+                    }).case,
+                    outcome: "succeeded",
+                }
+                // The channel denies the everyone role ViewChannel, so it is a staff channel. NeonFlux enters it through its own member
+                // overwrite, as it must on Fluxer to read the command and answer there
+                const own = { id: f.ids.bot, type: 1, allow: Permissions.ViewChannel.toString(), deny: "0" }
+                const staffOnly = (deny: bigint) =>
+                    bot.rest.respond(`GET /channels/${f.ids.channel}`, {
+                        body: f.channel({
+                            permission_overwrites: [
+                                { id: f.ids.guild, type: 0, allow: "0", deny: deny.toString() },
+                                own,
+                            ],
+                        }),
+                    })
+                staffOnly(Permissions.ViewChannel)
+                bot.rest.respond(`GET /channels/${threadId}`, {
+                    body: bot.fixtures.thread({ id: threadId, type: 11, parent_id: f.ids.channel }),
+                })
+                yield* bot.ready()
+                const sent = (content: string, overrides = {}) =>
+                    Effect.gen(function* () {
+                        const before = p.replies.requests().length
+                        yield* emit(bot, content, overrides)
+                        return p.replies.requests().slice(before)
+                    })
+                for (const content of [`!mod list <@${p.targetId}>`, "!mod show 1", "!mod history 1"]) {
+                    const replies = yield* sent(content)
+                    assert.equal(replies.length, 1, content)
+                    assert.equal(replies[0]!.path, `/channels/${f.ids.channel}/messages`, content)
+                    assert.ok((replies[0]!.body as Body).embeds?.length, content)
+                }
+                assert.equal(p.open.requests().length, 0)
+                // Only Administrators can view it, so no staff role list is needed
+                assert.deepEqual(
+                    queries.map((input) => [
+                        input.staffChannelRoleIds,
+                        input.privateChannelVerified,
+                        input.originServerId,
+                    ]),
+                    Array.from({ length: 3 }, () => [[], undefined, f.ids.guild]),
+                )
+                // The case card shows that no reason was given
+                assert.equal((p.replies.requests().at(-2)!.body as Body).embeds![0]!.description, "No reason given")
+                // Recovery answers in place too, with the staff channel proof on the read and the check
+                const recovered = yield* sent("!mod recover 1")
+                assert.equal(recovered.length, 1)
+                assert.equal(recovered[0]!.path, `/channels/${f.ids.channel}/messages`)
+                assert.deepEqual(queries.at(-1)!.staffChannelRoleIds, [])
+                assert.deepEqual(reconciles[0]!.staffChannelRoleIds, [])
+                assert.equal(reconciles[0]!.privateChannelVerified, undefined)
+                // A thread follows its parent, so a thread of the staff channel answers in place
+                const inThread = yield* sent("!mod show 1", { channel_id: threadId })
+                assert.deepEqual(
+                    inThread.map((request) => request.path),
+                    [`/channels/${threadId}/messages`],
+                )
+                assert.equal((inThread[0]!.body as Body).embeds![0]!.title, "Case #1: Warning")
+                // Once everyone can view the channel, the answer goes by DM with a hint, also from its thread
+                staffOnly(0n)
+                for (const overrides of [{}, { channel_id: threadId }]) {
+                    const replies = yield* sent("!mod show 1", overrides)
+                    assert.equal(replies[0]!.path, `/channels/${p.dmId}/messages`)
+                    assert.equal(
+                        (replies[1]!.body as Body).content,
+                        "Details sent by DM, since members who may not read them can see this channel",
+                    )
+                    assert.equal(queries.at(-1)!.privateChannelVerified, true)
+                    assert.equal(queries.at(-1)!.staffChannelRoleIds, undefined)
+                }
+                // A channel hidden from everyone but shown to a role that may not read cases is public too, even when that role
+                // holds a moderation permission such as Manage messages
+                bot.rest.respond(`GET /channels/${f.ids.channel}`, {
+                    body: f.channel({
+                        permission_overwrites: [
+                            { id: f.ids.guild, type: 0, allow: "0", deny: Permissions.ViewChannel.toString() },
+                            { id: p.targetRole.id, type: 0, allow: Permissions.ViewChannel.toString(), deny: "0" },
+                            own,
+                        ],
+                    }),
+                })
+                const shown = yield* sent("!mod show 1")
+                assert.equal(shown[0]!.path, `/channels/${p.dmId}/messages`)
+                assert.equal(queries.at(-1)!.staffChannelRoleIds, undefined)
+                // Once that role reads cases, the channel is a staff channel for case answers, and its roles go with the read for the
+                // backend to check
+                b.current.staffRoleIds.cases = [p.targetRole.id]
+                const staffRole = yield* sent("!mod show 1")
+                assert.deepEqual(
+                    staffRole.map((request) => request.path),
+                    [`/channels/${f.ids.channel}/messages`],
+                )
+                assert.deepEqual(queries.at(-1)!.staffChannelRoleIds, [p.targetRole.id])
+                // A recovery check there still goes by DM, since that role is not moderation and security staff too
+                const recheck = yield* sent("!mod recover 1")
+                assert.equal(recheck[0]!.path, `/channels/${p.dmId}/messages`)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("a kick DMs the member after the claim and before the kick, and a refused DM never stops it", async () => {
+    for (const scenario of ["sent", "refused", "kick fails"] as const) {
+        const f = createFixtures()
+        const order: string[] = []
+        const notices: ModerationNoticeOutcomeRequest[] = []
+        let targetId = ""
+        const b = boundary({
+            manage: (input) => Effect.succeed(caseGrant(input)),
+            dispatch: (input) => {
+                order.push("claim")
+                return Effect.succeed({
+                    recorded: false,
+                    notice: {
+                        noticeId: input.actionId,
+                        caseNo: input.caseNo,
+                        targetId,
+                        action: "kick",
+                        reason: "",
+                        appeals: false,
+                    },
+                })
+            },
+            noticeOutcome: (input) => {
+                notices.push(input)
+                return Effect.succeed({ recorded: true })
+            },
+        })
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(
+                        createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                    )
+                    const p = platform(bot)
+                    targetId = p.targetId
+                    const dm = bot.rest.respond(`POST /channels/${p.dmId}/messages`, () => {
+                        order.push("dm")
+                        return scenario === "refused"
+                            ? { status: 403, body: { code: "MISSING_ACCESS", message: "synthetic refusal" } }
+                            : { body: f.message({ channel_id: p.dmId, author: f.botUser() }) }
+                    })
+                    bot.rest.respond("DELETE /guilds/:id/members/:id", () => {
+                        order.push("kick")
+                        return scenario === "kick fails"
+                            ? { status: 403, body: { code: "MISSING_PERMISSIONS", message: "synthetic refusal" } }
+                            : { status: 204 }
+                    })
+                    yield* bot.ready()
+                    yield* emit(bot, `!mod kick <@${targetId}>`)
+                    assert.deepEqual(order, ["claim", "dm", "kick"], scenario)
+                    const notice = dm.requests()[0]!.body as Body
+                    assert.deepEqual(notice.embeds, [
+                        {
+                            color: 0x5560e6,
+                            title: "Kicked from Fixture Guild, case #1",
+                            description: "No reason given",
+                        },
+                    ])
+                    assert.equal(notices.length, 1)
+                    assert.equal(notices[0]!.outcome, scenario === "refused" ? "failed" : "sent")
+                    assert.equal(
+                        bodies(p).at(-1)!.content,
+                        scenario === "sent"
+                            ? `Case #1: Kick of <@${targetId}> succeeded. Member notified by DM`
+                            : scenario === "refused"
+                              ? `Case #1: Kick of <@${targetId}> succeeded. The member's DM could not be delivered`
+                              : `Case #1: Kick of <@${targetId}> is not confirmed yet. Run \`!mod recover 1\` to check it. The member was already sent the notice`,
+                    )
+                    assert.equal(bot.failures().length, 0)
+                }),
+            ),
+        )
+    }
+})
+
+test("a timeout DMs the member after it lands, a ban notice names its length, and appeal steps show only while appeals are on", async () => {
+    const f = createFixtures()
+    const until = "2026-10-04T05:00:00.000Z"
+    let targetId = ""
+    const b = boundary({
+        manage: (input) =>
+            Effect.succeed(
+                caseGrant(
+                    input,
+                    input.operation.type === "action" && input.operation.action.type === "timeout"
+                        ? { expectedTimeoutUntil: null }
+                        : { caseNo: 2 },
+                ),
+            ),
+        dispatch: (input) =>
+            Effect.succeed({
+                recorded: false,
+                ...(input.caseNo === 2
+                    ? {
+                          notice: {
+                              noticeId: input.actionId,
+                              caseNo: 2,
+                              targetId,
+                              action: "ban" as const,
+                              reason: "raid",
+                              durationSeconds: 604800,
+                              appeals: true,
+                          },
+                      }
+                    : {}),
+            }),
+        outcome: (input) =>
+            Effect.succeed({
+                recorded: true,
+                ...(input.caseNo === 1
+                    ? {
+                          log: {
+                              logId: input.actionId,
+                              channelId: f.ids.channel,
+                              caseNo: 1,
+                              action: "timeout" as const,
+                              outcome: "succeeded" as const,
+                              targetId,
+                              reason: "",
+                              durationSeconds: 600,
+                          },
+                          notice: {
+                              noticeId: input.actionId,
+                              caseNo: 1,
+                              targetId,
+                              action: "timeout" as const,
+                              reason: "",
+                              durationSeconds: 600,
+                              timeoutUntil: until,
+                              appeals: false,
+                          },
+                      }
+                    : {}),
+            }),
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                )
+                const p = platform(bot)
+                targetId = p.targetId
+                bot.rest.respond("PATCH /guilds/:id/members/:id", {
+                    body: f.member({ user: f.user({ id: targetId }), communication_disabled_until: until }),
+                })
+                const bans = bot.rest.respond("PUT /guilds/:id/bans/:id", { status: 204 })
+                bot.rest.respond("GET /guilds/:id/bans", { body: [] })
+                const dm = bot.rest.respond(`POST /channels/${p.dmId}/messages`, () => ({
+                    body: f.message({ channel_id: p.dmId, author: f.botUser() }),
+                }))
+                yield* bot.ready()
+                yield* emit(bot, `!mod timeout <@${targetId}> 10m`)
+                const log = bodies(p).find((body) => body.embeds?.[0]?.title === "Case #1: Timeout")!
+                assert.deepEqual(
+                    log.embeds![0]!.fields!.map((x) => [x.name, x.value]),
+                    [
+                        ["Result", "Done"],
+                        ["Member", `<@${targetId}>`],
+                        ["By", `<@${f.ids.user}>`],
+                        ["Reason", "No reason given"],
+                        ["Duration", "10 minutes"],
+                        ["Details", "`!mod show 1`"],
+                    ],
+                )
+                assert.deepEqual((dm.requests()[0]!.body as Body).embeds, [
+                    {
+                        color: 0x5560e6,
+                        title: `Timed out in Fixture Guild until <t:${Date.parse(until) / 1000}:f>, case #1`,
+                        description: "No reason given",
+                    },
+                ])
+                assert.match(bodies(p).at(-1)!.content, /for 10 minutes succeeded\. Member notified by DM$/)
+                // The ban's native request carries no reason when none was given
+                yield* emit(bot, `!mod ban <@${targetId}> 7d raid`)
+                assert.equal(bans.requests().length, 1)
+                assert.deepEqual(
+                    (dm.requests()[1]!.body as Body).embeds![0]!.title,
+                    "Banned from Fixture Guild for 1 week, case #2",
+                )
+                assert.deepEqual(
+                    (dm.requests()[1]!.body as Body).embeds![0]!.fields!.map((x) => x.name),
+                    ["Appeal", "Your cases"],
+                )
+                yield* emit(bot, `!mod ban <@${targetId}>`)
+                assert.equal("reason" in (bans.requests()[1]!.body as object), false)
+                assert.equal(dm.requests().length, 2)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("automod patterns grow and shrink in place, a long list shows its first 20, and case retention is set by chat", async () => {
+    const parsed = (name: SafetyName, ...args: string[]) => parseSafetyCommand(name, args)
+    assert.deepEqual(parsed("automod", "update", "bad", "patterns", "add", "x", "y"), {
+        kind: "manage",
+        operation: { type: "rule-update", name: "bad", patch: { addPatterns: ["x", "y"] } },
+    })
+    assert.deepEqual(parsed("automod", "update", "bad", "patterns", "remove", "x"), {
+        kind: "manage",
+        operation: { type: "rule-update", name: "bad", patch: { removePatterns: ["x"] } },
+    })
+    assert.ok("error" in parsed("automod", "update", "bad", "patterns", "add"))
+    const many = Array.from({ length: 30 }, (_, i) => `word${i}`)
+    assert.deepEqual(parsed("automod", "update", "bad", "patterns", ...many), {
+        kind: "manage",
+        operation: { type: "rule-update", name: "bad", patch: { patterns: many } },
+    })
+    const rule: AutomodRule = {
+        name: "bad",
+        type: "words",
+        enabled: true,
+        priority: 0,
+        action: "delete",
+        threshold: 1,
+        windowSeconds: 10,
+        durationSeconds: 600,
+        patterns: many,
+        domainMode: "block",
+        channelIds: [],
+        exemptChannelIds: [],
+        exemptRoleIds: [],
+    }
+    const command = (feature: string, rest: string) => `!${feature} ${rest}`
+    const card = queryCard({ type: "rule", rule }, "automod", command)
+    assert.ok(card.description!.includes("`word19` and 10 more"))
+    assert.ok(!card.description!.includes("`word20`"))
+    assert.equal(
+        manageConfirmation(
+            { duplicate: false, type: "rule", rule },
+            { type: "rule-update", name: "bad", patch: { addPatterns: ["word29"] } },
+        ),
+        "Automod rule bad now has 30 patterns",
+    )
+    assert.deepEqual(parsed("mod", "retention", "keep"), {
+        kind: "manage",
+        operation: { type: "settings", patch: { caseRetentionDays: null } },
+    })
+    assert.deepEqual(parsed("mod", "retention", "90"), {
+        kind: "manage",
+        operation: { type: "settings", patch: { caseRetentionDays: 90 } },
+    })
+    for (const value of ["0", "3651", "forever"]) assert.ok("error" in parsed("mod", "retention", value), value)
+    const settings = boundary().current
+    const changed = (caseRetentionDays: number | null) =>
+        manageConfirmation(
+            { duplicate: false, type: "settings", settings: { ...settings, caseRetentionDays } },
+            { type: "settings", patch: { caseRetentionDays } },
+        )
+    assert.equal(changed(90), "Cases are now kept for 90 days")
+    assert.equal(changed(null), "Cases are now kept until erased")
+    const status = (caseRetentionDays?: number) =>
+        queryCard(
+            { type: "settings", settings: { ...settings, ...(caseRetentionDays ? { caseRetentionDays } : {}) } },
+            "mod",
+            command,
+        ).fields!.at(-1)
+    assert.deepEqual(status(), ["Cases kept", "Until erased"])
+    assert.deepEqual(status(30), ["Cases kept", "For 30 days"])
 })

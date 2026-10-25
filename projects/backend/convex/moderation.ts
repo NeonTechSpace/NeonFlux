@@ -13,6 +13,7 @@ import {
     ModerationOutcomeRequest,
     ModerationQueryRequest,
     ModerationReconcileRequest,
+    type AutomodRule,
     type ModerationGateResult,
     type ModerationLogOutcomeResult,
     type ModerationManageResult,
@@ -21,12 +22,13 @@ import {
     type ModerationQueryResult,
     type ModerationReconcileResult,
     type ModerationSettings,
+    type ModerationNoticeGrant,
     type StaffClass,
     type StaffLogGrant,
-    type WarningNoticeGrant,
 } from "@neonflux/contracts/moderation"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
 import type { MutationCtx } from "./_generated/server.js"
+import type { Doc } from "./_generated/dataModel.js"
 import { internal } from "./_generated/api.js"
 import {
     actor,
@@ -34,9 +36,12 @@ import {
     anyStaff,
     authorize,
     BATCH,
+    CORRECTION_BATCH,
     gateFor,
     DAY,
     lockMask,
+    retentionUntil,
+    SERVER_PATTERNS,
     rule,
     rulePatch,
     settingsPatch,
@@ -45,6 +50,8 @@ import { ownedOverwriteEqual, reserveAction } from "./moderationActions.ts"
 import {
     caseByNo,
     config,
+    correctionPage,
+    deleteCorrections,
     paged,
     publicCase,
     publicRecovery,
@@ -88,8 +95,38 @@ function scopeFor(type: string): StaffClass {
             ? "cases"
             : "moderation"
 }
-function privateRead(input: { privateChannelVerified?: boolean }) {
-    if (input.privateChannelVerified !== true) fail(403, "Private channel required")
+// Case and watchlist reads answer in a DM the bot verified, or in a server channel it read fresh that only Administrators and
+// staff roles of this read can view, so the answer never reaches a member the backend would refuse it
+function privateRead(
+    input: { privateChannelVerified?: boolean; staffChannelRoleIds?: readonly string[] },
+    settings: ModerationSettings,
+    scope: StaffClass,
+) {
+    if (
+        input.privateChannelVerified !== true &&
+        !input.staffChannelRoleIds?.every((id) => settings.staffRoleIds[scope].includes(id))
+    )
+        fail(403, "Private or staff channel required")
+}
+/** The member's notice of a warning, timeout, kick or ban, marked pending so it is sent at most once. Bot accounts get none */
+async function memberNotice(
+    ctx: MutationCtx,
+    row: Doc<"moderationCases">,
+    timeoutUntil?: string | null,
+): Promise<ModerationNoticeGrant | undefined> {
+    if (!row.targetId || row.targetBot || !["warn", "timeout", "kick", "ban"].includes(row.action)) return undefined
+    await ctx.db.patch(row._id, { notificationOutcome: "pending" })
+    const settings = config(await readSettings(ctx, row.serverId))
+    return {
+        noticeId: row._id,
+        caseNo: row.caseNo,
+        targetId: row.targetId,
+        action: row.action as ModerationNoticeGrant["action"],
+        reason: row.reason,
+        ...(row.grant?.durationSeconds ? { durationSeconds: row.grant.durationSeconds } : {}),
+        ...(timeoutUntil ? { timeoutUntil } : {}),
+        appeals: settings.appealsEnabled,
+    }
 }
 function recoveryScope(row: { origin: string; action: string }): StaffClass {
     return row.origin === "security" || ["lock", "unlock", "quarantine", "release"].includes(row.action)
@@ -185,7 +222,7 @@ export const manage = serviceMutation({
         }
         if (op.type === "case-reason" || op.type === "case-void") {
             const row = await caseByNo(ctx, identity.serverId, op.caseNo)
-            if (row.erased || row.correctionCount >= 20) fail(409, "Case cannot be corrected")
+            if (row.erased) fail(409, "Case cannot be corrected")
             if (op.type === "case-void" && row.voided) fail(409, "Case already voided")
             if (op.type === "case-void" && row.action !== "warn")
                 fail(409, "Only a warning can be voided. Case " + row.caseNo + " is not one", "REFUSED")
@@ -197,6 +234,9 @@ export const manage = serviceMutation({
                 previousReason: row.reason,
                 reason,
                 type: op.type === "case-reason" ? "reason" : "void",
+                serverId: identity.serverId,
+                caseNo: row.caseNo,
+                ...(row.targetId ? { targetId: row.targetId } : {}),
             })
             await ctx.db.patch(row._id, {
                 reason,
@@ -227,15 +267,13 @@ export const manage = serviceMutation({
                 })
                 return { duplicate: false, type: "case", ...result }
             }
-            return { duplicate: false, type: "case", case: await publicCase(ctx, (await ctx.db.get(row._id))!) }
+            return { duplicate: false, type: "case", case: publicCase((await ctx.db.get(row._id))!) }
         }
         if (op.type === "erase") {
             const row = await caseByNo(ctx, identity.serverId, op.caseNo)
-            const corrections = await ctx.db
-                .query("moderationCorrections")
-                .withIndex("by_case", (q) => q.eq("caseId", row._id))
-                .take(21)
-            for (const correction of corrections) await ctx.db.delete(correction._id)
+            // The case reads as erased at once, and a case with many corrections finishes deleting them in the next runs
+            if ((await deleteCorrections(ctx, row._id, CORRECTION_BATCH)).more)
+                await ctx.scheduler.runAfter(0, internal.moderationRetention.eraseCorrections, { caseId: row._id })
             await ctx.db.patch(row._id, {
                 reason: "[Erased by owner]",
                 erased: true,
@@ -271,8 +309,8 @@ export const query = serviceQuery({
             const row = await caseByNo(ctx, serverId, op.caseNo)
             if (!row.recoveryId) fail(403, "Recovery case required")
             authorize(who, settings, recoveryScope(row), true)
-            privateRead(input)
-            return { type: "case", case: await publicCase(ctx, row) }
+            privateRead(input, settings, recoveryScope(row))
+            return { type: "case", case: publicCase(row) }
         }
         // Any staff role may read the settings, since each area's status commands share this one read
         if (op.type === "settings") {
@@ -297,10 +335,18 @@ export const query = serviceQuery({
                     : {}),
             }
         }
-        if (type.startsWith("case-") || type.startsWith("watchlist-")) privateRead(input)
+        if (type.startsWith("case-") || type.startsWith("watchlist-")) privateRead(input, settings, scopeFor(type))
         const page = "page" in op ? (op.page ?? 1) : 1
-        if (op.type === "case-show")
-            return { type: "case", case: await publicCase(ctx, await caseByNo(ctx, serverId, op.caseNo)) }
+        if (op.type === "case-show") return { type: "case", case: publicCase(await caseByNo(ctx, serverId, op.caseNo)) }
+        if (op.type === "case-history") {
+            const row = await caseByNo(ctx, serverId, op.caseNo)
+            return {
+                type: "case-history",
+                caseNo: row.caseNo,
+                erased: row.erased,
+                ...(await correctionPage(ctx, row, op.after, 10)),
+            }
+        }
         if (op.type === "case-list") {
             const before = op.beforeCaseNo ?? Number.MAX_SAFE_INTEGER,
                 userId = op.userId
@@ -321,7 +367,7 @@ export const query = serviceQuery({
             const selected = rows.slice(0, 10)
             return {
                 type: "cases",
-                cases: await Promise.all(selected.map((row) => publicCase(ctx, row))),
+                cases: selected.map(publicCase),
                 ...(rows.length > 10 ? { nextBeforeCaseNo: selected.at(-1)!.caseNo } : {}),
             }
         }
@@ -349,15 +395,21 @@ export const query = serviceQuery({
             reason,
             createdAt,
         })
+        // The watchlist and recovery lists continue after the last row shown, so a page reads only its own rows and the next one
         if (op.type === "watchlist-list") {
-            const result = paged(
-                await ctx.db
-                    .query("securityWatchlist")
-                    .withIndex("by_server_user", (q) => q.eq("serverId", serverId))
-                    .take(1001),
-                page,
-            )
-            return { type: "watchlist", entries: result.rows.map(entry), page, totalPages: result.totalPages }
+            const after = op.afterUserId
+            const rows = await ctx.db
+                .query("securityWatchlist")
+                .withIndex("by_server_user", (q) =>
+                    after === undefined ? q.eq("serverId", serverId) : q.eq("serverId", serverId).gt("userId", after),
+                )
+                .take(11)
+            const selected = rows.slice(0, 10)
+            return {
+                type: "watchlist",
+                entries: selected.map(entry),
+                ...(rows.length > 10 ? { nextAfterUserId: selected.at(-1)!.userId } : {}),
+            }
         }
         if (op.type === "watchlist-show") {
             const userId = op.userId,
@@ -369,18 +421,20 @@ export const query = serviceQuery({
             return { type: "watchlist-entry", entry: entry(row) }
         }
         if (op.type === "recovery-list") {
-            const result = paged(
-                await ctx.db
-                    .query("securityRecoveries")
-                    .withIndex("by_server", (q) => q.eq("serverId", serverId))
-                    .take(1001),
-                page,
-            )
+            const after = op.after
+            const rows = await ctx.db
+                .query("securityRecoveries")
+                .withIndex("by_server", (q) =>
+                    after === undefined
+                        ? q.eq("serverId", serverId)
+                        : q.eq("serverId", serverId).gt("_creationTime", after),
+                )
+                .take(11)
+            const selected = rows.slice(0, 10)
             return {
                 type: "recoveries",
-                recoveries: result.rows.map(publicRecovery),
-                page,
-                totalPages: result.totalPages,
+                recoveries: selected.map(publicRecovery),
+                ...(rows.length > 10 ? { nextAfter: selected.at(-1)!._creationTime } : {}),
             }
         }
         const rows =
@@ -423,16 +477,18 @@ export const outcome = serviceMutation({
         const input = decode(OutcomeRequest, request)
         const row = await boundCase(ctx, input, input.actionId)
         // The bot claims the grant right before it dispatches the provider action. Only the first claim may dispatch
+        // A kick or ban notice is claimed with the dispatch and sent before the action, while the member can still be reached
         if ("dispatch" in input) {
             if (row.outcome !== "pending" || row.dispatched) fail(409, "Action changed")
             await ctx.db.patch(row._id, { dispatched: true })
-            return { recorded: false }
+            const notice = row.action === "kick" || row.action === "ban" ? await memberNotice(ctx, row) : undefined
+            return { recorded: false, ...(notice ? { notice } : {}) }
         }
         if (row.outcome !== "pending") {
             if (row.outcome !== input.outcome) fail(409, "Outcome already recorded")
             return { recorded: false }
         }
-        const result: { recorded: boolean; log?: StaffLogGrant; notice?: WarningNoticeGrant } = { recorded: true }
+        const result: { recorded: boolean; log?: StaffLogGrant; notice?: ModerationNoticeGrant } = { recorded: true }
         await ctx.db.patch(row._id, { outcome: input.outcome })
         if (row.recoveryId) {
             const recovery = await ctx.db.get(row.recoveryId)
@@ -500,11 +556,13 @@ export const outcome = serviceMutation({
                 outcome: input.outcome as "succeeded" | "failed" | "uncertain",
                 reason: row.reason,
                 ...(row.targetId ? { targetId: row.targetId } : {}),
+                ...(row.grant?.durationSeconds ? { durationSeconds: row.grant.durationSeconds } : {}),
             }
         }
-        if (row.action === "warn" && row.targetId && input.outcome === "succeeded") {
-            await ctx.db.patch(row._id, { notificationOutcome: "pending" })
-            result.notice = { noticeId: row._id, caseNo: row.caseNo, targetId: row.targetId, reason: row.reason }
+        // A warning or timeout notice follows the action, since the member stays in the server
+        if ((row.action === "warn" || row.action === "timeout") && input.outcome === "succeeded") {
+            const notice = await memberNotice(ctx, row, input.timeoutUntil)
+            if (notice) result.notice = notice
         }
         return result
     },
@@ -542,8 +600,9 @@ export const reconcile = serviceMutation({
         const id = ctx.db.normalizeId("moderationCases", input.actionId)
         const row = id ? await ctx.db.get(id) : null
         if (!row || row.serverId !== identity.serverId) fail(404, "Case not found")
-        authorize(who, settings, row.recoveryId ? recoveryScope(row) : "cases", true)
-        privateRead(input)
+        const scope = row.recoveryId ? recoveryScope(row) : "cases"
+        authorize(who, settings, scope, true)
+        privateRead(input, settings, scope)
         // The read server and member are evidence for this check only and are not kept
         const { originServerId: _origin, memberUserId: _member, ...observation } = input.observation
         const observedAt = observation.observedAt
@@ -555,7 +614,7 @@ export const reconcile = serviceMutation({
         }
         const claim = await receipt(ctx, identity.serverId, `manual:${identity.messageId}`, now)
         if (claim.duplicate || (row.observation?.observedAt ?? -1) >= observedAt)
-            return { recorded: false, case: await publicCase(ctx, row) }
+            return { recorded: false, case: publicCase(row) }
         await ctx.db.patch(row._id, { observation })
         if (row.recoveryId) {
             const recovery = await ctx.db.get(row.recoveryId)
@@ -578,7 +637,7 @@ export const reconcile = serviceMutation({
                     await ctx.db.patch(recovery._id, { knownDeadline: Date.parse(observation.banExpiresAt) })
             }
         }
-        return { recorded: true, case: await publicCase(ctx, (await ctx.db.get(row._id))!) }
+        return { recorded: true, case: publicCase((await ctx.db.get(row._id))!) }
     },
 })
 
@@ -635,6 +694,17 @@ export const gate = serviceQuery({
 export async function cleanupModeration(ctx: MutationCtx, now: number) {
     let removed = 0
     let continuation = false
+    // A row is due under the period it was stamped with. The server's current setting decides, so a longer period or keeping
+    // until erased moves the row's expiry instead, also for rows stamped before the setting changed
+    const retention = new Map<string, ModerationSettings>()
+    const keptUntil = async (serverId: string, from: number) => {
+        let settings = retention.get(serverId)
+        if (!settings) {
+            settings = config(await readSettings(ctx, serverId))
+            retention.set(serverId, settings)
+        }
+        return retentionUntil(settings, from)
+    }
     // Readers already ignore these through recoveryElapsed, so deleting them can wait for the next run
     const elapsed = await ctx.db
         .query("securityRecoveries")
@@ -667,6 +737,11 @@ export async function cleanupModeration(ctx: MutationCtx, now: number) {
         .withIndex("by_expiry", (q) => q.gt("expiresAt", 0).lte("expiresAt", now))
         .take(BATCH)
     for (const row of appeals) {
+        const until = await keptUntil(row.serverId, row.decidedAt ?? row.createdAt)
+        if (until > now) {
+            await ctx.db.patch(row._id, { expiresAt: until })
+            continue
+        }
         await ctx.db.delete(row._id)
         removed++
     }
@@ -675,7 +750,13 @@ export async function cleanupModeration(ctx: MutationCtx, now: number) {
         .query("moderationCases")
         .withIndex("by_expiry", (q) => q.lte("expiresAt", now))
         .take(BATCH)
+    let correctionBudget = CORRECTION_BATCH
     for (const row of cases) {
+        const until = await keptUntil(row.serverId, row.createdAt)
+        if (until > now) {
+            await ctx.db.patch(row._id, { expiresAt: until })
+            continue
+        }
         // A live recovery snapshot or appeal keeps its case readable
         if (row.recoveryId && (await ctx.db.get(row.recoveryId))) {
             await ctx.db.patch(row._id, { expiresAt: now + DAY })
@@ -691,11 +772,13 @@ export async function cleanupModeration(ctx: MutationCtx, now: number) {
             })
             continue
         }
-        for (const correction of await ctx.db
-            .query("moderationCorrections")
-            .withIndex("by_case", (q) => q.eq("caseId", row._id))
-            .take(21))
-            await ctx.db.delete(correction._id)
+        // A case with more corrections than this run may still delete stays due for the next run
+        const corrections = await deleteCorrections(ctx, row._id, correctionBudget)
+        correctionBudget -= corrections.deleted
+        if (corrections.more) {
+            continuation = true
+            break
+        }
         await ctx.db.delete(row._id)
         removed++
         const settings = await readSettings(ctx, row.serverId)
@@ -730,6 +813,13 @@ async function applyConfiguration(
             await protectedStaffRoles(ctx, identity.serverId, [...new Set(Object.values(staffRoleIds).flat())])
         }
         await ctx.db.patch(current._id, { config: next })
+        // Stored cases and closed appeals take the new period in scheduled pages, so a large history never fails the change
+        if ((settings.caseRetentionDays ?? null) !== (next.caseRetentionDays ?? null))
+            await ctx.scheduler.runAfter(0, internal.moderationRetention.restamp, {
+                serverId,
+                table: "cases",
+                after: 0,
+            })
         // Leaving DEFCON 1 makes the log posts it held due again, and returning to DEFCON 3 the scheduled and milestone posts and
         // the level rewards. The wakes run as scheduled batches, so a large backlog can never make the DEFCON change itself fail
         if (settings.defcon === 1 && next.defcon !== 1)
@@ -753,18 +843,23 @@ async function applyConfiguration(
             .query("automodRules")
             .withIndex("by_server_name", (q) => q.eq("serverId", identity.serverId).eq("name", ruleName))
             .unique()
+        // Every message reads all of a server's rules, so their patterns together stay within today's worst case of 100 rules of 20
+        const capacity = async (data: AutomodRule) => {
+            const others = (
+                await ctx.db
+                    .query("automodRules")
+                    .withIndex("by_server_name", (q) => q.eq("serverId", identity.serverId))
+                    .take(101)
+            ).filter((row) => row.name !== data.name)
+            if (op.type === "rule-create" && others.length >= 100) fail(429, "Rule capacity reached")
+            const total = others.reduce((sum, row) => sum + row.rule.patterns.length, data.patterns.length)
+            if (total > SERVER_PATTERNS)
+                fail(429, `A server's automod rules hold at most ${SERVER_PATTERNS} patterns together`, "REFUSED")
+        }
         if (op.type === "rule-create") {
             if (existing) fail(409, "Rule already exists")
-            if (
-                (
-                    await ctx.db
-                        .query("automodRules")
-                        .withIndex("by_server_name", (q) => q.eq("serverId", identity.serverId))
-                        .take(101)
-                ).length >= 100
-            )
-                fail(429, "Rule capacity reached")
             const data = rule(op.rule)
+            await capacity(data)
             await ctx.db.insert("automodRules", { serverId: identity.serverId, name: data.name, rule: data })
             return { duplicate: false, type: "rule", rule: data }
         }
@@ -774,6 +869,7 @@ async function applyConfiguration(
             return { duplicate: false, type: "deleted", name: ruleName }
         }
         const data = rulePatch(existing.rule, op.patch)
+        if (data.patterns.length > existing.rule.patterns.length) await capacity(data)
         await ctx.db.patch(existing._id, { rule: data })
         return { duplicate: false, type: "rule", rule: data }
     }

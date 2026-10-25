@@ -9,6 +9,8 @@ import { requestError } from "./request-error"
 import { localTime } from "./time"
 
 const erased = <em>Erased by the server owner</em>
+/** A case's reason. Staff may act without giving one */
+const reasonOf = (row: ModerationCase) => (row.erased ? erased : row.reason || "No reason given")
 
 /** What staff run to undo a sanction after one of its appeals was accepted, which never undoes it. The case link makes the
  *  backend check the target, so a command pasted for the wrong member fails */
@@ -16,11 +18,11 @@ function reversal(row: ModerationCase) {
     const member = row.targetId ?? "<member ID>"
     switch (row.action) {
         case "ban":
-            return `!mod unban ${member} case ${row.caseNo} <reason>`
+            return `!mod unban ${member} case ${row.caseNo}`
         case "timeout":
-            return `!mod untimeout ${member} case ${row.caseNo} <reason>`
+            return `!mod untimeout ${member} case ${row.caseNo}`
         case "quarantine":
-            return `!security release ${member} case ${row.caseNo} <reason>`
+            return `!security release ${member} case ${row.caseNo}`
         case "warn":
             return `!mod void ${row.caseNo}`
         default:
@@ -155,7 +157,7 @@ export function PrivateCasesSection({
                         </td>
                         <td>{row.actorId ?? row.origin}</td>
                         <td>{row.outcome}</td>
-                        <td>{row.erased ? erased : row.reason}</td>
+                        <td>{reasonOf(row)}</td>
                     </tr>
                 ))}
             </tbody>
@@ -278,15 +280,16 @@ export function PrivateCasesSection({
                             {data.case.ruleName ? `, rule ${data.case.ruleName}` : ""}
                             {data.case.linkedCaseNo ? `, linked to case ${data.case.linkedCaseNo}` : ""}
                         </li>
-                        <li>Reason: {data.case.erased ? erased : data.case.reason}</li>
+                        <li>Reason: {reasonOf(data.case)}</li>
                     </ul>
                     <h3>Corrections</h3>
-                    {data.case.corrections.length ? (
+                    {data.corrections.length ? (
                         <ul className="request-list">
-                            {data.case.corrections.map((row) => (
+                            {data.corrections.map((row) => (
                                 <li key={row.createdAt}>
                                     {row.type === "void" ? "Voided" : "Reason corrected"} by {row.actorId},{" "}
-                                    {localTime(row.createdAt)}: {row.previousReason} → {row.reason}
+                                    {localTime(row.createdAt)}: {row.previousReason || "No reason given"} →{" "}
+                                    {row.reason || "No reason given"}
                                 </li>
                             ))}
                         </ul>
@@ -320,6 +323,21 @@ export function PrivateCasesSection({
                         }
                     >
                         Older cases
+                    </button>
+                )}
+                {data?.type === "case" && data.nextCorrectionsAfter !== undefined && (
+                    <button
+                        type="button"
+                        className="secondary"
+                        onClick={() =>
+                            open({
+                                type: "case",
+                                caseNo: data.case.caseNo,
+                                correctionsAfter: data.nextCorrectionsAfter!,
+                            })
+                        }
+                    >
+                        Later corrections
                     </button>
                 )}
                 {data?.type === "appeals" && data.nextBeforeAppealNo && (

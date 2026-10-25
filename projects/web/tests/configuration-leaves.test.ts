@@ -60,12 +60,13 @@ function setup<F extends DashboardConfigurationFamily>(
     Component: ComponentType<ConfigSectionProps<F>>,
     family: F,
     data: DashboardConfigurationDataMap[F],
+    serverCatalog: typeof catalog = catalog,
 ) {
     const calls: Array<{ operation: DashboardConfigurationOperationMap[F]; revision: number; requestId: string }> = []
     const props = {
         remote: { family, serverId: "2", configRevision: 7, jobs: [], data },
         connected: true,
-        catalog,
+        catalog: serverCatalog,
         defaultOwnerId: "99",
         templates,
         queue: async (operation: DashboardConfigurationOperationMap[F], revision: number, requestId: string) => {
@@ -239,6 +240,120 @@ test("Staff roles stored in another scope order are not a change, so switching a
     assert.deepEqual(
         calls.map((call) => call.operation),
         [{ type: "settings", patch: { appealsEnabled: false } }],
+    )
+})
+test("Keep cases chooses a number of days or until erased, and a words rule explains whole-word patterns up to 1000", async () => {
+    const { ui, calls } = setup(SafetySettings, "moderation", moderation)
+    const staff = section(ui, "Moderation and staff")
+    assert.equal((staff.getByLabelText("Keep cases") as HTMLSelectElement).value, "keep")
+    assert.equal(staff.queryByLabelText("Days to keep cases"), null)
+    fireEvent.change(staff.getByLabelText("Keep cases"), { target: { value: "days" } })
+    fireEvent.change(staff.getByLabelText("Days to keep cases"), { target: { value: "90" } })
+    await submit(staff)
+    cleanup()
+    const kept = setup(SafetySettings, "moderation", {
+        ...moderation,
+        settings: { ...moderation.settings, caseRetentionDays: 30 },
+    })
+    const form = section(kept.ui, "Moderation and staff")
+    assert.equal((form.getByLabelText("Days to keep cases") as HTMLInputElement).value, "30")
+    fireEvent.change(form.getByLabelText("Keep cases"), { target: { value: "keep" } })
+    await submit(form)
+    assert.deepEqual(
+        [...calls, ...kept.calls].map((call) => call.operation),
+        [
+            { type: "settings", patch: { caseRetentionDays: 90 } },
+            { type: "settings", patch: { caseRetentionDays: null } },
+        ],
+    )
+    const create = section(kept.ui, "Create automod rule")
+    assert.equal(create.queryByText("Whole words. Put * at the start or end to match part of a word"), null)
+    fireEvent.change(create.getByLabelText("Rule type"), { target: { value: "words" } })
+    assert.ok(create.getByText("Whole words. Put * at the start or end to match part of a word"))
+    assert.ok(create.getByText("Up to 1000 entries"))
+})
+test("Automod patterns are pasted one per line, new ones are added at once, and lines too long or past 1000 stay in the box", async () => {
+    const { ui, calls } = setup(SafetySettings, "moderation", moderation)
+    const create = section(ui, "Create automod rule")
+    fireEvent.change(create.getByLabelText("Rule name"), { target: { value: "words" } })
+    fireEvent.change(create.getByLabelText("Rule type"), { target: { value: "words" } })
+    const box = create.getByLabelText("Add several rule patterns, one per line")
+    const long = "x".repeat(201)
+    fireEvent.change(box, { target: { value: `spam\r\n  scam* \n\nspam\n${long}\n*bait` } })
+    fireEvent.click(create.getByRole("button", { name: "Add lines", hidden: true }))
+    assert.deepEqual(
+        create.getAllByLabelText(/^Rule patterns \d+$/).map((input) => (input as HTMLInputElement).value),
+        ["spam", "scam*", "*bait"],
+    )
+    assert.equal((box as HTMLTextAreaElement).value, long)
+    assert.ok(create.getByText(/^Added 3\. 1 left in the box/))
+    // Lines already listed are skipped, and only as many as fit up to 1000 are added
+    const many = Array.from({ length: 1000 }, (_, index) => `word${index}`)
+    fireEvent.change(box, { target: { value: ["spam", ...many].join("\n") } })
+    fireEvent.click(create.getByRole("button", { name: "Add lines", hidden: true }))
+    assert.equal(create.getAllByLabelText(/^Rule patterns \d+$/).length, 1000)
+    assert.equal((box as HTMLTextAreaElement).value, many.slice(997).join("\n"))
+    await submit(create)
+    const rule = (calls[0]?.operation as { type: string; rule: { patterns: string[] } }).rule
+    assert.deepEqual(
+        [calls[0]?.operation.type, rule.patterns],
+        ["rule-create", ["spam", "scam*", "*bait", ...many.slice(0, 997)]],
+    )
+})
+test("A whole automod pattern list is replaced by pasted lines or cleared in one action", async () => {
+    const { ui, calls } = setup(SafetySettings, "moderation", moderation)
+    const create = section(ui, "Create automod rule")
+    fireEvent.change(create.getByLabelText("Rule name"), { target: { value: "words" } })
+    fireEvent.change(create.getByLabelText("Rule type"), { target: { value: "words" } })
+    const box = create.getByLabelText("Add several rule patterns, one per line")
+    const patterns = () =>
+        create.queryAllByLabelText(/^Rule patterns \d+$/).map((input) => (input as HTMLInputElement).value)
+    fireEvent.change(box, { target: { value: Array.from({ length: 30 }, (_, index) => `old${index}`).join("\n") } })
+    fireEvent.click(create.getByRole("button", { name: "Add lines", hidden: true }))
+    assert.equal(patterns().length, 30)
+    fireEvent.change(box, { target: { value: "spam\nscam*\n*bait\nspam" } })
+    fireEvent.click(create.getByRole("button", { name: "Replace the list with these lines", hidden: true }))
+    assert.deepEqual(patterns(), ["spam", "scam*", "*bait"])
+    assert.ok(create.getByText(/^The list now holds 3$/))
+    fireEvent.click(create.getByRole("button", { name: "Remove all rule patterns", hidden: true }))
+    assert.deepEqual(patterns(), [])
+    fireEvent.change(box, { target: { value: "spam\nscam*\n*bait" } })
+    fireEvent.click(create.getByRole("button", { name: "Replace the list with these lines", hidden: true }))
+    await submit(create)
+    const rule = (calls[0]?.operation as { type: string; rule: { patterns: string[] } }).rule
+    assert.deepEqual([calls[0]?.operation.type, rule.patterns], ["rule-create", ["spam", "scam*", "*bait"]])
+})
+test("Rule channels and exempt roles take more than 20 IDs, pasted as mentions or IDs at once, and staff roles too", async () => {
+    const channelIds = Array.from({ length: 21 }, (_, index) => String(1000 + index)),
+        roleIds = Array.from({ length: 21 }, (_, index) => String(2000 + index))
+    const { ui, calls } = setup(SafetySettings, "moderation", moderation, {
+        serverId: "2",
+        roles: roleIds.map((id, index) => ({ id, name: `Role ${index}`, position: index + 1 })),
+        channels: channelIds.map((id, index) => ({ id, name: `Room ${index}`, type: 0 })),
+    })
+    const paste = (form: ReturnType<typeof within>, name: string, text: string) =>
+        fireEvent.paste(form.getByRole("combobox", { name, hidden: true }), {
+            clipboardData: { getData: () => text },
+        })
+    const create = section(ui, "Create automod rule")
+    fireEvent.change(create.getByLabelText("Rule name"), { target: { value: "links" } })
+    fireEvent.change(create.getByLabelText("Rule type"), { target: { value: "spam" } })
+    // Mentions split by spaces, commas or lines, and an ID that matches no channel stays in the box
+    paste(create, "Rule channels", `${channelIds.map((id) => `<#${id}>`).join(", ")}\n9999`)
+    assert.equal(
+        (create.getByRole("combobox", { name: "Rule channels", hidden: true }) as HTMLInputElement).value,
+        "9999",
+    )
+    paste(create, "Exempt roles", roleIds.join(" "))
+    await submit(create)
+    const rule = (calls[0]?.operation as { rule: { channelIds: string[]; exemptRoleIds: string[] } }).rule
+    assert.deepEqual([rule.channelIds, rule.exemptRoleIds], [channelIds, roleIds])
+    const staff = section(ui, "Moderation and staff")
+    paste(staff, "Cases staff roles", roleIds.join("\n"))
+    await submit(staff)
+    assert.deepEqual(
+        (calls[1]?.operation as { patch: { staffRoleIds: { cases: string[] } } }).patch.staffRoleIds.cases,
+        roleIds,
     )
 })
 test("Only the server owner can choose the private data role, which saves through the shared configuration queue", async () => {

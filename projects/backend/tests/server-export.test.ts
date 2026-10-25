@@ -7,6 +7,7 @@ import { api } from "../convex/_generated/api.js"
 import {
     EXPORT_APPEALS,
     EXPORT_CASES,
+    EXPORT_CORRECTIONS,
     EXPORT_LEVELS,
     appendServerExportPage,
     emptyServerExportFile,
@@ -139,17 +140,22 @@ async function seed(t: ReturnType<typeof backend>) {
                 erased,
                 voided: false,
                 blocksPublic: false,
-                correctionCount: caseNo === 3 ? 1 : 0,
+                correctionCount: caseNo === 3 ? EXPORT_CORRECTIONS + 2 : 0,
             })
+            // More corrections than one page holds
             if (caseNo === 3)
-                await ctx.db.insert("moderationCorrections", {
-                    caseId: id,
-                    actorId: "99",
-                    createdAt: start + 50,
-                    previousReason: "Synthetic first reason",
-                    reason: "Synthetic private reason 3",
-                    type: "reason",
-                })
+                for (let no = 0; no < EXPORT_CORRECTIONS + 2; no++)
+                    await ctx.db.insert("moderationCorrections", {
+                        caseId: id,
+                        actorId: "99",
+                        createdAt: start + 50 + no,
+                        previousReason: no ? "Synthetic private reason 3" : "Synthetic first reason",
+                        reason: "Synthetic private reason 3",
+                        type: "reason",
+                        serverId: "10",
+                        caseNo,
+                        targetId: "21",
+                    })
         }
         await ctx.db.insert("moderationAppeals", {
             serverId: "10",
@@ -270,7 +276,7 @@ test("The owner's DM export reads every settings family, leveling, cases and app
         403,
     )
     assert.deepEqual(await (await botCall(t, "/export/start", { serverId: "10", context: context() })).json(), {
-        version: 1,
+        version: 2,
     })
 
     const pages: ServerExportPage[] = []
@@ -285,6 +291,7 @@ test("The owner's DM export reads every settings family, leveling, cases and app
     for (const page of pages) {
         if (page.section === "levels") assert.ok(page.levels.length <= EXPORT_LEVELS)
         if (page.section === "cases") assert.ok(page.cases.length <= EXPORT_CASES)
+        if (page.section === "corrections") assert.ok(page.corrections.length <= EXPORT_CORRECTIONS)
         if (page.section === "appeals") assert.ok(page.appeals.length <= EXPORT_APPEALS)
     }
     const file = assemble(pages)
@@ -349,15 +356,17 @@ test("The owner's DM export reads every settings family, leveling, cases and app
     ])
     assert.deepEqual(file.profiles, [{ userId: "21", bio: "Synthetic bio", links: [], color: 255, updatedAt: start }])
     assert.equal(file.cases.length, EXPORT_CASES + 5)
-    assert.deepEqual(file.cases[2]!.corrections, [
-        {
-            type: "reason",
-            actorId: "99",
-            previousReason: "Synthetic first reason",
-            reason: "Synthetic private reason 3",
-            createdAt: start + 50,
-        },
-    ])
+    assert.equal(pages.filter((page) => page.section === "corrections").length, 2)
+    assert.equal(file.corrections.length, EXPORT_CORRECTIONS + 2)
+    assert.deepEqual(file.corrections[0], {
+        caseNo: 3,
+        type: "reason",
+        actorId: "99",
+        previousReason: "Synthetic first reason",
+        reason: "Synthetic private reason 3",
+        createdAt: start + 50,
+    })
+    assert.equal(file.corrections.at(-1)!.createdAt, start + 51 + EXPORT_CORRECTIONS)
     assert.deepEqual([file.cases[4]!.erased, file.cases[4]!.reason], [true, null])
     assert.deepEqual(file.appeals, [
         {
@@ -402,7 +411,7 @@ test("The owner's DM export reads every settings family, leveling, cases and app
                 actorId: "20",
                 feature: "export",
                 setting: "Server export",
-                summary: "Started a readable export, format version 1",
+                summary: "Started a readable export, format version 2",
             },
         ],
     )
@@ -466,6 +475,6 @@ test("A website export starts only after the bot's check finds the owner, reads 
     assert.ok(second.status === "ok" && second.page.section === "settings" && second.page.family === "analytics")
     assert.deepEqual(await exports(), [
         ["website", "Owner", "Continued after a new access check"],
-        ["website", "Owner", "Started a readable export, format version 1"],
+        ["website", "Owner", "Started a readable export, format version 2"],
     ])
 })

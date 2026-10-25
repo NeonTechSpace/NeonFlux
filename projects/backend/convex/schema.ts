@@ -2052,6 +2052,8 @@ export default defineSchema({
         correctionCount: v.number(),
         recoveryId: v.optional(v.id("securityRecoveries")),
         dispatched: v.optional(v.boolean()),
+        // The target was a bot account, which gets no member notice
+        targetBot: v.optional(v.boolean()),
     })
         .index("by_server_case", ["serverId", "caseNo"])
         .index("by_server_user", ["serverId", "targetId", "caseNo"])
@@ -2069,7 +2071,14 @@ export default defineSchema({
         previousReason: v.string(),
         reason: v.string(),
         type: moderationCorrectionType,
-    }).index("by_case", ["caseId"]),
+        // The case's server, number and member, so the server export and member data read corrections without their case
+        serverId: v.optional(v.string()),
+        caseNo: v.optional(v.number()),
+        targetId: v.optional(v.string()),
+    })
+        .index("by_case", ["caseId"])
+        .index("by_server", ["serverId"])
+        .index("by_member_data", ["targetId", "serverId"]),
     moderationReceipts: defineTable({
         serverId: v.string(),
         key: v.string(),

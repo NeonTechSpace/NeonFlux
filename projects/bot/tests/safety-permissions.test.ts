@@ -4,7 +4,7 @@ import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createTestClient, type TestClient } from "@neontechspace/fluxerly/effect/testing"
 import { Clock, Deferred, Duration, Effect, Exit, Fiber } from "effect"
 import { TestClock } from "effect/testing"
-import { readSafetyAuthority, SafetyPermissionError } from "../src/safety-permissions.ts"
+import { channelViewerRoles, readSafetyAuthority, SafetyPermissionError } from "../src/safety-permissions.ts"
 
 function authorityRoutes(client: TestClient) {
     const f = client.fixtures
@@ -642,5 +642,50 @@ test("an unsuccessful bot identity lookup is not cached for the next authorizati
                 assert(gates.slice(1, 5).every((gate) => gate.route.requests().length === 1))
             }),
         ),
+    )
+})
+
+test("a channel's viewers are its roles only when no everyone view or member overwrite other than the bot's shows it, leaving out Administrators", () => {
+    const view = Permissions.ViewChannel,
+        guild = "100"
+    const role = (id: string, permissions: bigint) => ({ id, permissions })
+    const roles = [
+        role(guild, view),
+        role("201", Permissions.KickMembers),
+        role("202", Permissions.ManageMessages | view),
+        role("203", 0n),
+        role("204", Permissions.Administrator),
+    ]
+    const viewers = (
+        permissionOverwrites: Array<{ id: string; type: "role" | "member"; allow: bigint; deny: bigint }>,
+    ) => channelViewerRoles({ guild: { id: guild }, roles, channel: { permissionOverwrites }, botId: "900" } as never)
+    const hidden = { id: guild, type: "role" as const, allow: 0n, deny: view }
+    // Hidden from everyone, so only Administrators see it
+    assert.deepEqual(viewers([hidden]), [])
+    // Any role the channel shows is named, whatever moderation permission it holds, for the backend to match with staff roles
+    assert.deepEqual(viewers([hidden, { id: "203", type: "role", allow: view, deny: 0n }]), ["203"])
+    assert.deepEqual(
+        viewers([
+            hidden,
+            { id: "201", type: "role", allow: view, deny: 0n },
+            { id: "202", type: "role", allow: view, deny: 0n },
+        ]),
+        ["201", "202"],
+    )
+    // A member overwrite shows it to someone the roles do not cover
+    assert.equal(viewers([hidden, { id: "300", type: "member", allow: view, deny: 0n }]), undefined)
+    // NeonFlux's own member overwrite is how it enters a staff channel, so it shows the channel to no one else
+    assert.deepEqual(viewers([hidden, { id: "900", type: "member", allow: view, deny: 0n }]), [])
+    // Everyone sees a channel without the deny, and an unreported channel counts as public
+    assert.equal(viewers([]), undefined)
+    assert.equal(channelViewerRoles({ guild: { id: guild }, roles, channel: {} } as never), undefined)
+    // A role whose server permission includes View still cannot see past the everyone deny
+    assert.deepEqual(
+        channelViewerRoles({
+            guild: { id: guild },
+            roles: [...roles, role("205", view)],
+            channel: { permissionOverwrites: [hidden] },
+        } as never),
+        [],
     )
 })

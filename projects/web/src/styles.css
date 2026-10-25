@@ -885,6 +885,9 @@ fieldset {
     min-width: 0;
     background: rgb(255 255 255 / 1.5%);
 }
+.paste-rows {
+    margin-top: 16px;
+}
 legend {
     padding: 0 6px;
     font-weight: 600;

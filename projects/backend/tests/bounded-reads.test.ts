@@ -125,15 +125,17 @@ test("Restore steps check plan anchors and origin capacity without reading the p
 test("Metadata log counters read settings rows instead of counting tickets and moderation cases", async () => {
     const t = backend()
     await t.run(async (ctx) => {
+        // The server keeps cases for a day, so the ten older cases are due
         await ctx.db.insert("moderationSettings", {
             serverId: "10",
-            config: defaultSettings(),
+            config: { ...defaultSettings(), caseRetentionDays: 1 },
             nextCaseNo: 2501,
             nextAppealNo: 1,
         })
         for (let caseNo = 1; caseNo <= 2500; caseNo++)
             await insertDocument(ctx, "moderationCases", "10", {
                 caseNo,
+                createdAt: caseNo <= 10 ? now - 2 * 86400000 : now,
                 expiresAt: caseNo <= 10 ? now - 1 : now + 86400000,
             })
         await insertDocument(ctx, "ticketSettings", "10", { activeTickets: 300 })

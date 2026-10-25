@@ -1,5 +1,20 @@
 import { Schema } from "effect"
-import { Id, Ids, Int, List, Millis, Name, NameInput, Str, Text, Token, isId, origin } from "./common.ts"
+import {
+    Id,
+    Ids,
+    Int,
+    List,
+    Millis,
+    Name,
+    NameInput,
+    SERVER_ROLES,
+    STRUCTURE_CHANNELS,
+    Str,
+    Text,
+    Token,
+    isId,
+    origin,
+} from "./common.ts"
 import { ModerationActor, ModerationSource } from "./shared.ts"
 
 // Moderation, automod, security and DEFCON, see docs/BOT.md#moderation-protections-defcon-and-appeals
@@ -9,6 +24,11 @@ export const SEND_MESSAGES = 2048n
 export const LOCK_PERMISSIONS = SEND_MESSAGES | (1n << 35n) | (1n << 36n) | (1n << 38n)
 const unique = Schema.makeFilter((values: string[]) => new Set(values).size === values.length)
 const UniqueIds = (max: number) => Ids(max).check(unique)
+/** Channel and role lists hold as many IDs as a server can have channels or roles, so no list is ever too short for a real server */
+const ChannelIds = Ids(STRUCTURE_CHANNELS),
+    RoleIds = Ids(SERVER_ROLES),
+    UniqueChannelIds = UniqueIds(STRUCTURE_CHANNELS),
+    UniqueRoleIds = UniqueIds(SERVER_ROLES)
 /** A rule name as stored: lowercase letters, digits, _ and -, starting with a letter or digit */
 const RuleName = Name
 /** A rule name as a request may give it. The backend trims and lowercases it */
@@ -73,9 +93,11 @@ export const ModerationActionContext = Schema.Struct({
     /** Decimal SendMessages and thread permission bits the bot holds server-wide. A lock owns SendMessages and only these thread bits,
      * because Fluxer lets a bot stop denying only permissions it holds. Absent means SendMessages only */
     botPostingPermissions: Schema.optionalKey(Bits),
+    /** The target is a bot account, which gets no member notice */
+    targetBot: Schema.optionalKey(Schema.Literal(true)),
 })
 export type ModerationActionContext = typeof ModerationActionContext.Type
-/** A ban lasts 60 seconds to two years, other durations one second to a year */
+/** A ban lasts 60 seconds to two years, other durations one second to a year. The reason is optional and stored as empty text when left out */
 export const ModerationActionInput = Schema.Struct({
     type: ModerationActionType,
     targetId: Schema.optionalKey(Id),
@@ -83,7 +105,7 @@ export const ModerationActionInput = Schema.Struct({
     messageIds: Schema.optionalKey(Ids(100).check(Schema.isMinLength(1))),
     durationSeconds: Schema.optionalKey(Int(1, 63072000)),
     slowmodeSeconds: Schema.optionalKey(Slowmode),
-    reason: Text(512),
+    reason: Schema.optionalKey(Text(512)),
     linkedCaseNo: Schema.optionalKey(Int(1)),
     recoveryId: Schema.optionalKey(Token),
 }).check(
@@ -118,15 +140,15 @@ const ruleFields = {
     threshold: Int(1, 100),
     windowSeconds: Int(1, 300),
     durationSeconds: Int(1, 31536000),
-    patterns: List(Text(200), 20),
+    patterns: List(Text(200), 1000),
     domainMode: Schema.Literals(["block", "allow"]),
 }
 export const AutomodRule = Schema.Struct({
     name: RuleName,
     ...ruleFields,
-    channelIds: UniqueIds(20),
-    exemptChannelIds: UniqueIds(20),
-    exemptRoleIds: UniqueIds(20),
+    channelIds: UniqueChannelIds,
+    exemptChannelIds: UniqueChannelIds,
+    exemptRoleIds: UniqueRoleIds,
 })
 export type AutomodRule = typeof AutomodRule.Type
 const domain = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/
@@ -137,9 +159,9 @@ const domain = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/
 export const AutomodRuleInput = Schema.Struct({
     name: RuleNameInput,
     ...ruleFields,
-    channelIds: Ids(20),
-    exemptChannelIds: Ids(20),
-    exemptRoleIds: Ids(20),
+    channelIds: ChannelIds,
+    exemptChannelIds: ChannelIds,
+    exemptRoleIds: RoleIds,
 }).check(
     Schema.makeFilter(
         (rule) =>
@@ -152,10 +174,13 @@ export const AutomodRuleInput = Schema.Struct({
     ),
 )
 const { name: _name, type: _type, ...patchFields } = AutomodRuleInput.fields
-/** A change to some of a rule's settings. The changed rule must still be valid */
-export const AutomodRulePatch = Schema.Struct(partial(patchFields)).check(
-    Schema.makeFilter((patch) => Object.keys(patch).length > 0),
-)
+/** A change to some of a rule's settings. addPatterns and removePatterns change the stored list in place, adding first. The changed rule must still be valid */
+export const AutomodRulePatch = Schema.Struct({
+    ...partial(patchFields),
+    addPatterns: Schema.optionalKey(List(Text(200), 1000)),
+    removePatterns: Schema.optionalKey(List(Text(200), 1000)),
+}).check(Schema.makeFilter((patch) => Object.keys(patch).length > 0))
+export type AutomodRulePatch = typeof AutomodRulePatch.Type
 const Mode = Schema.Literals(["dry-run", "enforce"])
 const Defcon = Schema.Literals([1, 2, 3])
 const settingsFields = {
@@ -183,17 +208,21 @@ const staff = <S extends Schema.Top>(ids: S) => ({
     security: ids,
     appeals: ids,
 })
+/** How many days cases are kept from their creation and closed appeals from their closing. Absent or null keeps them until erased */
+const CaseRetentionDays = Schema.optionalKey(Schema.NullOr(Int(1, 3650)))
 export const ModerationSettings = Schema.Struct({
     ...settingsFields,
-    honeypotChannelIds: UniqueIds(20),
-    staffRoleIds: Schema.Struct(staff(UniqueIds(20))),
+    honeypotChannelIds: UniqueChannelIds,
+    staffRoleIds: Schema.Struct(staff(UniqueRoleIds)),
+    caseRetentionDays: CaseRetentionDays,
 })
 export type ModerationSettings = typeof ModerationSettings.Type
 /** A change to some settings. The backend removes repeated IDs */
 export const ModerationSettingsPatch = Schema.Struct({
     ...partial(settingsFields),
-    honeypotChannelIds: Schema.optionalKey(Ids(20)),
-    staffRoleIds: Schema.optionalKey(Schema.Struct(partial(staff(Ids(20))))),
+    honeypotChannelIds: Schema.optionalKey(ChannelIds),
+    staffRoleIds: Schema.optionalKey(Schema.Struct(partial(staff(RoleIds)))),
+    caseRetentionDays: CaseRetentionDays,
 }).check(Schema.makeFilter((patch) => Object.keys(patch).length > 0))
 export const ModerationOutcome = Schema.Literals(["succeeded", "failed", "uncertain"])
 export type ModerationOutcome = typeof ModerationOutcome.Type
@@ -232,19 +261,19 @@ export const ModerationCase = Schema.Struct({
     notificationOutcome: Delivery,
     erased: Schema.Boolean,
     voided: Schema.Boolean,
-    corrections: List(
-        Schema.Struct({
-            actorId: Id,
-            createdAt: Millis,
-            previousReason: Str(512),
-            reason: Str(512),
-            type: Schema.Literals(["reason", "void"]),
-        }),
-        20,
-    ),
+    /** How many times staff changed the reason or voided the case. case-history pages them */
+    correctionCount: Int(),
     observation: Schema.optionalKey(ProviderObservation),
 })
 export type ModerationCase = typeof ModerationCase.Type
+export const ModerationCorrection = Schema.Struct({
+    actorId: Id,
+    createdAt: Millis,
+    previousReason: Str(512),
+    reason: Str(512),
+    type: Schema.Literals(["reason", "void"]),
+})
+export type ModerationCorrection = typeof ModerationCorrection.Type
 export const ModerationActionGrant = Schema.Struct({
     actionId: Token,
     caseNo: Int(1),
@@ -256,7 +285,7 @@ export const ModerationActionGrant = Schema.Struct({
     durationSeconds: Schema.optionalKey(Int(1, 63072000)),
     slowmodeSeconds: Schema.optionalKey(Slowmode),
     expectedSlowmodeSeconds: Schema.optionalKey(Slowmode),
-    reason: Text(512),
+    reason: Str(512),
     expectedTimeoutUntil: Schema.optionalKey(Schema.NullOr(UtcTime)),
     restoreTimeoutUntil: Schema.optionalKey(Schema.NullOr(UtcTime)),
     overwrite: Schema.optionalKey(PermissionOverwriteSnapshot),
@@ -284,6 +313,7 @@ export const StaffLogGrant = Schema.Struct({
     outcome: ModerationOutcome,
     targetId: Schema.optionalKey(Id),
     reason: Str(512),
+    durationSeconds: Schema.optionalKey(Int(1, 63072000)),
 })
 export type StaffLogGrant = typeof StaffLogGrant.Type
 export const SecurityRecovery = Schema.Struct({
@@ -348,12 +378,16 @@ export type ModerationManageResult = typeof ModerationManageResult.Type
 export const ModerationQueryOperation = Schema.Union([
     op("settings", { appeals: Schema.optionalKey(Schema.Literal(true)) }),
     op("case-show", caseNo),
+    /** A case's reason changes and voids, oldest first. Pages continue after the creation time of the last one shown */
+    op("case-history", { caseNo: Int(1), after: Schema.optionalKey(Schema.Finite) }),
     op("case-list", { beforeCaseNo: Schema.optionalKey(Int(1)), userId: Schema.optionalKey(Id) }),
     op("rule-show", { name: RuleNameInput }),
     op("rule-list", { page }),
-    op("watchlist-list", { page }),
+    /** Pages continue after the last member shown, so a list of any length pages to its end */
+    op("watchlist-list", { afterUserId: Schema.optionalKey(Id) }),
     op("watchlist-show", { userId: Id }),
-    op("recovery-list", { page }),
+    /** Pages continue after the creation time of the last recovery shown */
+    op("recovery-list", { after: Schema.optionalKey(Schema.Finite) }),
     op("recovery-target", { targetId: Id }),
     op("recovery-channel", { channelId: Id }),
     op("recovery-case", caseNo),
@@ -364,6 +398,11 @@ export const ModerationQueryRequest = Schema.Struct({
     serverId: Id,
     actor: ModerationActor,
     privateChannelVerified: Schema.optionalKey(Schema.Boolean),
+    /**
+     * The command came from a server channel only these roles and Administrators can view, as the bot read it fresh. Its answer stays
+     * there only when each is a staff role of the read
+     */
+    staffChannelRoleIds: Schema.optionalKey(UniqueRoleIds),
     operation: ModerationQueryOperation,
 })
 export type ModerationQueryRequest = typeof ModerationQueryRequest.Type
@@ -377,6 +416,14 @@ export const ModerationQueryResult = Schema.Union([
         moreOpenAppeals: Schema.optionalKey(Schema.Literal(true)),
     }),
     Schema.Struct({ type: Schema.Literal("case"), case: ModerationCase }),
+    /** An erased case lists no corrections */
+    Schema.Struct({
+        type: Schema.Literal("case-history"),
+        caseNo: Int(1),
+        erased: Schema.Boolean,
+        corrections: List(ModerationCorrection, 10),
+        nextAfter: Schema.optionalKey(Schema.Finite),
+    }),
     Schema.Struct({
         type: Schema.Literal("cases"),
         cases: List(ModerationCase, 10),
@@ -384,9 +431,17 @@ export const ModerationQueryResult = Schema.Union([
     }),
     Schema.Struct({ type: Schema.Literal("rule"), rule: AutomodRule }),
     Schema.Struct({ type: Schema.Literal("rules"), rules: List(AutomodRule, 10), ...paged }),
-    Schema.Struct({ type: Schema.Literal("watchlist"), entries: List(WatchlistEntry, 10), ...paged }),
+    Schema.Struct({
+        type: Schema.Literal("watchlist"),
+        entries: List(WatchlistEntry, 10),
+        nextAfterUserId: Schema.optionalKey(Id),
+    }),
     Schema.Struct({ type: Schema.Literal("watchlist-entry"), entry: WatchlistEntry }),
-    Schema.Struct({ type: Schema.Literal("recoveries"), recoveries: List(SecurityRecovery, 10), ...paged }),
+    Schema.Struct({
+        type: Schema.Literal("recoveries"),
+        recoveries: List(SecurityRecovery, 10),
+        nextAfter: Schema.optionalKey(Schema.Finite),
+    }),
     Schema.Struct({ type: Schema.Literal("recovery"), recovery: SecurityRecovery }),
 ])
 export type ModerationQueryResult = typeof ModerationQueryResult.Type
@@ -492,15 +547,30 @@ export const ModerationDispatchRequest = Schema.Struct({
     dispatch: Schema.Literal(true),
 })
 export type ModerationDispatchRequest = typeof ModerationDispatchRequest.Type
-/** Whether a dispatch claim, staff log outcome or warning notice outcome was recorded */
-export const ModerationDispatchResult = Schema.Struct({ recorded: Schema.Boolean })
+/** Whether a staff log or member notice outcome was recorded */
+const Recorded = Schema.Struct({ recorded: Schema.Boolean })
+/** The member's DM about a warning, timeout, kick or ban. appeals says whether it may offer the appeal commands */
+export const ModerationNoticeGrant = Schema.Struct({
+    noticeId: Token,
+    caseNo: Int(1),
+    targetId: Id,
+    action: Schema.Literals(["warn", "timeout", "kick", "ban"]),
+    reason: Str(512),
+    durationSeconds: Schema.optionalKey(Int(1, 63072000)),
+    timeoutUntil: Schema.optionalKey(UtcTime),
+    appeals: Schema.Boolean,
+})
+export type ModerationNoticeGrant = typeof ModerationNoticeGrant.Type
+/** A dispatch claim. A kick or ban claim carries the member's notice, which goes out before the member may become unreachable */
+export const ModerationDispatchResult = Schema.Struct({
+    recorded: Schema.Boolean,
+    notice: Schema.optionalKey(ModerationNoticeGrant),
+})
 export type ModerationDispatchResult = typeof ModerationDispatchResult.Type
-export const WarningNoticeGrant = Schema.Struct({ noticeId: Token, caseNo: Int(1), targetId: Id, reason: Text(512) })
-export type WarningNoticeGrant = typeof WarningNoticeGrant.Type
 export const ModerationOutcomeResult = Schema.Struct({
     recorded: Schema.Boolean,
     log: Schema.optionalKey(StaffLogGrant),
-    notice: Schema.optionalKey(WarningNoticeGrant),
+    notice: Schema.optionalKey(ModerationNoticeGrant),
 })
 export type ModerationOutcomeResult = typeof ModerationOutcomeResult.Type
 const delivery = {
@@ -509,18 +579,19 @@ const delivery = {
 }
 export const ModerationNoticeOutcomeRequest = Schema.Struct({ serverId: Id, noticeId: Token, ...delivery })
 export type ModerationNoticeOutcomeRequest = typeof ModerationNoticeOutcomeRequest.Type
-export const ModerationNoticeOutcomeResult = ModerationDispatchResult
+export const ModerationNoticeOutcomeResult = Recorded
 export type ModerationNoticeOutcomeResult = typeof ModerationNoticeOutcomeResult.Type
 export const ModerationLogOutcomeRequest = Schema.Struct({ serverId: Id, logId: Token, ...delivery })
 export type ModerationLogOutcomeRequest = typeof ModerationLogOutcomeRequest.Type
-export const ModerationLogOutcomeResult = ModerationDispatchResult
+export const ModerationLogOutcomeResult = Recorded
 export type ModerationLogOutcomeResult = typeof ModerationLogOutcomeResult.Type
 export const ModerationReconcileRequest = Schema.Struct({
     ...origin,
     ...ModerationSource.fields,
     serverId: Id,
     actor: ModerationActor,
-    privateChannelVerified: Schema.Boolean,
+    privateChannelVerified: Schema.optionalKey(Schema.Boolean),
+    staffChannelRoleIds: Schema.optionalKey(UniqueRoleIds),
     actionId: Token,
     observation: ProviderObservation,
 })

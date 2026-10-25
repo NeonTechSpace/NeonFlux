@@ -1,9 +1,9 @@
-import { hasText, isName } from "@neonflux/contracts/common"
+import { SERVER_ROLES, STRUCTURE_CHANNELS, hasText, isName } from "@neonflux/contracts/common"
 import { AutomodRuleType } from "@neonflux/contracts/moderation"
 import type { AppealMemberRequest, AppealStaffRequest } from "@neonflux/contracts/appeal"
 import type {
     AutomodAction,
-    AutomodRule,
+    AutomodRulePatch,
     ModerationActionInput,
     ModerationActionType,
     ModerationManageOperation,
@@ -24,10 +24,10 @@ export type SafetyCommand =
     /** view names the settings a status reply shows when they are not the command name's own */
     | { kind: "query"; operation: ModerationQueryOperation; private: boolean; page?: SafetyPage; view?: SettingsView }
     | { kind: "action"; action: ModerationActionInput }
-    /** Without userId a purge covers every author. confirmed means its last word was "confirm", and reason is what comes before it */
+    /** Without userId a purge covers every author. confirmed means its last word was "confirm", and reason is what comes before it, empty when none was given */
     | { kind: "purge"; count: number; userId?: string; reason: string; confirmed: boolean }
     | { kind: "recover"; caseNo: number }
-    /** A case's reason changes and voiding, paged from the case !mod show reads */
+    /** A case's reason changes and voiding, ten to a page */
     | { kind: "history"; caseNo: number; page: SafetyPage }
     | { kind: "honeypot"; operation: "add" | "remove"; channelId: string }
     | { kind: "member-appeal"; operation: AppealMemberRequest["operation"]; page?: SafetyPage }
@@ -35,15 +35,23 @@ export type SafetyCommand =
     | { kind: "help"; name: SafetyName }
 export type SafetyParse = SafetyCommand | { error: string }
 
+/** Mentions or IDs, apart or split by commas, up to as many channels or roles as a server can have */
 const idList = (values: readonly string[], kind: typeof argument.role | typeof argument.channel) => {
     if (values.length === 1 && ["all", "none"].includes(values[0]!)) return []
-    const ids = values.map((value) => commands.parseArgument(value, kind))
-    return ids.length > 0 && ids.length <= 20 && ids.every((value) => value !== undefined)
+    const ids = values
+        .flatMap((value) => value.split(","))
+        .filter((value) => value !== "")
+        .map((value) => commands.parseArgument(value, kind))
+    return ids.length > 0 &&
+        ids.length <= (kind === argument.role ? SERVER_ROLES : STRUCTURE_CHANNELS) &&
+        ids.every((value) => value !== undefined)
         ? ([...new Set(ids)] as string[])
         : undefined
 }
 const narrative = (value: string | undefined, max = 512) =>
     value !== undefined && value.length <= max && hasText(value) ? value : undefined
+/** An action's reason, which may be left out: Empty when no text was given, or undefined when the text is too long */
+const actionReason = (value: string) => (!hasText(value) ? "" : narrative(value))
 const nameValue = (value: string | undefined) =>
     value && isName(value.toLowerCase()) ? value.toLowerCase() : undefined
 const query = (
@@ -82,12 +90,12 @@ function ruleDefaults(type: AutomodRuleType) {
 export function safetyHelp(name: SafetyName) {
     const help = {
         mod: [
-            "!mod warn|kick|ban|unban @user <reason>: Act on a member. Reasons need no quotes",
-            "!mod timeout @user 10m <reason>: Time out a member for a while",
-            "!mod ban @user 1d <reason>: Ban a member for a while",
-            "!mod purge <1-100> @user <reason>: Delete recent messages of a member. Without @user, you are asked to confirm a purge of everyone",
-            "!mod list [@user] [next]: Cases, newest first",
-            "!mod show <case>: One case, sent to you by DM",
+            "!mod warn|kick|ban|unban @user [reason]: Act on a member. Reasons are optional and need no quotes",
+            "!mod timeout @user 10m [reason]: Time out a member for a while",
+            "!mod ban @user 1d [reason]: Ban a member for a while",
+            "!mod purge <1-100> @user [reason]: Delete recent messages of a member. Without @user, you are asked to confirm a purge of everyone",
+            "!mod list [@user] [next]: Cases, newest first, here in a staff channel or by DM",
+            "!mod show <case>: One case, here in a staff channel or by DM",
             "!mod staff moderation|cases|automod|security|appeals @role|none: The staff roles of each area",
             "!mod module on|off: Turn manual moderation on or off",
         ],
@@ -110,9 +118,9 @@ export function safetyHelp(name: SafetyName) {
             "!automod module on|off: Turn automod on or off",
         ],
         security: [
-            "!security quarantine @user 10m <reason>: Time out a suspicious member",
-            "!security release @user <reason>: End a quarantine",
-            "!security lock|unlock #channel <reason>: Stop or allow posting in a channel",
+            "!security quarantine @user 10m [reason]: Time out a suspicious member",
+            "!security release @user [reason]: End a quarantine",
+            "!security lock|unlock #channel [reason]: Stop or allow posting in a channel",
             "!security joins threshold <2-100> | window <1-300>: How many joins in how many seconds count as a raid",
             "!security watchlist add @user <reason>: Flag a member when they join",
             "!security mode dry-run|enforce: Only record what protections catch, or act on it",
@@ -143,20 +151,22 @@ export function safetyHelp(name: SafetyName) {
 /** The forms !mod, !automod and !security help leave out, listed by help all */
 export const safetyHelpAll = {
     mod: [
-        "!mod untimeout @user <reason>: End a timeout",
-        "!mod slowmode #channel <0-21600> <reason>: Seconds between messages, 0 to clear",
-        "!mod <action> @user case <number> <reason>: Link an action to an earlier case",
+        "!mod untimeout @user [reason]: End a timeout",
+        "!mod slowmode #channel <0-21600> [reason]: Seconds between messages, 0 to clear",
+        "!mod <action> @user case <number> [reason]: Link an action to an earlier case",
         "!mod reason <case> <new reason>: Correct a case's reason",
         "!mod void <case>: Void a warning",
-        "!mod history <case> [next]: A case's edits, sent to you by DM",
+        "!mod history <case> [next]: A case's edits, here in a staff channel or by DM",
         "!mod recover <case>: Check an action that was not confirmed",
         "!mod erase <case>: Erase a case's text, for the server owner",
         "!mod private-role @role|none: Who may read private cases on the website, for the server owner",
+        "!mod retention <1-3650>|keep: How many days cases are kept, or keep them until erased",
         "!mod status: Whether moderation is on and its staff roles",
     ],
     automod: [
         "!automod update <name> action|threshold|window|duration|priority|domain-mode <value>: Change a rule",
         '!automod update <name> patterns "pattern"...|none: Replace its words or domains',
+        '!automod update <name> patterns add|remove "pattern"...: Add or remove some of them',
         "!automod update <name> channels|exempt-channels|exempt-roles <mentions or IDs>...|all: Where it applies and who it skips",
         "!automod bots on|off: Check messages from webhooks and other bots too",
         "!automod status: Whether automod is on and its mode",
@@ -274,7 +284,7 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         ) {
             const type = args[2] as AutomodRuleType
             const patterns = args.slice(4)
-            if (patterns.length > 20 || patterns.some((value) => !narrative(value, 200))) return error
+            if (patterns.some((value) => !narrative(value, 200))) return error
             return {
                 kind: "manage",
                 operation: {
@@ -299,11 +309,15 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         if (verb === "update" && args.length >= 4) {
             const field = args[2]
             const values = args.slice(3)
-            const patch: Types.Mutable<Partial<Omit<AutomodRule, "name" | "type">>> = {}
+            const patch: Types.Mutable<AutomodRulePatch> = {}
             if (field === "patterns") {
-                const patterns = values.length === 1 && values[0] === "none" ? [] : values
-                if (patterns.length > 20 || patterns.some((value) => !narrative(value, 200))) return error
-                patch.patterns = patterns
+                // add and remove change the list in the backend, so a long list can grow across commands and a dashboard edit is kept
+                const change = values[0] === "add" || values[0] === "remove" ? values[0] : undefined
+                const patterns = change ? values.slice(1) : values.length === 1 && values[0] === "none" ? [] : values
+                if ((change && !patterns.length) || patterns.some((value) => !narrative(value, 200))) return error
+                if (change === "add") patch.addPatterns = patterns
+                else if (change === "remove") patch.removePatterns = patterns
+                else patch.patterns = patterns
             } else if (["channels", "exempt-channels", "exempt-roles"].includes(field!)) {
                 const ids = idList(values, field === "exempt-roles" ? argument.role : argument.channel)
                 if (!ids) return error
@@ -392,6 +406,13 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         const eraseNo =
             verb === "erase" && args.length === 2 ? commands.parseArgument(args[1], argument.positive) : undefined
         if (eraseNo) return { kind: "manage", operation: { type: "erase", caseNo: eraseNo } }
+        const retentionDays =
+            verb === "retention" && args.length === 2
+                ? args[1] === "keep"
+                    ? null
+                    : commands.parseArgument(args[1], { type: "integer", min: 1, max: 3650 })
+                : undefined
+        if (retentionDays !== undefined) return settings({ caseRetentionDays: retentionDays })
         const staffRoleIds = verb === "staff" ? idList(args.slice(2), argument.role) : undefined
         if (staffRoleIds && ["moderation", "cases", "automod", "security", "appeals"].includes(args[1]!))
             return settings({ staffRoleIds: { [args[1]!]: staffRoleIds } })
@@ -402,24 +423,30 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         const purgeCount =
             verb === "purge" ? commands.parseArgument(args[1], { type: "integer", min: 1, max: 100 }) : undefined
         if (purgeCount) {
-            // A member right after the count is always the filter, and it needs a reason like any other purge. Any other text is the
-            // reason of a purge of everyone, which only runs when its last word is "confirm" after a matching preview
+            // A member right after the count is always the filter. Any other text is the optional reason of a purge of everyone, which
+            // only runs when its last word is "confirm" after a matching preview
             const userId = commands.parseArgument(args[2], argument.user)
             if (userId) {
-                const reason = narrative(freeText(args, 3))
-                if (reason) return { kind: "purge", count: purgeCount, reason, userId, confirmed: false }
+                const reason = actionReason(freeText(args, 3))
+                if (reason !== undefined) return { kind: "purge", count: purgeCount, reason, userId, confirmed: false }
             } else {
                 const confirmed = args.length > 2 && args.at(-1)!.toLowerCase() === "confirm"
-                const reason = narrative(freeText(confirmed ? args.slice(0, -1) : args, 2))
-                if (reason) return { kind: "purge", count: purgeCount, reason, confirmed }
+                const reason = actionReason(freeText(confirmed ? args.slice(0, -1) : args, 2))
+                if (reason !== undefined) return { kind: "purge", count: purgeCount, reason, confirmed }
             }
         }
         const slowmodeChannelId = verb === "slowmode" ? commands.parseArgument(args[1], argument.channel) : undefined
         const slowmodeSeconds = wholeNumber(args[2], 0, 21600)
-        if (slowmodeChannelId && slowmodeSeconds !== undefined && narrative(freeText(args, 3)))
+        const slowmodeReason = actionReason(freeText(args, 3))
+        if (slowmodeChannelId && slowmodeSeconds !== undefined && slowmodeReason !== undefined)
             return {
                 kind: "action",
-                action: { type: "slowmode", channelId: slowmodeChannelId, slowmodeSeconds, reason: freeText(args, 3) },
+                action: {
+                    type: "slowmode",
+                    channelId: slowmodeChannelId,
+                    slowmodeSeconds,
+                    ...(slowmodeReason ? { reason: slowmodeReason } : {}),
+                },
             }
     }
     if (name === "mod" || name === "security") {
@@ -442,7 +469,7 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         const linkedCaseNo =
             args[from] === "case" ? commands.parseArgument(args[from + 1], argument.positive) : undefined
         const reasonText = freeText(args, linkedCaseNo ? from + 2 : from)
-        const reason = narrative(reasonText)
+        const reason = actionReason(reasonText)
         // A ban is temporary when the word after the member is a length. Otherwise its reason, after any case link, must start
         // with a letter, since anything else may be a length written in a way that is not read, and a permanent ban is not the way
         // to find out. A length further into the reason is not read
@@ -455,12 +482,12 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
             return {
                 error: `${error.error}. A ban length is a whole number with s, m, h, d or w, from 1m to 730d, such as 7d or 1h30m. A reason starts with a letter, so to begin with a number write a word first, such as \`after 3 strikes\``,
             }
-        if (!id || !reason || (needsDuration && !seconds)) return error
+        if (!id || reason === undefined || (needsDuration && !seconds)) return error
         return {
             kind: "action",
             action: {
                 type: selected,
-                reason,
+                ...(reason ? { reason } : {}),
                 ...(["lock", "unlock"].includes(selected) ? { channelId: id } : { targetId: id }),
                 ...(seconds ? { durationSeconds: seconds } : {}),
                 ...(linkedCaseNo ? { linkedCaseNo } : {}),

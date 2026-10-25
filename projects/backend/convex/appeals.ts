@@ -6,7 +6,7 @@ import {
     type AppealStaffResult,
 } from "@neonflux/contracts/appeal"
 import { serviceMutation } from "./serviceGuard.ts"
-import { actor, authorize, RETENTION } from "./moderationDomain.ts"
+import { actor, authorize, retentionUntil } from "./moderationDomain.ts"
 import { caseByNo, config, publicAppeal, receipt, state } from "./moderationStore.ts"
 import type { Doc } from "./_generated/dataModel.js"
 import { decode, fail, source } from "./validation.ts"
@@ -142,7 +142,11 @@ export const member = serviceMutation({
         if (!row || row.userId !== userId) fail(404, "Appeal not found")
         if (op.type === "withdraw") {
             if (row.status !== "open") fail(409, "Appeal already closed")
-            await ctx.db.patch(row._id, { status: "withdrawn", decidedAt: now, expiresAt: now + RETENTION })
+            await ctx.db.patch(row._id, {
+                status: "withdrawn",
+                decidedAt: now,
+                expiresAt: retentionUntil(settings, now),
+            })
         }
         return { duplicate: false, type: "appeal", appeal: publicAppeal((await ctx.db.get(row._id))!) }
     },
@@ -199,7 +203,7 @@ export const staff = serviceMutation({
             decisionReason: row.erased ? "[Erased by owner]" : op.reason,
             decidedAt: now,
             decidedBy: who.userId,
-            expiresAt: now + RETENTION,
+            expiresAt: retentionUntil(settings, now),
         })
         return { duplicate: false, type: "appeal", appeal: publicAppeal((await ctx.db.get(row._id))!) }
     },

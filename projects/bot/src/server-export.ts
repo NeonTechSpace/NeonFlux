@@ -18,7 +18,7 @@ export const SERVER_EXPORT_PART_BYTES = 4 * 1024 * 1024
 // The backend accepts owner evidence for a minute, so a long export reads it again before it gets that old
 const EVIDENCE_MS = 45000
 const help = [
-    "!export sends this server's NeonFlux data to you as readable JSON: settings, leveling profiles, member showcases and profiles, moderation cases and appeals",
+    "!export sends this server's NeonFlux data to you as readable JSON: settings, leveling profiles, member showcases and profiles, moderation cases with their corrections and appeals",
     "Other bots can load it. It is separate from !backup, whose encrypted archive only restores into NeonFlux",
     "Only the server owner can export, in a one-to-one DM with NeonFlux, because the export holds private moderation data. The server's audit log records each export",
 ].join("\n")

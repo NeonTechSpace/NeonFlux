@@ -318,9 +318,10 @@ test("Views list cases and appeals newest first in pages, open a case with its c
     const corrected = await view({ type: "case", caseNo: 3 })
     assert.ok(corrected.status === "ok" && corrected.data.type === "case")
     assert.deepEqual(
-        corrected.data.case.corrections.map(({ previousReason, reason, type }) => ({ previousReason, reason, type })),
+        corrected.data.corrections.map(({ previousReason, reason, type }) => ({ previousReason, reason, type })),
         [{ previousReason: "Synthetic private reason 3", reason: "Synthetic corrected reason", type: "reason" }],
     )
+    assert.equal(corrected.data.nextCorrectionsAfter, undefined)
     assert.deepEqual(
         corrected.data.appeals.map((row) => row.appealNo),
         [2, 1],
@@ -329,7 +330,7 @@ test("Views list cases and appeals newest first in pages, open a case with its c
     const erased = await view({ type: "case", caseNo: 5 })
     assert.ok(erased.status === "ok" && erased.data.type === "case")
     assert.deepEqual(
-        [erased.data.case.erased, erased.data.case.corrections, erased.data.appeals.map((row) => row.erased)],
+        [erased.data.case.erased, erased.data.corrections, erased.data.appeals.map((row) => row.erased)],
         [true, [], [true]],
     )
     assert.ok(
@@ -337,6 +338,29 @@ test("Views list cases and appeals newest first in pages, open a case with its c
             !JSON.stringify(erased).includes("Synthetic appeal text 3"),
     )
     await assert.rejects(view({ type: "case", caseNo: 99 }))
+    // A case's corrections page 25 at a time, oldest first, and the next page continues after the last one shown
+    for (let no = 1; no <= 25; no++)
+        assert.equal(
+            (await manage({ type: "case-reason", caseNo: 3, reason: `Synthetic reason ${no}` }, String(3000 + no)))
+                .status,
+            200,
+        )
+    const firstCorrections = await view({ type: "case", caseNo: 3 })
+    assert.ok(firstCorrections.status === "ok" && firstCorrections.data.type === "case")
+    assert.deepEqual(
+        [firstCorrections.data.corrections.length, firstCorrections.data.corrections.at(-1)!.reason],
+        [25, "Synthetic reason 24"],
+    )
+    const laterCorrections = await view({
+        type: "case",
+        caseNo: 3,
+        correctionsAfter: firstCorrections.data.nextCorrectionsAfter!,
+    })
+    assert.ok(laterCorrections.status === "ok" && laterCorrections.data.type === "case")
+    assert.deepEqual(
+        [laterCorrections.data.corrections.map((row) => row.reason), laterCorrections.data.nextCorrectionsAfter],
+        [["Synthetic reason 25"], undefined],
+    )
 
     const appeals = await view({ type: "appeals" })
     assert.ok(appeals.status === "ok" && appeals.data.type === "appeals")
@@ -387,6 +411,8 @@ test("Views list cases and appeals newest first in pages, open a case with its c
         { ...viewer, setting: "Waiting appeals", summary: "Waiting appeals after appeal 1" },
         { ...viewer, setting: "Waiting appeals", summary: "Oldest waiting appeals" },
         { ...viewer, setting: "Appeals list", summary: "Newest appeals" },
+        { ...viewer, setting: "Case 3", summary: "Member 21" },
+        { ...viewer, setting: "Case 3", summary: "Member 21" },
         { ...viewer, setting: "Case 5", summary: "Member 21" },
         { ...viewer, setting: "Case 3", summary: "Member 21" },
         { ...viewer, setting: "Cases list", summary: "Cases before case 3" },

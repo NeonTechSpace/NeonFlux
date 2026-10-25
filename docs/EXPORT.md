@@ -2,7 +2,7 @@
 
 This guide is for server owners who move a server's NeonFlux data to another bot and for developers who write an
 importer. The server export is a readable JSON copy of a server's NeonFlux settings, leveling profiles, member showcases
-and profiles, moderation cases and appeals. It is separate from the
+and profiles, moderation cases with their corrections and appeals. It is separate from the
 [encrypted backup](BOT.md#selective-backup-and-restore), which only restores into NeonFlux. NeonFlux does not import
 data from other bots
 
@@ -22,7 +22,7 @@ The file is UTF-8 JSON printed with two spaces of indentation. Its name is `neon
 | Field | Value |
 | --- | --- |
 | `format` | Always `neonflux-server-export` |
-| `version` | The format version, `1` for this format. A new version changes this guide first |
+| `version` | The format version, `2` for this format. A new version changes this guide first. Version 1 kept a case's corrections inside the case as `cases[].corrections`, where version 2 lists them in `corrections` |
 | `serverId` | The server the data belongs to |
 | `exportedAt` | When the export started |
 | `part` | The part number, starting at 1 |
@@ -32,9 +32,10 @@ The file is UTF-8 JSON printed with two spaces of indentation. Its name is `neon
 | `showcases` | Member showcases, oldest first, see [showcases](#showcases) |
 | `profiles` | Member profiles, see [profiles](#profiles) |
 | `cases` | Moderation cases, oldest first, see [cases](#cases) |
+| `corrections` | Reason corrections and voids of cases, oldest first, see [corrections](#corrections) |
 | `appeals` | Appeals, oldest first, see [appeals](#appeals) |
 
-An export from the dashboard is always one file. A chat export larger than about 4 MiB arrives as several files named `neonflux-server-export-<serverId>-part-<n>.json`, each sent as its own DM message. Every part is a complete file of the same shape with its own share of the data. To load a split export, read every part from 1 to the one with `lastPart: true`, concatenate the `levels`, `showcases`, `profiles`, `cases` and `appeals` arrays and merge `settings`, where a family that appears in more than one part continues its lists
+An export from the dashboard is always one file. A chat export larger than about 4 MiB arrives as several files named `neonflux-server-export-<serverId>-part-<n>.json`, each sent as its own DM message. Every part is a complete file of the same shape with its own share of the data. To load a split export, read every part from 1 to the one with `lastPart: true`, concatenate the `levels`, `showcases`, `profiles`, `cases`, `corrections` and `appeals` arrays and merge `settings`, where a family that appears in more than one part continues its lists
 
 ## Settings
 
@@ -117,12 +118,24 @@ Each entry is a showcase that still exists, with the text as the member wrote it
 | `channelId` | The channel involved, when there is one |
 | `ruleName` | The automod rule that matched, for automod cases |
 | `linkedCaseNo` | The earlier case this one reverses or follows |
-| `reason` | The reason, or `null` when the owner erased the case |
+| `reason` | The reason, an empty string when staff gave none, or `null` when the owner erased the case |
 | `outcome` | `pending`, `succeeded`, `failed` or `uncertain` when NeonFlux could not confirm the action |
 | `voided` | Whether staff voided the warning |
 | `erased` | Whether the owner erased the case's text |
 | `createdAt` | When the case was created |
-| `corrections` | Reason corrections and voids, each with `type`, `actorId`, `previousReason`, `reason` and `createdAt`. Empty for an erased case |
+
+## Corrections
+
+Each time staff change a case's reason or void a warning, the case keeps a correction. A case may have any number. Erasing a case deletes its corrections
+
+| Field | Value |
+| --- | --- |
+| `caseNo` | The corrected case |
+| `type` | `reason` for a changed reason or `void` for a voided warning |
+| `actorId` | The staff member who made the correction |
+| `previousReason` | The reason before the correction |
+| `reason` | The reason after it, the same as before for a void |
+| `createdAt` | When staff made the correction |
 
 ## Appeals
 
