@@ -281,7 +281,7 @@ export function BackupSection({ client, sessionToken, serverId, catalog, connect
                     Make an encrypted backup in a DM with NeonFlux:{" "}
                     <code>{dm("!backup export config xp structure")}</code> (leave out any of the three categories you
                     do not want). Check an archive: send <code>{dm("!backup preview")}</code> with the archive attached.
-                    The archive arrives in your DM. Keep it and the bot's backup key somewhere safe offline
+                    The archive arrives in your DM. Store the archive and backup key offline
                 </p>
                 {wait && (
                     <p className="notice" role="status">
@@ -327,7 +327,7 @@ export function BackupSection({ client, sessionToken, serverId, catalog, connect
                                 </ul>
                                 {attention.length > 0 && (
                                     <div className="notice restore-attention" role="status">
-                                        <h3>Look at these first</h3>
+                                        <h3>Restore warnings</h3>
                                         <ul>
                                             {attention.map(([name, text]) => (
                                                 <li key={name}>

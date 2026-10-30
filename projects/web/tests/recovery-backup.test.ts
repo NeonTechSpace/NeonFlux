@@ -363,7 +363,7 @@ test("The restore page leads with what needs attention, lists each change with t
         ["3 to create", "2 to update", "1 to delete", "1 blocked", "1 identical or left alone"],
     )
     // The summary comes first, in words, and names the permissions
-    const attention = within(ui.getByRole("heading", { name: "Look at these first" }).parentElement!)
+    const attention = within(ui.getByRole("heading", { name: "Restore warnings" }).parentElement!)
     assert.deepEqual(attention.getAllByRole("listitem").map(text), [
         "Blocked: 1 item will not run. Each row says why and how to fix it",
         "Deletes: 1 channel or category will be deleted with its messages. This cannot be undone",

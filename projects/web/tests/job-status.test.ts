@@ -42,7 +42,7 @@ test("Every request state reads in plain words with what to do next", () => {
     const items = ui.getAllByRole("listitem").map((item) => item.textContent)
     assert.match(items[0]!, /^Waiting for the bot.*within two minutes, it fails and nothing changes$/)
     assert.match(items[1]!, /^Saved, publishing the panel/)
-    assert.match(items[2]!, /^SendingThe bot is sending it now$/)
+    assert.match(items[2]!, /^Sending$/)
     assert.match(items[3]!, /^Applied$/)
     assert.match(items[4]!, /^Sent$/)
     assert.match(items[5]!, /^FailedMissing Manage roles permissionFix the cause shown, then try again/)

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react"
 // guards nothing and losing the mark only shows a dismissible tour again, so it needs no backend record
 export const tourSteps: ReadonlyArray<{ title: string; text: string }> = [
     {
-        title: "Setup progress at a glance",
+        title: "Setup progress",
         text: "The Overview shows which features are on, on but needing setup, such as a channel or a first entry, or off. Its permission check asks NeonFlux to check its own permissions and role position, and names the fix for each problem",
     },
     {

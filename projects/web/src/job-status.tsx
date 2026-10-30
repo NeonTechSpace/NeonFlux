@@ -12,7 +12,7 @@ const changes: Record<JobState, Wording> = {
         tone: "pending",
         next: "The settings are saved and the bot is sending the panel message",
     },
-    reserved: { label: "Sending", tone: "pending", next: "The bot is sending it now" },
+    reserved: { label: "Sending", tone: "pending" },
     applied: { label: "Applied", tone: "done" },
     sent: { label: "Sent", tone: "done" },
     failed: {

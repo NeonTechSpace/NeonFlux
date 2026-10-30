@@ -240,7 +240,7 @@ is the plan that [`!backup preview`](BOT.md#selective-backup-and-restore) makes 
 NeonFlux. Only the owner who made it sees it here, and other managers see that no check is available to them
 
 The page leads with a summary: the archive, when it was checked and how many items it would create, update, delete, skip
-as identical or block. Below it, **Look at these first** lists only what applies as a bulleted list, each line starting
+as identical or block. Below it, **Restore warnings** lists only what applies as a bulleted list, each line starting
 with its name: **Blocked** items, **Deletes** of channels and categories with their messages, which cannot be undone,
 **More permission** with the permission names when an overwrite would grant more than the server has now, **Turns on**
 with the name of each setting a restore switches on, such as Leveling, and **Warnings** for items with a warning, such

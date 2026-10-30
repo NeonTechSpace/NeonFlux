@@ -155,9 +155,6 @@ export function ServerPicker({
         <>
             <section className="server-select" aria-labelledby="server-select-title">
                 <h2 id="server-select-title">Choose a server</h2>
-                <p className="muted">
-                    Select the server you want to configure. You can switch servers at any time from the server header
-                </p>
                 {search}
                 {invited && onCheckServers && (
                     <p className="notice" role="status">
