@@ -32,6 +32,7 @@ const rowIdentities = {
 } satisfies RowIdentities
 /** The identities of a family's paged collections, by collection name */
 export const identitiesOf = (family: DashboardConfigurationFamily) =>
+    // oxlint-disable-next-line typescript/no-explicit-any -- Each family's rows have their own type, and only any lets a parameter accept all of them
     (rowIdentities as Partial<Record<string, Record<string, (row: any) => string>>>)[family]
 /** A snapshot's data by collection name */
 const collectionsOf = (snapshot: DashboardConfigurationSnapshot) => snapshot.data as Record<string, unknown[]>

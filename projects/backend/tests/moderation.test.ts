@@ -1,8 +1,6 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test } from "node:test"
 import type { TestContext } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { cleanupModeration } from "../convex/moderation.ts"
 import { blockingContentRule } from "../convex/protection.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
@@ -17,6 +15,7 @@ import type {
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import { BATCH, CORRECTION_BATCH, DAY, KEEP, wordMatches, foldWords } from "../convex/moderationDomain.ts"
 import { memberDataExport } from "../convex/memberData.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const originalServer = process.env.NEONFLUX_SERVER_ID
@@ -84,7 +83,7 @@ function fixture(ctx: TestContext) {
     let now = 1700000000000
     let sequence = 1000
     ctx.mock.method(Date, "now", () => now)
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     const post = (path: string, body: unknown, auth = true) => botCall(t, path, body, auth ? {} : { secret: null })
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const manageRequest = (operation: unknown, actor = owner) => ({ ...source(), actor, operation })

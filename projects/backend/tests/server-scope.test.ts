@@ -2,10 +2,10 @@ import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, test } from "node:test"
 import { ConvexError } from "convex/values"
-import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import { backendRoutes } from "../../bot/src/backend-routes.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { requireOrigin } from "../convex/serverScope.ts"
 import { parseServerScope } from "@neonflux/contracts/service"
@@ -47,7 +47,7 @@ const modules = {
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
 }
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 type Backend = ReturnType<typeof backend>
 // The secret the request key is derived from. The default is the configured secret
 function installation(t: Backend, operation: "list" | "join" | "leave", body: unknown, keySecret?: string) {
@@ -255,7 +255,7 @@ const tableCounts = (t: Backend) =>
     })
 
 test("Every bot route rejects uninstalled and removed servers before domain work and keeps their data", async () => {
-    const t = convexTest({ schema, modules: everyModule, transactionLimits: true })
+    const t = convexBackend(everyModule)
     const routes = Object.keys(backendRoutes).filter((path) => !path.startsWith("/service/"))
     assert.ok(routes.length > 90)
     const rejectAll = async (serverId: string) => {

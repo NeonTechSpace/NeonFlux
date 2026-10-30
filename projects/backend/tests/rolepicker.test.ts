@@ -2,8 +2,6 @@ import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
 import { ConvexError } from "convex/values"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
 import {
     ROLE_PICKER_MENUS,
@@ -17,6 +15,7 @@ import { BACKUP_RESTORE_LIMITS } from "@neonflux/contracts/backup"
 import { Schema } from "effect"
 import type { RolesGrant } from "@neonflux/contracts/roles"
 import type { ModerationActor, RolesMemberContext, RolesRoleSnapshot } from "@neonflux/contracts/shared"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const modules = Object.fromEntries([
@@ -125,7 +124,7 @@ const statusOf = (error: unknown) =>
     error instanceof ConvexError ? (error.data as { status?: number }).status : undefined
 
 async function fixture() {
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     let sequence = 1000,
         request = 0
     const raw = (path: string, body: Record<string, unknown>, serverId = "10") =>

@@ -201,6 +201,7 @@ function observed(ctx: MutationCtx, now: number) {
     }
 }
 
+// oxlint-disable-next-line typescript/no-explicit-any -- Each function decodes its own request type, and only any lets a parameter accept all of them
 function botQuery<Returns>(limit: number, fn: RegisteredQuery<"internal", { request: any }, Returns>) {
     const handler = guardedQuery(fn)
     return query({
@@ -209,6 +210,7 @@ function botQuery<Returns>(limit: number, fn: RegisteredQuery<"internal", { requ
             entry(async () => await handler(inline(ctx), { request: await boundRequest(args, limit) })),
     })
 }
+// oxlint-disable-next-line typescript/no-explicit-any -- Each function decodes its own request type, and only any lets a parameter accept all of them
 function botMutation<Returns>(limit: number, fn: RegisteredMutation<"internal", { request: any }, Returns>) {
     const handler = guardedMutation(fn)
     return mutation({

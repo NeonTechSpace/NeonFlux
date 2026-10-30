@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const prior = { ...process.env },
@@ -43,7 +42,7 @@ const host = "21",
     third = "23"
 
 async function fixture() {
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     let sequence = 1000
     const post = async (path: string, body: unknown, expected = 200) => {
         const response = await botCall(t, path, body)

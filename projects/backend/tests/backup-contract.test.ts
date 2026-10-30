@@ -51,7 +51,7 @@ import {
     decryptBackupParts,
 } from "../../bot/src/backup-crypto.ts"
 
-const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
+const test = (name: string, body: (t: TestContext) => Promise<void>) => void nodeTest(name, { timeout: 30000 }, body)
 const proofCalls = { http: 0, sdkReads: 0, sdkCreates: 0, sdkMessages: 0, sdkUploads: 0, downloads: 0 }
 after((t) =>
     t.diagnostic(

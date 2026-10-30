@@ -63,7 +63,15 @@ type BackupWriter = {
     roles: RolesRoleSnapshot[]
     now: number
 }
-const feature: Partial<Record<BackupConfigObject["family"], DashboardConfigurationFamily>> = {
+// The dashboard family whose revision a restored setting bumps, so open dashboards reload it. Every family is listed, so a new
+// one decides whether it has one. Role settings and panels keep their own ledger revisions, and an access list names its feature
+const feature: Record<BackupConfigObject["family"], DashboardConfigurationFamily | null> = {
+    roles: null,
+    panel: null,
+    access: null,
+    metadata: null,
+    general: null,
+    analytics: null,
     moderation: "moderation",
     automod: "moderation",
     responses: "responses",
@@ -601,7 +609,7 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
             await applyYoutubeManagement(ctx, identity("youtube"), { type: "add", ...item.value })
             break
     }
-    const family = item.family === "access" ? item.value.feature : feature[item.family]
+    const family = item.family === "access" ? item.value.feature : (feature[item.family] ?? undefined)
     if (family) await bumpConfigurationRevision(ctx, serverId, family, { kind: "dashboard", createdAt: now })
     // A restore confirmed by the owner records each written item in the audit log
     await recordAudit(

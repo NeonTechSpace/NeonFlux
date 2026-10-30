@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import type { TableNames } from "../convex/_generated/dataModel.js"
 import type {
@@ -14,6 +13,7 @@ import type {
 } from "@neonflux/contracts/member-data"
 import { MEMBER_DATA, MEMBER_DATA_EXEMPT } from "../convex/memberData.ts"
 import { defaultLevelingSettings } from "../convex/levelingDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { insertDocument, serverIndexes, tableNames } from "./schema-documents.ts"
 import { botCall } from "./bot-service.ts"
 import { admitMetadata, metadataState, removeMetadataRecord } from "../convex/metadataLogsStore.ts"
@@ -45,7 +45,7 @@ const modules = Object.fromEntries([
     ["../convex/_generated/api.js", () => import("../convex/_generated/api.js")],
     ["../convex/_generated/server.js", () => import("../convex/_generated/server.js")],
 ])
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 type Backend = ReturnType<typeof backend>
 const call = async <T>(t: Backend, path: string, body: unknown) => {
     const response = await botCall(t, path, body)

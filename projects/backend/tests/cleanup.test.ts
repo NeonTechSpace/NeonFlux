@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import type {
     CleanupContext,
     CleanupGrant,
@@ -10,7 +9,6 @@ import type {
     CleanupTarget,
     CleanupTargetBinding,
 } from "@neonflux/contracts/cleanup"
-import schema from "../convex/schema.ts"
 import { cleanupCleanupMetadata } from "../convex/cleanupRetention.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import {
@@ -24,6 +22,7 @@ import {
     CLEANUP_SETTLE_MS,
 } from "../convex/cleanupDomain.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { applyCleanupManagement } from "../convex/cleanup.ts"
 import { changeConfiguration } from "../convex/configurationChange.ts"
@@ -94,7 +93,7 @@ async function fixture(t: TestContext, transactionLimits: true | typeof strictLi
     let now = Date.parse("2026-01-01T00:00:00Z"),
         sequence = 1000
     t.mock.method(Date, "now", () => now)
-    const db = convexTest({ schema, modules, transactionLimits }),
+    const db = convexBackend(modules, transactionLimits),
         source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const context = (userId = "10", channelId = "30"): CleanupContext => ({
         observedAt: now,

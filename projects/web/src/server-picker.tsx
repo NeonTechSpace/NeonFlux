@@ -10,6 +10,8 @@ const memberFeatureLabels = {
     profile: "profile",
     private: "private cases",
 } as const
+// A server named with an emoji or a flag starts with that whole symbol, not half of it
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" })
 const tileColors = ["#4f5bd5", "#2f7d57", "#a8326f", "#9a6417", "#b83a3a", "#2a6aa8", "#6b46c1"]
 // This many servers or more, managed and joined together, offer a search field
 export const SERVER_SEARCH_FROM = 7
@@ -32,10 +34,14 @@ export function ServerIcon({ server, large = false }: { server: Server; large?: 
             .trim()
             .split(/\s+/)
             .slice(0, 2)
-            .map((word) => [...word][0] ?? "")
+            .map((word) => graphemes.segment(word)[Symbol.iterator]().next().value?.segment ?? "")
             .join("")
             .toUpperCase() || "?"
-    const color = tileColors[[...server.id].reduce((sum, digit) => sum + digit.charCodeAt(0), 0) % tileColors.length]
+    const color =
+        tileColors[
+            Array.from(server.id, (digit) => digit.charCodeAt(0)).reduce((sum, code) => sum + code, 0) %
+                tileColors.length
+        ]
     return (
         <span className={`${className} initials`} style={{ background: color }} aria-hidden="true">
             {initials}

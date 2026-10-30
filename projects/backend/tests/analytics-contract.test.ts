@@ -16,7 +16,7 @@ import type { MutationCtx } from "../convex/_generated/server.js"
 import { writeAnalyticsEnabled } from "../convex/analytics.ts"
 import { dueWork } from "../convex/workDispatch.ts"
 
-const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
+const test = (name: string, body: (t: TestContext) => Promise<void>) => void nodeTest(name, { timeout: 30000 }, body)
 const HOUR = 3600000,
     DAY = 86400000
 const modules = { "../convex/analytics.ts": () => import("../convex/analytics.ts") }

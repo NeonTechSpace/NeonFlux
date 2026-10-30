@@ -1,8 +1,6 @@
 import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
 import {
     EXPORT_APPEALS,
@@ -17,6 +15,7 @@ import type { BackupContext } from "@neonflux/contracts/backup"
 import { PRIVATE_ACCESS_MS } from "../convex/privateData.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { defaultLevelingSettings } from "../convex/levelingDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET", "FLUXER_CLIENT_ID"] as const
@@ -63,7 +62,7 @@ const modules = Object.fromEntries([
     ["../convex/_generated/api.js", () => import("../convex/_generated/api.js")],
     ["../convex/_generated/server.js", () => import("../convex/_generated/server.js")],
 ])
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 const context = (patch: Partial<BackupContext> = {}): BackupContext => ({
     originServerId: "10",
     provider: "https://api.example.test",

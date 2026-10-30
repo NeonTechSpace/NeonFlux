@@ -8,11 +8,11 @@ import type {
 import type { SuggestionsCardBinding } from "@neonflux/contracts/publishing-base"
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import schema from "../convex/schema.ts"
 import { cleanupSuggestions } from "../convex/suggestionsCleanup.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import { renderSuggestion, SUGGESTIONS_DAY } from "../convex/suggestionsDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID,
@@ -63,7 +63,7 @@ async function fixture(t: TestContext) {
     let now = Date.parse("2026-01-01T00:00:00Z"),
         sequence = 1000
     t.mock.method(Date, "now", () => now)
-    const db = convexTest({ schema, modules, transactionLimits: true }),
+    const db = convexBackend(modules),
         source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const context = (
         userId = "10",

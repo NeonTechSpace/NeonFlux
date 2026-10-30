@@ -4,12 +4,15 @@ import type {
 } from "@neonflux/backend/dashboard-contracts"
 import { identitiesOf } from "./configuration-live"
 
-// One list of a family's data: how to read its rows, how to put rows back and what identifies a row
+// One list of a family's data: how to read its rows, how to put rows back and what identifies a row. Each family's data
+// has its own type, and only any lets a parameter accept all of them
+/* oxlint-disable typescript/no-explicit-any */
 interface List {
     rows: (data: any) => unknown[]
     put: (data: any, rows: unknown[]) => unknown
     identity: (row: any) => string
 }
+/* oxlint-enable typescript/no-explicit-any */
 const top = (key: string, identity: List["identity"]): List => ({
     rows: (data) => data[key],
     put: (data, rows) => ({ ...data, [key]: rows }),

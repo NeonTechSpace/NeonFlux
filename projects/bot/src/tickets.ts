@@ -208,7 +208,8 @@ export function performTicketGrant(
             ownsClaim = true
             if ((yield* Clock.currentTimeMillis) >= grant.dispatchExpiresAt)
                 return yield* Effect.fail(new TicketHandlingError({ stage: "claim" }))
-            ;((nativeStage = true), (nativeInvoked = true))
+            nativeStage = true
+            nativeInvoked = true
             if (create) {
                 const returned = yield* client.channels.create(
                     serverId,
@@ -235,7 +236,8 @@ export function performTicketGrant(
                 const observed = yield* snapshotTicketChannel(fresh)
                 if (!ticketChannelsEqual(observed, channel) || !audienceMatches(observed, grant))
                     return yield* Effect.fail(new TicketHandlingError({ stage: "snapshot" }))
-                ;((channel = observed), (observedAt = yield* Clock.currentTimeMillis))
+                channel = observed
+                observedAt = yield* Clock.currentTimeMillis
             } else if (message) {
                 const returned = yield* client.messages.send(
                     grant.channelId!,
@@ -253,7 +255,8 @@ export function performTicketGrant(
                     botId: grant.botId,
                     verifiedChannel: authority.channel!,
                 })
-                ;((channelId = grant.channelId), (messageId = returned.id))
+                channelId = grant.channelId
+                messageId = returned.id
                 const comparable = publishingMessageContent(returned)
                 if (!comparable || !equalPublishingContent(comparable, canonicalPublishingContent(grant.content!)))
                     return yield* Effect.fail(new TicketHandlingError({ stage: "content" }))
@@ -261,7 +264,8 @@ export function performTicketGrant(
             } else if (remove) {
                 channelId = grant.channelId
                 yield* client.channels.delete(channelId!, { timeoutMs: 5000 })
-                ;((nativeDeleteConfirmed = true), (nativeStage = false))
+                nativeDeleteConfirmed = true
+                nativeStage = false
                 const after = yield* client.channels.fetch(channelId!).pipe(
                     Effect.timeout("5 seconds"),
                     Effect.catch((error) =>
@@ -269,7 +273,8 @@ export function performTicketGrant(
                     ),
                 )
                 if (after !== undefined) return yield* Effect.fail(new TicketHandlingError({ stage: "snapshot" }))
-                ;((channelAbsent = true), (observedAt = yield* Clock.currentTimeMillis))
+                channelAbsent = true
+                observedAt = yield* Clock.currentTimeMillis
             } else {
                 channelId = grant.channelId
                 const overwrite = (yield* nativeTicketOverwrites([merged!]))[0]!

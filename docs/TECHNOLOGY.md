@@ -51,7 +51,7 @@ Background workers run only when there is work. One dispatcher per bot process a
 
 Each bot request is one billed Convex function call. The bot's functions check a key derived from the bot secret themselves, so no HTTP action runs in front of them
 
-Idle counts below are computed from the code, not measured, and exclude worker requests for work that is due
+The idle counts below are checked by a [bot test](../projects/bot/tests/cost.test.ts) that runs an idle bot through a simulated day against an in-memory backend and counts its function calls, so a change that adds idle calls fails it. It does not read Convex's bill. The busiest dispatch is computed from the code, and every count excludes worker requests for work that is due
 
 | Billed Convex calls per day | Count |
 | --- | --- |
@@ -97,7 +97,7 @@ See [the dashboard guide](WEB.md) for setup
 - Contracts: The [contracts manifest](../projects/contracts/package.json) takes Effect and TypeScript from the catalog
 - `@effect/tsgo` must support the pinned TypeScript version. Its release notes list the versions each release supports
 - Website: The [web manifest](../projects/web/package.json) pins every other website dependency and takes its Convex client and TypeScript from the catalog
-- Workspace tools: The [workspace manifest](../projects/package.json) pins Prettier, which formats every package, and `@effect/tsgo`, which the Effect typecheck runs
+- Workspace tools: The [workspace manifest](../projects/package.json) pins Prettier, which formats every package, `@effect/tsgo`, which the Effect typecheck runs, and Oxlint with `oxlint-tsgolint`, which the lint runs. `oxlint-tsgolint` must support the pinned TypeScript version
 - Add a dependency only when code uses it, and keep project-specific dependencies in their project rather than the workspace root
 
 ## Build and check constraints
@@ -109,6 +109,8 @@ The gate passes each argument to its command unchanged, and `--shell` runs one c
 Gated TypeScript compiles run with `--singleThreaded`, and Node's test runner uses one worker per package
 
 Prettier formats the workspace with the settings in [projects/.prettierrc.json](../projects/.prettierrc.json): 120 characters a line, four spaces, LF line endings and no semicolons. `pnpm run format` rewrites files, and `pnpm run format:check`, the first step of `pnpm run check`, fails on unformatted ones. Prettier reads only the workspace's own `.gitignore`, so [projects/.prettierignore](../projects/.prettierignore) adds the generated files git tracks and the files the package `.gitignore` files list, such as the website's build output
+
+`pnpm run lint`, the second step of `pnpm run check`, runs Oxlint over every package with the settings in [projects/.oxlintrc.json](../projects/.oxlintrc.json), then the repository's own scans. Oxlint checks types through `oxlint-tsgolint` with each file's nearest `tsconfig.json`. Its correctness rules, unhandled and misused promises and switches that miss a union member without a default are errors, and every finding fails the lint, so nothing is left as a warning. Package boundaries are lint rules too: the bot never imports backend or website code, the website takes backend types only from the two types-only contract files, Convex functions never import bot or website code and contracts import only Effect and each other, never in a cycle. Tests may cross these boundaries. An explicit `any` or a `@ts-` comment in source needs an `oxlint-disable` comment that gives its reason. [lint.mjs](../projects/scripts/lint.mjs) runs through the heavy-task gate and gives Oxlint two threads, with `GOMAXPROCS` for the Go type checker, which ignores Oxlint's `--threads`. [em-dashes.mjs](../projects/scripts/em-dashes.mjs) fails on any em dash in a tracked or new text file of the repository, [doc-links.mjs](../projects/scripts/doc-links.mjs) on a Markdown link to a missing file or heading, and [repository-guide.mjs](../projects/scripts/repository-guide.mjs) on a bot or backend source file that the repository guide neither links nor names by a feature prefix. Each fails when it finds nothing to check, so a broken scan cannot pass. The tests next to these scripts plant a violation and expect the failure
 
 Web source checking is strict, with `skipLibCheck` in the web package only, for Nitro's optional provider declarations
 

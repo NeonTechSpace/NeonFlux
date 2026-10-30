@@ -5,7 +5,7 @@ import { Id, Int, Millis, origin } from "./common.ts"
 
 /** One to five punctuation characters */
 export const validPrefix = (value: unknown): value is string =>
-    typeof value === "string" && /^[!$%&*+,.?~^|:/\-]{1,5}$/.test(value)
+    typeof value === "string" && /^[!$%&*+,.?~^|:/-]{1,5}$/.test(value)
 /** Fluxer's 1 to 32 UTF-16 code units, without surrounding spaces or control characters, so the returned nickname compares exactly */
 export const validNickname = (value: unknown): value is string =>
     typeof value === "string" &&

@@ -1,7 +1,5 @@
 import assert from "node:assert/strict"
 import { test, beforeEach, afterEach, mock } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
 import type { DashboardConfigurationFamily, DashboardConfigurationOperationMap } from "@neonflux/contracts/dashboard"
 import { EVENTS_DESCRIPTION_LIMIT } from "@neonflux/contracts/events"
@@ -9,6 +7,7 @@ import { validateEventCalendar } from "../convex/eventsDomain.ts"
 import { resolveCivilInstant } from "../convex/civilDomain.ts"
 import { backupWriteConfig } from "../convex/backupWrites.ts"
 import { configurationNativeTarget } from "../convex/configurationNative.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const modules = Object.fromEntries(
@@ -102,7 +101,7 @@ const context = (channelId = "50") => ({
     member: member("99"),
 })
 async function fixture() {
-    const t = convexTest({ schema, modules, transactionLimits: true }),
+    const t = convexBackend(modules),
         session = await t.action(api.dashboard.admit, { accessToken: "synthetic-config-provider-token" }),
         args = { sessionToken: session.sessionToken, serverId: "10" }
     let sequence = 0

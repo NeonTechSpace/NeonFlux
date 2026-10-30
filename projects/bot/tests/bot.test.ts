@@ -190,7 +190,7 @@ const handledDispatches = [
 ]
 
 for (const mode of ["single", "multi"] as const) {
-    test(`${mode} mode asks Fluxer to skip unhandled dispatches and keeps every handled one`, async (t) => {
+    test(`${mode} mode asks Fluxer to skip unhandled dispatches and keeps every handled one`, async () => {
         const fixtures = createFixtures()
         const client = fakeClient((call) => {
             if (call.path === "/service/scope") return { mode: "multi" }

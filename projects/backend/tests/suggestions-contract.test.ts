@@ -41,7 +41,7 @@ import { processSuggestionsPass } from "../../bot/src/suggestion-worker.ts"
 import { handleSuggestionCommand } from "../../bot/src/suggestion-management.ts"
 import { parseSuggestionCommand } from "../../bot/src/suggestion-command.ts"
 import { createModerationStore } from "../../bot/src/moderation-store.ts"
-const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
+const test = (name: string, body: (t: TestContext) => Promise<void>) => void nodeTest(name, { timeout: 30000 }, body)
 
 const routes = [
     "/suggestions/manage",

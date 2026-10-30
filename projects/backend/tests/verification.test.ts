@@ -1,12 +1,11 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
 import { defaultRolesSettings } from "../convex/rolesDomain.ts"
 import { verificationHash } from "../convex/captchaDomain.ts"
 import { decodeMotionFrames } from "@neonflux/contracts/motion-captcha"
 import { motionChallenge, sparkRoute, MOTION_CAPTCHA_INSTRUCTION } from "../convex/motionCaptcha.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { turnstileHostnames } from "../convex/turnstile.ts"
 
@@ -95,7 +94,7 @@ async function fixture(test: TestContext) {
               : []
         return new Response(JSON.stringify(body), { status: 200 })
     })
-    const t = convexTest({ schema, modules, transactionLimits: true }),
+    const t = convexBackend(modules),
         joinedAt = new Date(now - 1000).toISOString()
     const context = {
         originServerId: "1",

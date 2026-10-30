@@ -40,6 +40,7 @@ export function memberText(
     if (
         (!options.empty && !text.length) ||
         text.length > maximum ||
+        // oxlint-disable-next-line typescript/no-misused-spread -- Each hidden character is one code point
         [...text].some((char) => hidden(char.codePointAt(0)!, options.multiline === true))
     )
         fail(

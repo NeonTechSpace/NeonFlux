@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import type {
     MilestonesContext,
     MilestonesDelivery,
@@ -12,6 +11,7 @@ import { cleanupMilestones } from "../convex/milestonesCleanup.ts"
 import { milestoneAnnual, milestoneCivil, milestoneMonthDay, renderMilestone } from "../convex/milestonesDomain.ts"
 import { publicMilestoneDelivery } from "../convex/milestonesStore.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID,
@@ -61,7 +61,7 @@ async function fixture(t: TestContext) {
     let now = Date.parse("2026-01-01T00:00:00Z"),
         sequence = 1000
     t.mock.method(Date, "now", () => now)
-    const db = convexTest({ schema, modules, transactionLimits: true }),
+    const db = convexBackend(modules),
         source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const context = (): MilestonesContext => ({
         observedAt: now,

@@ -54,7 +54,7 @@ export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["dashboardSessions", cleanupDashboardSessions],
 ]
 // Passes that only schedule other work run once when a chain starts, not in its continuations
-const RETENTION_START_PASSES: readonly RetentionPass[] = [scheduleTicketPurges]
+export const RETENTION_START_PASSES: readonly RetentionPass[] = [scheduleTicketPurges]
 
 async function spent(ctx: MutationCtx) {
     const metrics = await ctx.meta.getTransactionMetrics()

@@ -1,10 +1,9 @@
 import assert from "node:assert/strict"
 import { beforeEach, afterEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { cleanupGreetings } from "../convex/greetingLifecycle.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import type { GreetingsGrant, GreetingsMemberContext } from "@neonflux/contracts/greetings"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { renderGreeting } from "../convex/greetingsDomain.ts"
 const secret = "synthetic-greetings-secret-not-a-credential-0000",
@@ -61,7 +60,7 @@ function fixture(test: TestContext) {
     let now = 1700000000000,
         sequence = 1000
     test.mock.method(Date, "now", () => now)
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     test.mock.timers.enable({ apis: ["setTimeout"] })
     drainScheduled = () => t.finishAllScheduledFunctions(() => test.mock.timers.tick(0))
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })

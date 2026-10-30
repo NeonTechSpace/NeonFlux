@@ -5,7 +5,9 @@ export function parseSearch(search: string): Record<string, string> {
 }
 export function stringifySearch(search: Record<string, unknown>): string {
     const query = new URLSearchParams()
-    for (const [key, value] of Object.entries(search)) if (value !== undefined) query.set(key, String(value))
+    for (const [key, value] of Object.entries(search))
+        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+            query.set(key, String(value))
     const text = query.toString()
     return text ? `?${text}` : ""
 }

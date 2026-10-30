@@ -2,8 +2,6 @@ import assert from "node:assert/strict"
 import { createHmac } from "node:crypto"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import {
     hubBackoff,
@@ -17,6 +15,7 @@ import {
     youtubeTopic,
 } from "../convex/youtubeDomain.ts"
 import { cleanupYoutube } from "../convex/youtubeStore.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const keys = [
@@ -114,7 +113,7 @@ const feedEntry = (videoId: string, title: string, publishedAt: number, channel 
     entry(videoId, title, publishedAt, channel).replace("</entry>", `${media(videoId, title)}</entry>`)
 
 async function fixture() {
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     let sequence = 1000
     const call = async (path: string, body: unknown, expected = 200) => {
         const response = await botCall(t, path, body),

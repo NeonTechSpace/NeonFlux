@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import { Schema } from "effect"
 import {
     LevelingQueryResult,
@@ -11,10 +10,10 @@ import {
     type LevelingMemberContext,
 } from "@neonflux/contracts/leveling"
 import type { RolesMemberContext } from "@neonflux/contracts/shared"
-import schema from "../convex/schema.ts"
 import { cleanupLeveling } from "../convex/levelingCleanup.ts"
 import { levelForXp, LEVELING_DAY, LEVELING_WINDOW } from "../convex/levelingDomain.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { countedProfile } from "./schema-documents.ts"
 
@@ -89,7 +88,7 @@ function fixture(t: TestContext) {
     let now = 1700000000000,
         sequence = 1000
     t.mock.method(Date, "now", () => now)
-    const db = convexTest({ schema, modules, transactionLimits: true })
+    const db = convexBackend(modules)
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const http = (path: string, body: unknown, auth = true) => botCall(db, path, body, auth ? {} : { secret: null })
     const manageRequest = (operation: LevelingManageOperation, actor = owner) => ({ ...source(), actor, operation })

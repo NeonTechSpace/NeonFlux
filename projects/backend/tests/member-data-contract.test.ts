@@ -10,7 +10,7 @@ import { adapterFixture } from "./adapter-fixture.ts"
 import { insertDocument } from "./schema-documents.ts"
 import { createMemberDataStore } from "../../bot/src/member-data-store.ts"
 
-const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
+const test = (name: string, body: (t: TestContext) => Promise<void>) => void nodeTest(name, { timeout: 30000 }, body)
 
 test("The bot's member data adapter decodes the backend's list, server search, export and delete answers", async (t) => {
     const f = await adapterFixture(t, {})

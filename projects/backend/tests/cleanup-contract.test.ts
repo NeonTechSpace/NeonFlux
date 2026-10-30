@@ -28,7 +28,7 @@ import { createCleanupStore, CleanupStoreError } from "../../bot/src/cleanup-sto
 import { processCleanupPass } from "../../bot/src/cleanup-worker.ts"
 import { createModerationStore } from "../../bot/src/moderation-store.ts"
 
-const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
+const test = (name: string, body: (t: TestContext) => Promise<void>) => void nodeTest(name, { timeout: 30000 }, body)
 const proofCalls = { http: 0, sdkReads: 0, sdkDeletes: 0 }
 after((t) =>
     t.diagnostic(`Cleanup contract call totals ${JSON.stringify(proofCalls)}, zero real network or native deletions`),

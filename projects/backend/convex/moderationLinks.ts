@@ -64,6 +64,7 @@ function punycode(input: string) {
         tMin = 1,
         tMax = 26
     const split = input.lastIndexOf("-")
+    // oxlint-disable-next-line typescript/no-misused-spread -- Punycode works on code points (RFC 3492)
     const output = split > 0 ? [...input.slice(0, split)].map((c) => c.codePointAt(0)!) : []
     let n = 128,
         i = 0,
@@ -99,6 +100,7 @@ const readable = (host: string) =>
     host.split(".").map((label) => (label.startsWith("xn--") ? (punycode(label.slice(4)) ?? label) : label))
 /** What a host looks like: Each lookalike as its Latin letter, and rn and vv as m and w */
 const skeleton = (value: string) =>
+    // oxlint-disable-next-line typescript/no-misused-spread -- Lookalikes fold one code point at a time
     [...value]
         .map((c) => lookalikes[c] ?? c)
         .join("")

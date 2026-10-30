@@ -45,6 +45,7 @@ const lookalikes: Record<string, string> = {
 
 /** A name reduced to what it looks like: compatibility forms and accents removed, lowercase, lookalikes folded and only letters and digits kept */
 export function nameSkeleton(name: string) {
+    // oxlint-disable-next-line typescript/no-misused-spread -- Lookalikes fold one code point at a time
     const folded = [...name.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase()]
         .map((char) => lookalikes[char] ?? char)
         .join("")

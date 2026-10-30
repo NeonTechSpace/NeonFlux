@@ -1,13 +1,12 @@
 import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
 import type { DashboardAuditPage } from "../dashboard-contracts.js"
 import { AUDIT_RETENTION_MS, auditChanges, describeChange, operationLabel, recordAudit } from "../convex/auditLog.ts"
 import { RETENTION_PASSES } from "../convex/retention.ts"
 import { backupWriteConfig } from "../convex/backupWrites.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET", "FLUXER_CLIENT_ID"] as const
@@ -62,7 +61,7 @@ const manager = {
     nativePermissionAuthorized: true,
 }
 async function fixture() {
-    const t = convexTest({ schema, modules, transactionLimits: true }),
+    const t = convexBackend(modules),
         session = await t.action(api.dashboard.admit, { accessToken: "synthetic-audit-provider-token" })
     const args = { sessionToken: session.sessionToken, serverId: "10" }
     const page = (extra: { feature?: string; cursor?: string | null } = {}): Promise<DashboardAuditPage> =>
@@ -672,6 +671,29 @@ test("Details keep the first 8,000 code units of a long value and count what doe
     assert.equal(stored.changes.length + stored.more, 1000)
     assert.equal(stored.changes[0]!.path, "definitions[d0].reply.text")
     assert.ok(new TextEncoder().encode(JSON.stringify(stored.changes)).length <= 512 * 1024)
+})
+
+test("Details keep at most 8,192 small rows, Convex's limit for one array, and count the rest", async () => {
+    const { t, page, detail } = await fixture()
+    const ids = Array.from({ length: 9000 }, (_, index) => String(100000 + index))
+    await t.run((ctx) =>
+        recordAudit(
+            ctx,
+            "10",
+            { userId: "20", source: "command" },
+            {
+                kind: "setting",
+                feature: "cleanup",
+                setting: "exclusions",
+                summary: "exclusions changed",
+                changes: auditChanges({ excludedAuthorIds: [] }, { excludedAuthorIds: ids }),
+            },
+        ),
+    )
+    const [entry] = (await page()).entries
+    const stored = (await detail(entry!.id))!
+    assert.equal(stored.changes.length, 8192)
+    assert.equal(stored.more, 9001 - 8192)
 })
 
 test("Details answer only managers of the entry's own server, and private data entries have none", async () => {

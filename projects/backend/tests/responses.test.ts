@@ -1,18 +1,17 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test } from "node:test"
 import type { TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import type {
     ResponseDefinition,
     ResponseEvaluateRequest,
     ResponseEvaluateResult,
     ResponseManageResult,
 } from "@neonflux/contracts/responses"
-import schema from "../convex/schema.ts"
 import { cleanupResponses } from "../convex/responses.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import { internal } from "../convex/_generated/api.js"
 import { CLEANUP_BATCH, RECEIPT_RETENTION } from "../convex/responseDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const serverId = "10"
@@ -43,7 +42,7 @@ function fixture(ctx: TestContext) {
     let now = 1700000000000
     let sequence = 1000
     ctx.mock.method(Date, "now", () => now)
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     const post = (path: string, body: unknown) => botCall(t, path, body)
     const management = (
         operation: unknown,

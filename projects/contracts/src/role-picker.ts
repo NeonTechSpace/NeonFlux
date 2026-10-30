@@ -32,6 +32,7 @@ const hidden = (code: number) =>
 const description = Str(200).check(Schema.isMinLength(1))
 const line = description.check(
     Schema.makeFilter(
+        // oxlint-disable-next-line typescript/no-misused-spread -- Each hidden character is one code point
         (value: string) => value === value.trim() && ![...value].some((char) => hidden(char.codePointAt(0)!)),
     ),
 )

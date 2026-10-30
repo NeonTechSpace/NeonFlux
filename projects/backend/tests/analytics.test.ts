@@ -1,8 +1,7 @@
 import assert from "node:assert/strict"
 import { test, beforeEach, afterEach, mock } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
+import { convexBackend } from "./convex-backend.ts"
 
 const modules = {
     "../convex/dashboard.ts": () => import("../convex/dashboard.ts"),
@@ -49,7 +48,7 @@ afterEach(() => {
         else process.env[key] = prior[key]
     }
 })
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 
 const hoursWith = (...entries: Array<[number, number]>) => {
     const hours = Array.from({ length: 24 }, () => 0)

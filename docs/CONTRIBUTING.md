@@ -20,6 +20,7 @@ To run one test file, run its package's runner from that package's folder, such 
 | Bot and backend | `node ../scripts/heavy.mjs node --test tests/<file>.test.ts` |
 | Website | `node ../scripts/heavy.mjs pnpm exec tsx --test tests/<file>.test.ts` |
 
+Add `--test-name-pattern="<part of the name>"` after `--test` to run one test of a file.
 `bot/tests/main.test.ts` starts the built bot from `bot/dist/`, so run `pnpm run build` in `projects/bot/` first.
 The [heavy-task gate](TECHNOLOGY.md#build-and-check-constraints) queues machine-heavy commands so parallel runs do not overload the machine
 
@@ -50,14 +51,15 @@ A new feature or backend table usually has to be registered in several places. E
 | Bot functions | `BOT_FUNCTIONS` in `contracts/src/service.ts` and the export in `backend/convex/botService.ts` | `backend/tests/bot-service.test.ts` |
 | Bot request paths | `backendRoutes` in `bot/src/backend-routes.ts` | `bot/tests/backend-http.test.ts` |
 | Request body limits | The limit argument of `botQuery` and `botMutation` in `backend/convex/botService.ts` | The typecheck requires a limit, and no test checks its value |
-| Retention of expiring rows | `RETENTION_PASSES` in `backend/convex/retention.ts` | None. No test checks that every expiring table is covered |
+| Retention of expiring rows | `RETENTION_PASSES` in `backend/convex/retention.ts`, or a stated exemption in `RETENTION_EXEMPT` in `backend/tests/retention.test.ts` | `backend/tests/retention.test.ts`, which treats a table as expiring when an index is named for expiry, cleanup or history or a field holds an expiry time, and fails when no pass reads it |
 | Background work | `WORK_SOURCES` in `backend/convex/workDispatch.ts` | `backend/tests/work-dispatch.test.ts`, whose tests check each worker kind and the dashboard passes |
 | Help pages and reserved command names | The command table in `bot/src/help.ts` | `bot/tests/help.test.ts` |
 | Setup and overview states | `backend/convex/setupCheck.ts` and `bot/src/setup-check.ts` | `backend/tests/setup-check.test.ts` and `bot/tests/setup-check.test.ts` |
-| Recovery inbox sources | `RecoverySource` in `contracts/src/setup.ts` and `backend/convex/recovery.ts` | None |
+| Recovery inbox sources | `RecoverySource` in `contracts/src/setup.ts` and `backend/convex/recovery.ts` | `backend/tests/recovery.test.ts`, which fails until its scenario shows every source, and the bot typecheck, through `areas` in `bot/src/setup-check.ts` |
+| Backends in backend tests | `convexBackend` in `backend/tests/convex-backend.ts` | `backend/tests/document-limits.test.ts`, which refuses a test that imports `convex-test` directly. After each test the scan fails when a stored document is over 1 MiB or an array holds more than 8,192 values |
 | Audit change summaries | `backend/convex/auditLog.ts` | `backend/tests/audit-log.test.ts`, which covers part of the summaries |
 | Readable server export | `FAMILIES` in `backend/convex/serverExport.ts` | `backend/tests/server-export.test.ts` |
 | Backup configuration families | The backup snapshot and restore in `backend/convex/backup.ts` | `backend/tests/backup.test.ts` |
-| Feature navigation | The feature table in [the repository guide](REPOSITORY.md#find-a-feature) | None |
+| Feature navigation | The feature table in [the repository guide](REPOSITORY.md#find-a-feature), or a link from the guide for a file outside a feature | `pnpm run lint`, through [repository-guide.mjs](../projects/scripts/repository-guide.mjs) |
 
 Document the feature's usable behavior and limits in [the bot guide](BOT.md), [the backend guide](BACKEND.md) or [the dashboard guide](WEB.md)

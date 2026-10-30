@@ -1,9 +1,8 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import type { OnboardingStep } from "@neonflux/contracts/onboarding"
 import { withChecklist } from "../convex/onboarding.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const secret = "synthetic-onboarding-secret-not-a-credential-000",
@@ -60,7 +59,7 @@ function fixture(context: TestContext) {
         sequence = 1000
     context.mock.method(Date, "now", () => now)
     context.mock.timers.enable({ apis: ["setTimeout"] })
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     drain = () => t.finishAllScheduledFunctions(() => context.mock.timers.tick(0))
     const call = async (path: string, body: unknown, expected = 200): Promise<any> => {
         const response = await botCall(t, path, body),

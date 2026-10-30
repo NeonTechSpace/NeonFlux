@@ -1,8 +1,6 @@
 import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import type { TableNames } from "../convex/_generated/dataModel.js"
 import {
@@ -12,6 +10,7 @@ import {
     PURGE_ROWS_PER_TABLE,
     PURGE_SHARED,
 } from "../convex/installationsPurge.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { hasServerId, insertDocument, serverIndexes, tableNames } from "./schema-documents.ts"
 import { botCall } from "./bot-service.ts"
 
@@ -44,7 +43,7 @@ const modules = Object.fromEntries([
     ["../convex/_generated/api.js", () => import("../convex/_generated/api.js")],
     ["../convex/_generated/server.js", () => import("../convex/_generated/server.js")],
 ])
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 type Backend = ReturnType<typeof backend>
 const installation = (t: Backend, operation: "join" | "leave", serverId: string) =>
     botCall(t, `/service/installations/${operation}`, { serverId })

@@ -1,9 +1,8 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { parseUsageBudget, USAGE_DEFAULT_WARNING_SHARE } from "../convex/usage.ts"
 import type { ServiceUsage } from "@neonflux/contracts/service"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const secret = "synthetic-usage-secret-not-a-credential-000000"
@@ -37,7 +36,7 @@ const modules = {
 function fixture(tc: TestContext, at: string) {
     let now = Date.parse(at)
     tc.mock.method(Date, "now", () => now)
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     const report = async (calls: unknown) => {
         const response = await botCall(t, "/service/usage", { calls })
         return { status: response.status, body: (await response.json()) as ServiceUsage }

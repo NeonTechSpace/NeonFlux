@@ -11,13 +11,12 @@ import { CIVIL_RANGE_REASON } from "@neonflux/contracts/civil"
 import assert from "node:assert/strict"
 import { Schema } from "effect"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import { makeFunctionReference } from "convex/server"
-import schema from "../convex/schema.ts"
 import { cleanupEvents } from "../convex/eventsCleanup.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import { validateEventCalendar, EVENTS_DAY } from "../convex/eventsDomain.ts"
 import { resolveCivilInstant } from "../convex/civilDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID,
@@ -70,7 +69,7 @@ function fixture(t: TestContext) {
     let now = Date.parse("2026-01-01T00:00:00Z"),
         sequence = 1000
     t.mock.method(Date, "now", () => now)
-    const db = convexTest({ schema, modules, transactionLimits: true })
+    const db = convexBackend(modules)
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const context = (userId = "10", join = joinedAt, channelId = "30"): EventsContext => ({
         observedAt: now,

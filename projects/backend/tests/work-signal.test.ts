@@ -1,13 +1,12 @@
 import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import { makeFunctionReference } from "convex/server"
-import schema from "../convex/schema.ts"
 import { tokenHash } from "../convex/dashboard.ts"
 import { LEVELING_DEFER } from "../convex/levelingDomain.ts"
 import { rowDueAt } from "../convex/workDispatch.ts"
 import type { ServiceWork } from "@neonflux/contracts/service"
+import { convexBackend, type Backend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { insertDocument } from "./schema-documents.ts"
 
@@ -39,7 +38,7 @@ function fixture(tc: TestContext) {
     tc.mock.method(Date, "now", () => now)
     // Sessions and jobs schedule their expiry. Controlled timers keep those runs from holding the process open
     tc.mock.timers.enable({ apis: ["setTimeout"] })
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     return {
         t,
         now: () => now,
@@ -48,7 +47,7 @@ function fixture(tc: TestContext) {
         },
     }
 }
-const signal = async (t: ReturnType<typeof convexTest>) => {
+const signal = async (t: Backend) => {
     const response = await botCall(t, "/service/work-signal", {})
     assert.equal(response.status, 200)
     return (await response.json()) as { version: number }

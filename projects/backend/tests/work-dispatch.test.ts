@@ -1,11 +1,10 @@
 import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import type { ServiceWork, ServiceWorkKind } from "@neonflux/contracts/service"
 import { defaultRolesSettings } from "../convex/rolesDomain.ts"
 import { WORK_KINDS, WORK_ROWS_PER_SOURCE, WORK_SERVERS_PER_KIND, rowDueAt } from "../convex/workDispatch.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { insertDocument } from "./schema-documents.ts"
 import { botCall } from "./bot-service.ts"
 
@@ -31,7 +30,7 @@ const modules = Object.fromEntries([
     ["../convex/_generated/api.js", () => import("../convex/_generated/api.js")],
     ["../convex/_generated/server.js", () => import("../convex/_generated/server.js")],
 ])
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 type Backend = ReturnType<typeof backend>
 type Ctx = Parameters<Parameters<Backend["run"]>[0]>[0]
 const now = Date.parse("2026-06-01T12:00:00Z")

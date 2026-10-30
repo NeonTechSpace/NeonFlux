@@ -1,9 +1,8 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
 import type { TicketActionGrant, TicketActor, TicketChannelSnapshot, TicketContext } from "@neonflux/contracts/tickets"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { cleanupTickets, scheduleTicketPurges } from "../convex/ticketLifecycle.ts"
 // SendMessages, CreatePublicThreads, CreatePrivateThreads and SendMessagesInThreads
@@ -95,7 +94,7 @@ function fixture(test: TestContext) {
         sequence = 1000
     test.mock.method(Date, "now", () => now)
     test.mock.timers.enable({ apis: ["setTimeout"] })
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     drainScheduled = () => t.finishAllScheduledFunctions(() => test.mock.timers.tick(0))
     const source = () => ({
         serverId: "1",

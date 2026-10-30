@@ -5,11 +5,10 @@ import type { TestContext } from "node:test"
 import net from "node:net"
 import tls from "node:tls"
 import dgram from "node:dgram"
-import { convexTest, type TestConvex } from "convex-test"
 import { makeFunctionReference } from "convex/server"
 import { ConvexError } from "convex/values"
-import schema from "../convex/schema.ts"
 import { backendFunction, backendKind, backendRoutes, type BackendPath } from "../../bot/src/backend-routes.ts"
+import { convexBackend } from "./convex-backend.ts"
 
 // Node isolates each test file, so these adapter tests never read real configuration
 for (const key of Object.keys(process.env)) delete process.env[key]
@@ -56,11 +55,7 @@ export async function adapterFixture(
     t.mock.method(globalThis, "fetch", async () => {
         throw new Error("No network fallback is permitted")
     })
-    const backend: TestConvex<typeof schema> = convexTest({
-        schema,
-        modules: { ...baseModules, ...modules },
-        transactionLimits: true,
-    })
+    const backend = convexBackend({ ...baseModules, ...modules })
     const origin = "https://synthetic-adapter.invalid"
     // The bot's own transport runs unchanged. Only the Convex client is replaced by direct calls into the isolated backend
     const paths = new Map((Object.keys(backendRoutes) as BackendPath[]).map((path) => [backendFunction(path), path]))

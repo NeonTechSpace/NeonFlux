@@ -1,17 +1,16 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
 import {
     structureChanges,
     type StructureChannel,
     type StructureClaim,
     type StructureEntry,
 } from "@neonflux/contracts/structure"
-import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
 import { tokenHash } from "../convex/dashboard.ts"
 import { STRUCTURE_APPLY_MS, STRUCTURE_INTERVAL_MS, STRUCTURE_MS, STRUCTURE_SETTLE_MS } from "../convex/structure.ts"
 import { structureMerge } from "../convex/structureDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const modules = {
@@ -69,7 +68,7 @@ const draft = [
     at(base, "101"),
     at(base, "300"),
 ]
-const current = (layout: readonly StructureEntry[], manage = (_id: string) => true): StructureChannel[] =>
+const current = (layout: readonly StructureEntry[], manage: (id: string) => boolean = () => true): StructureChannel[] =>
     layout.map((row) => ({ ...row, manage: manage(row.id) }))
 const decided = (items: ReturnType<typeof structureMerge>) =>
     items.map((item) => [item.change.type, item.change.channelId, item.disposition, item.reason])
@@ -223,7 +222,7 @@ test("Moving a channel up past one the manager cannot manage moves that channel 
     })
 })
 
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 async function session(t: ReturnType<typeof backend>) {
     const sessionToken = "a".repeat(64)
     await t.run(async (ctx) => {

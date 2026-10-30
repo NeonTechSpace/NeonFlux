@@ -1,8 +1,6 @@
 import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import type { MutationCtx } from "../convex/_generated/server.js"
 import { internal } from "../convex/_generated/api.js"
 import { backupOriginRow, backupSetRetention } from "../convex/backupStore.ts"
@@ -11,6 +9,7 @@ import { cleanupModeration } from "../convex/moderation.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { countActiveTickets } from "../convex/ticketStore.ts"
 import type { LevelingQueryResult } from "@neonflux/contracts/leveling"
+import { convexBackend } from "./convex-backend.ts"
 import { countedProfile, insertDocument } from "./schema-documents.ts"
 
 // Each test seeds a large table and measures one bounded read with the transaction metrics Convex enforces its limits by
@@ -33,7 +32,7 @@ const modules = Object.fromEntries([
     ["../convex/_generated/api.js", () => import("../convex/_generated/api.js")],
     ["../convex/_generated/server.js", () => import("../convex/_generated/server.js")],
 ])
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 type Backend = ReturnType<typeof backend>
 // Service functions check the configured server, here single mode for server 10
 function serveSingle(t: TestContext) {

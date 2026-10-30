@@ -1,8 +1,6 @@
 import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import type { BackupContext } from "@neonflux/contracts/backup"
 import type { CleanupContext } from "@neonflux/contracts/cleanup"
 import type { TicketContext } from "@neonflux/contracts/tickets"
@@ -12,6 +10,7 @@ import { cleanupAutomation } from "../convex/cleanupStore.ts"
 import { memberRecoveries } from "../convex/moderationStore.ts"
 import { participationProtection } from "../convex/roleClaims.ts"
 import { ticketProtection } from "../convex/ticketStore.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { insertDocument } from "./schema-documents.ts"
 
 // A quarantine recovery whose timeout has ended no longer restricts its member, even before retention deletes it
@@ -37,7 +36,7 @@ const modules = Object.fromEntries([
 ])
 // Member 20 of server 10 is quarantined by case 1 until the deadline, which retention has not processed
 async function quarantined() {
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     await t.run(async (ctx) => {
         await insertDocument(ctx, "moderationCases", "10", {
             caseNo: 1,

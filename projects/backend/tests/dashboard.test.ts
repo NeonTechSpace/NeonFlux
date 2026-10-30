@@ -1,9 +1,8 @@
 import assert from "node:assert/strict"
 import { test, beforeEach, afterEach, mock } from "node:test"
 import { ConvexError } from "convex/values"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
 import { cleanupDashboardSessions } from "../convex/dashboard.ts"
@@ -71,7 +70,7 @@ afterEach(() => {
         else process.env[key] = prior[key]
     }
 })
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 const installation = (t: ReturnType<typeof backend>, operation: "join" | "leave", serverId: string) =>
     botCall(t, `/service/installations/${operation}`, { serverId })
 const metadataRecipient = (ownerId = "99", channelId = "50") => ({

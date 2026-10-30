@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import type {
     SchedulesCalendar,
     SchedulesContext,
@@ -13,6 +12,7 @@ import { retentionPass } from "../convex/retentionStore.ts"
 import { validateScheduleCalendar } from "../convex/schedulesDomain.ts"
 import { civilDayEnded, resolveCivilInstant } from "../convex/civilDomain.ts"
 import { state as moderationState } from "../convex/moderationStore.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID,
@@ -62,7 +62,7 @@ async function fixture(t: TestContext) {
     let now = Date.parse("2026-01-01T00:00:00Z"),
         sequence = 1000
     t.mock.method(Date, "now", () => now)
-    const db = convexTest({ schema, modules, transactionLimits: true })
+    const db = convexBackend(modules)
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const context = (): SchedulesContext => ({
         observedAt: now,

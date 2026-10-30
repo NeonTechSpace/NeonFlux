@@ -641,7 +641,7 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
     },
 }
 
-test("the summary logs each ten-minute change in totals and stays quiet without activity", async (t) => {
+test("the summary logs each ten-minute change in totals and stays quiet without activity", async () => {
     const messages: unknown[] = []
     const dropped = { overflow: 0, malformed: 0, collector: 0, closed: 0 }
     const client = { diagnostics: () => ({ counters: { eventsDropped: dropped } }) } as unknown as Parameters<
@@ -714,3 +714,62 @@ for (const [name, scenario] of Object.entries(scenarios)) {
         assert.deepEqual(measured, scenario.expected, breakdown)
     })
 }
+
+// docs/TECHNOLOGY.md states these counts. The fake answers every read at once and bills as Convex does: one call per
+// function call and one per subscription result
+test("an idle bot makes the documented backend calls in a day, and an idle server makes none", async () => {
+    const billed = new Map<string, number>()
+    const bill = (path: string) => billed.set(path, (billed.get(path) ?? 0) + 1)
+    const deployment = {
+        ...backend,
+        client: fakeClient(
+            (call) => {
+                bill(call.path)
+                if (call.path === "/service/scope") return { mode: "single", serverIds: [f.ids.guild] }
+                if (call.path === "/service/work") return noWork
+                if (call.path === "/service/usage")
+                    return { month: "2026-01", calls: 1, budget: null, state: "normal", warn: false }
+                throw new Error(`Unexpected backend request ${call.path}`)
+            },
+            (name, args, onValue, onError) => {
+                bill("/service/work-signal")
+                return quietSignal(name, args, onValue, onError)
+            },
+        ),
+    }
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                yield* TestClock.setTime(now)
+                const calls: string[] = [],
+                    { stores } = idleStores(calls)
+                const bot = yield* createTestBot(
+                    createBotOptions(
+                        {
+                            token,
+                            serverId: f.ids.guild,
+                            backend: deployment,
+                            websiteUrl: "https://synthetic-cost.invalid",
+                        },
+                        stores,
+                    ),
+                )
+                yield* bot.ready()
+                yield* settle(bot)
+                const atStart = new Map(billed),
+                    storeCalls = calls.length
+                // No step passes a timer without running it, since the dispatcher's safety pass comes every two minutes
+                for (let step = 0; step < 720; step++) {
+                    yield* TestClock.adjust("2 minutes")
+                    yield* settle(bot)
+                }
+                const inDay = (path: string) => (billed.get(path) ?? 0) - (atStart.get(path) ?? 0)
+                assert.equal(inDay("/service/work"), 720)
+                assert.equal(inDay("/service/usage"), 288)
+                assert.equal(inDay("/service/work-signal"), 0)
+                assert.equal(atStart.get("/service/work-signal"), 1)
+                assert.equal(calls.length - storeCalls, 0, calls.slice(storeCalls).join())
+            }),
+        ).pipe(Effect.provide(TestClock.layer())),
+    )
+})

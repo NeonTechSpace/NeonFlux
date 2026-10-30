@@ -1,11 +1,11 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
 import { tokenHash } from "../convex/dashboard.ts"
+import { RecoverySource } from "@neonflux/contracts/setup"
 import { RECOVERY_PER_SOURCE, RECOVERY_SETTLED_MS } from "../convex/recovery.ts"
 import type { RecoveryInbox } from "../dashboard-contracts.js"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { insertDocument } from "./schema-documents.ts"
 
@@ -33,7 +33,7 @@ afterEach(() => {
         else process.env[key] = prior[key]
     }
 })
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 
 test("failed suggestion recovery names its destination rather than its proposed forum title", async () => {
     const t = backend(),
@@ -268,6 +268,9 @@ test("the recovery inbox collects open and recent problems from each source, cur
         })
         // Metadata logs are on without a destination, so the feature needs setup
         await insertDocument(ctx, "metadataLogSettings", "10", { enabled: true, failed: 1, uncertain: 2 })
+        // The synthetic moderation settings hold DEFCON 1, and a warning about the thread limit stays while it is recent
+        await insertDocument(ctx, "moderationSettings", "10")
+        await insertDocument(ctx, "helpDeskSettings", "10", { warnedAt: now - 0.25 * hour })
         await insertDocument(ctx, "dashboardSetupJobs", "10", {
             state: "done",
             createdAt: now - 8 * hour,
@@ -288,8 +291,10 @@ test("the recovery inbox collects open and recent problems from each source, cur
         "feature: logs",
         // The channel that is off leaves YouTube alerts needing a step
         "feature: youtube",
+        "defcon: DEFCON 1 is active, so NeonFlux pauses automatic posts and other automation | !defcon status, then !defcon set 3 once the threat has passed",
         "logs: Metadata logs: 1 delivery failed and 2 have an unknown outcome. Security alerts are delivered the same way | !logs events list, then !logs delivery show <record> or !logs delivery reconcile <record>",
         "cleanup: Cleanup in <#52> stopped: NeonFlux could not read the channel's messages | Give NeonFlux View channel, Read message history and Manage messages in that channel. It checks again on its own",
+        "helpdesk: The server neared Fluxer's limit of 1,000 active threads | Close or archive old forum posts, or let NeonFlux apply each channel's auto-archive time with !helpdesk archive on",
         "youtube: YouTube alert for the video Synthetic upload: NeonFlux could not confirm whether post #13 was sent in channel <#1> | !publish reconcile 13, or record what happened with !publish resolve 13 sent <message-id> or !publish resolve 13 failed. NeonFlux never posts an alert twice",
         "schedules: Schedule news, date 3: NeonFlux could not confirm whether post #8 was sent in channel <#1> | !publish schedule reconcile news 8",
         "schedules: Schedule news, date 4 is waiting: NeonFlux cannot post in <#50> | Give NeonFlux View channel, Send messages and Embed links in that channel. It tries again on its own",
@@ -312,6 +317,11 @@ test("the recovery inbox collects open and recent problems from each source, cur
         "setup: permissions",
     ])
     assert.equal(inbox.truncated, false)
+    // A source added to the contract fails here until this scenario shows it, which needs a reader in recovery.ts
+    assert.deepEqual(
+        [...new Set(inbox.entries.flatMap((entry) => (entry.kind === "work" ? [entry.source] : [])))].sort(),
+        [...RecoverySource.literals].sort(),
+    )
     // The bot reads the same inbox for !recovery
     assert.deepEqual(await (await botCall(t, "/recovery/list", { serverId: "10" })).json(), inbox)
     await assert.rejects(t.query(api.recovery.inbox, { ...args, serverId: "11" }))

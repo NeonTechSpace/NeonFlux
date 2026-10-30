@@ -315,6 +315,9 @@ export function TemplatePicker({
     )
 }
 
+// A calendar is parsed from saved JSON, so a field shows its fallback rather than an object it does not expect
+const fieldText = (value: unknown, fallback: string) =>
+    typeof value === "string" || typeof value === "number" ? String(value) : fallback
 const zones = ["UTC", ...Intl.supportedValuesOf("timeZone")].map((zone) => ({ id: zone, name: zone }))
 export function CalendarFields({
     value,
@@ -342,7 +345,7 @@ export function CalendarFields({
                     required
                     type="datetime-local"
                     step={60}
-                    value={String(calendar.localMinute ?? "")}
+                    value={fieldText(calendar.localMinute, "")}
                     disabled={disabled}
                     onChange={(input) => patch("localMinute", input.target.value)}
                 />
@@ -350,13 +353,13 @@ export function CalendarFields({
             <SearchPicker
                 label="Timezone"
                 options={zones}
-                value={calendar.zone ? [String(calendar.zone)] : []}
+                value={calendar.zone ? [fieldText(calendar.zone, "")] : []}
                 disabled={disabled}
                 onChange={(selected) => patch("zone", selected[0] ?? "")}
             />
             <ChoiceField
                 label="Repeated local time"
-                value={String(calendar.fold ?? "reject")}
+                value={fieldText(calendar.fold, "reject")}
                 disabled={disabled}
                 options={[
                     { value: "reject", label: "Reject ambiguous time" },
@@ -368,7 +371,7 @@ export function CalendarFields({
             {event && (
                 <NumberField
                     label="Duration (minutes)"
-                    value={String(calendar.durationMinutes ?? 60)}
+                    value={fieldText(calendar.durationMinutes, "60")}
                     min={1}
                     max={
                         eventsRepeats(recurrence as CivilRecurrence)
@@ -381,7 +384,7 @@ export function CalendarFields({
             )}
             <ChoiceField
                 label="Repeat"
-                value={String(recurrence.type ?? "none")}
+                value={fieldText(recurrence.type, "none")}
                 disabled={disabled}
                 options={[
                     { value: "none", label: "Once" },
@@ -406,7 +409,7 @@ export function CalendarFields({
                 <>
                     <NumberField
                         label="Repeat interval"
-                        value={String(recurrence.interval ?? 1)}
+                        value={fieldText(recurrence.interval, "1")}
                         min={1}
                         max={Number.MAX_SAFE_INTEGER}
                         disabled={disabled}
@@ -432,14 +435,16 @@ export function CalendarFields({
                                 type: recurrence.type,
                                 interval: recurrence.interval ?? 1,
                                 ...(ends === "count" ? { count: 2 } : {}),
-                                ...(ends === "until" ? { until: String(calendar.localMinute ?? "").slice(0, 10) } : {}),
+                                ...(ends === "until"
+                                    ? { until: fieldText(calendar.localMinute, "").slice(0, 10) }
+                                    : {}),
                             })
                         }
                     />
                     {recurrence.count !== undefined && (
                         <NumberField
                             label="Number of dates"
-                            value={String(recurrence.count)}
+                            value={fieldText(recurrence.count, "")}
                             min={1}
                             max={Number.MAX_SAFE_INTEGER}
                             disabled={disabled}
@@ -452,7 +457,7 @@ export function CalendarFields({
                             <input
                                 required
                                 type="date"
-                                value={String(recurrence.until)}
+                                value={fieldText(recurrence.until, "")}
                                 disabled={disabled}
                                 onChange={(input) => patch("recurrence", { ...recurrence, until: input.target.value })}
                             />

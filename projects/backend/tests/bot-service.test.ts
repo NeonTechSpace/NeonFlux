@@ -3,13 +3,12 @@ import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
 import { afterEach, beforeEach, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import * as botService from "../convex/botService.ts"
 import { constantTimeEqual, deriveServiceKey } from "../convex/serviceKey.ts"
 import { BOT_FUNCTIONS, SERVICE_KEY_LABEL } from "@neonflux/contracts/service"
 
 import { deriveServiceKey as deriveBotKey } from "../../bot/src/backend-http.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const secret = "synthetic-service-key-secret-not-a-credential-00"
@@ -34,7 +33,7 @@ const modules = {
     "../convex/_generated/api.js": () => import("../convex/_generated/api.js"),
     "../convex/_generated/server.js": () => import("../convex/_generated/server.js"),
 }
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 type Registered = { isQuery?: boolean; isMutation?: boolean; isAction?: boolean; isPublic?: boolean }
 
 test("Every contract function is one public function of its own kind, and the module exports no other functions", () => {

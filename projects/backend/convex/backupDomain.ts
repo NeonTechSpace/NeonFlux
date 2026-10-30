@@ -134,6 +134,30 @@ export function backupConfigRule(item: BackupConfigObject) {
         case "helpdeskAnswer":
             if (!isHelpDeskAnswerName(item.value.name)) fail(400, "Invalid saved answer name")
             break
+        // Their shape is all their rules. A new family is listed here or above, so none is restored unchecked by accident
+        case "access":
+        case "alerts":
+        case "analytics":
+        case "cleanup":
+        case "cleanupPolicy":
+        case "events":
+        case "general":
+        case "helpdesk":
+        case "lfg":
+        case "metadata":
+        case "milestones":
+        case "moderation":
+        case "panel":
+        case "profile":
+        case "publishing":
+        case "responses":
+        case "schedules":
+        case "showcase":
+        case "sticky":
+        case "suggestions":
+        case "tickets":
+        case "youtube":
+            break
     }
 }
 export function backupConfig(value: unknown): BackupConfigObject {

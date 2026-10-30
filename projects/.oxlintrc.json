@@ -1,0 +1,154 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    // Type-aware rules run through oxlint-tsgolint. Each file uses the nearest tsconfig.json that includes it
+    "options": {
+        "typeAware": true,
+        "reportUnusedDisableDirectives": "error"
+    },
+    "plugins": ["typescript", "unicorn", "oxc", "import"],
+    "categories": {
+        "correctness": "error"
+    },
+    "ignorePatterns": [
+        "**/dist/**",
+        "**/node_modules/**",
+        "backend/convex/_generated/**",
+        "web/.output/**",
+        "web/src/routeTree.gen.ts"
+    ],
+    "rules": {
+        // node:test runs and reports each test() call itself, so only other unawaited promises are mistakes
+        "typescript/no-floating-promises": [
+            "error",
+            {
+                "allowForKnownSafeCalls": [
+                    { "from": "package", "package": "node:test", "name": ["test", "it", "describe", "suite"] }
+                ]
+            }
+        ],
+        "typescript/no-misused-promises": "error",
+        // A default case is a decision, so only switches without one must list every member of a union
+        "typescript/switch-exhaustiveness-check": ["error", { "considerDefaultExhaustiveForUnions": true }],
+        // Destructuring with a rest element is how a value drops the keys it must not pass on
+        "no-unused-vars": ["error", { "ignoreRestSiblings": true }],
+        // An escape from the type checker is written down with its reason in an oxlint-disable comment
+        "typescript/no-explicit-any": "error",
+        "typescript/ban-ts-comment": "error",
+        // Validation rejects control characters on purpose, so patterns name them
+        "no-control-regex": "off",
+        // Copying a collection before a loop that changes it is deliberate, and the rule cannot tell those copies apart
+        "unicorn/no-useless-spread": "off"
+    },
+    "overrides": [
+        // Package boundaries from docs/TECHNOLOGY.md. Tests may cross them, since adapter tests run bot code against the backend
+        {
+            "files": ["bot/src/**", "bot/scripts/**"],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "patterns": [
+                            {
+                                "group": ["@neonflux/backend", "@neonflux/backend/*", "**/backend/**"],
+                                "message": "The bot reaches the backend only through backend-http.ts and decodes its answers with @neonflux/contracts"
+                            },
+                            {
+                                "group": ["@neonflux/web", "@neonflux/web/*", "**/web/**"],
+                                "message": "The bot never loads website code"
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["web/src/**"],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "patterns": [
+                            {
+                                "group": [
+                                    "@neonflux/backend",
+                                    "@neonflux/backend/*",
+                                    "**/backend/**",
+                                    "!@neonflux/backend/dashboard-contracts",
+                                    "!@neonflux/backend/verification-contracts"
+                                ],
+                                "message": "The website takes backend types only from @neonflux/backend/dashboard-contracts and verification-contracts"
+                            },
+                            {
+                                "group": ["@neonflux/bot", "@neonflux/bot/*", "**/bot/**"],
+                                "message": "The website never loads bot code"
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["backend/convex/**"],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "patterns": [
+                            {
+                                "group": [
+                                    "@neonflux/bot",
+                                    "@neonflux/bot/*",
+                                    "@neonflux/web",
+                                    "@neonflux/web/*",
+                                    "**/bot/**",
+                                    "**/web/**"
+                                ],
+                                "message": "Convex functions never load bot or website code"
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["contracts/src/**"],
+            "rules": {
+                // A contracts module imports only the base modules and the features it builds on, never in a cycle
+                "import/no-cycle": "error",
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "patterns": [
+                            {
+                                "group": ["*", "!effect", "!effect/*", "!./*"],
+                                "message": "Contracts import only Effect and their own modules, so the bot, backend and website can all load them"
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            // React ignores what an event handler returns, so an async handler only has to catch its own failures
+            "files": ["web/src/**"],
+            "rules": { "typescript/no-misused-promises": ["error", { "checksVoidReturn": { "attributes": false } }] }
+        },
+        {
+            // Tests replace methods on fakes and restore them, read fixtures through optional chains a failure ends anyway, interpolate
+            // unknown payloads into failure messages and sort string IDs for order-free comparison
+            "files": ["bot/tests/**", "backend/tests/**", "web/tests/**"],
+            "rules": {
+                "typescript/unbound-method": "off",
+                // Fixtures call convex-test and SDK internals through loosely typed handles
+                "typescript/no-explicit-any": "off",
+                "no-unsafe-optional-chaining": "off",
+                "typescript/no-base-to-string": "off",
+                "typescript/restrict-template-expressions": "off",
+                "typescript/require-array-sort-compare": "off",
+                "typescript/no-misused-spread": "off",
+                "typescript/no-redundant-type-constituents": "off",
+                "unicorn/prefer-string-starts-ends-with": "off"
+            }
+        }
+    ]
+}

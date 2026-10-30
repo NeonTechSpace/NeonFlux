@@ -154,7 +154,8 @@ export const shown = (value: unknown) =>
             ? "test mode"
             : value === "enforce"
               ? "enforcing"
-              : String(value)
+              : // oxlint-disable-next-line typescript/no-base-to-string -- Preset settings hold booleans, numbers and words
+                String(value)
 /** A rule as a preview shows it, such as "spam, delete at 6 in 10 seconds" */
 export function ruleText(
     value: Pick<AutomodRule, "type" | "action" | "threshold" | "windowSeconds" | "durationSeconds"> & {

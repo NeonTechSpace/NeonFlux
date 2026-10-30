@@ -74,6 +74,8 @@ export async function insertDocument<T extends TableNames>(
 export const tableNames = Object.keys(schema.tables) as TableNames[]
 export const hasServerId = (table: TableNames) =>
     "serverId" in (schema.tables[table].validator as unknown as Validator).fields!
+export const fieldNames = (table: TableNames) =>
+    Object.keys((schema.tables[table].validator as unknown as Validator).fields!)
 export const serverIndexes = (table: TableNames) =>
     (schema.tables[table] as unknown as { " indexes"(): { indexDescriptor: string; fields: string[] }[] })[" indexes"]()
 

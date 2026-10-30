@@ -998,7 +998,7 @@ export function metadataLogContent(
     if (d.changes) fill(d.changes.map(changeLine), d.moreChanges ?? 0, "change")
     // Blocks share the rest equally, and a block shorter than its share leaves the difference to the others
     let left = budget - joined(lines)
-    const shares = new Array<number>(blocks.length).fill(0)
+    const shares = blocks.map(() => 0)
     const order = blocks.map((_, i) => i).sort((a, b) => blockSizes[a]! - blockSizes[b]! || a - b)
     order.forEach((i, n) => {
         const share = Math.min(blockSizes[i]!, Math.floor(left / (order.length - n)))

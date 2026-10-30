@@ -30,7 +30,7 @@ import type { ChannelMemberContext, ModerationActor } from "@neonflux/contracts/
 import { adapterFixture } from "./adapter-fixture.ts"
 import { botCall } from "./bot-service.ts"
 
-const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
+const test = (name: string, body: (t: TestContext) => Promise<void>) => void nodeTest(name, { timeout: 30000 }, body)
 const proofCalls = { http: 0, sdkReads: 0, sdkSends: 0, gatewayCounts: 0 }
 after((t) =>
     t.diagnostic(`Metadata contract call totals ${JSON.stringify(proofCalls)}, zero real network or provider writes`),

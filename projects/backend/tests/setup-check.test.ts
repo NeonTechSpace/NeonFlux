@@ -1,10 +1,9 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api } from "../convex/_generated/api.js"
 import { tokenHash } from "../convex/dashboard.ts"
 import { SETUP_CHECK_INTERVAL_MS, SETUP_CHECK_MS } from "../convex/setupCheck.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { defaultAlertSettings } from "../convex/alertsDomain.ts"
 
@@ -33,7 +32,7 @@ afterEach(() => {
         else process.env[key] = prior[key]
     }
 })
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 // A manager's dashboard session for server 10, as admission stores it
 async function session(t: ReturnType<typeof backend>) {
     const sessionToken = "a".repeat(64)

@@ -1,12 +1,11 @@
 import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
 import type { DashboardPrivateResult, DashboardPrivateView } from "../dashboard-contracts.js"
 import { PRIVATE_ACCESS_MS, PRIVATE_CHECK_INTERVAL_MS, PRIVATE_CHECK_MS } from "../convex/privateData.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const keys = ["NEONFLUX_SERVER_MODE", "NEONFLUX_SERVER_ID", "NEONFLUX_BOT_API_SECRET", "FLUXER_CLIENT_ID"] as const
@@ -64,7 +63,7 @@ const owner = {
     nativePermissionAuthorized: true,
 }
 const administrator = { ...owner, userId: "20", isOwner: false, isAdministrator: true }
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 type Backend = ReturnType<typeof backend>
 async function fixture() {
     const t = backend()

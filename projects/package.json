@@ -4,9 +4,10 @@
     "packageManager": "pnpm@12.9.1",
     "scripts": {
         "build": "pnpm --filter @neonflux/bot run build && pnpm --filter @neonflux/web run build",
-        "check": "pnpm run format:check && node --test scripts/heavy.test.mjs && pnpm --filter @neonflux/contracts run check && pnpm --filter @neonflux/backend run check && pnpm --filter @neonflux/bot run check && pnpm --filter @neonflux/web run check",
+        "check": "pnpm run format:check && pnpm run lint && node --test scripts/*.test.mjs && pnpm --filter @neonflux/contracts run check && pnpm --filter @neonflux/backend run check && pnpm --filter @neonflux/bot run check && pnpm --filter @neonflux/web run check",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
+        "lint": "node scripts/heavy.mjs node scripts/lint.mjs",
         "dev:bot": "pnpm --filter @neonflux/bot run dev",
         "dev:web": "pnpm --filter @neonflux/web run dev",
         "deploy:dev": "pnpm --filter @neonflux/backend run deploy:dev",
@@ -18,6 +19,8 @@
     },
     "devDependencies": {
         "@effect/tsgo": "0.53.3",
+        "oxlint": "1.90.0",
+        "oxlint-tsgolint": "7.0.2005",
         "prettier": "3.9.9"
     }
 }

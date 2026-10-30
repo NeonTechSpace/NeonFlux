@@ -88,7 +88,7 @@ export function renderGreeting(
     member: Pick<GreetingsMemberContext, "userId" | "userName" | "serverName">,
     channelId?: string,
 ) {
-    const escape = (value: string) => value.replace(/[\u000c\u202e]/g, "").replace(/[\[\]()\\*_~`@#\-|:<>]/gu, "\\$&")
+    const escape = (value: string) => value.replace(/[\u000c\u202e]/g, "").replace(/[[\]()\\*_~`@#\-|:<>]/gu, "\\$&")
     const values: Record<string, string> = {
         "user.name": escape(member.userName),
         "user.id": member.userId,

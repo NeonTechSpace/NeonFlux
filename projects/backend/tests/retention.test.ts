@@ -1,18 +1,20 @@
 import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { internal } from "../convex/_generated/api.js"
+import type { TableNames } from "../convex/_generated/dataModel.js"
+import type { MutationCtx } from "../convex/_generated/server.js"
 import {
     RETENTION_INTERVAL_MS,
     RETENTION_PASSES,
     RETENTION_ROWS_PER_RUN,
+    RETENTION_START_PASSES,
     type RetentionRun,
 } from "../convex/retention.ts"
 import { cleanupLeveling } from "../convex/levelingCleanup.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
-import { insertDocument } from "./schema-documents.ts"
+import { convexBackend } from "./convex-backend.ts"
+import { fieldNames, insertDocument, serverIndexes, tableNames } from "./schema-documents.ts"
 
 const start = Date.parse("2026-01-01T00:00:00Z")
 let now = start
@@ -35,7 +37,7 @@ const modules = Object.fromEntries([
     ["../convex/_generated/api.js", () => import("../convex/_generated/api.js")],
     ["../convex/_generated/server.js", () => import("../convex/_generated/server.js")],
 ])
-const backend = () => convexTest({ schema, modules, transactionLimits: true })
+const backend = () => convexBackend(modules)
 type Backend = ReturnType<typeof backend>
 type RunArgs = { generation?: number; next?: number }
 
@@ -55,8 +57,58 @@ const scheduled = (t: Backend) =>
         const job = jobs.at(-1)
         return job ? { args: job.args[0] as RunArgs, at: job.scheduledTime, count: jobs.length } : null
     })
+// A table's rows expire when an index is named for it or a field holds the time. A lease or a dispatch grant ends without
+// removing its row
+const expiryIndex = /expiry|cleanup|history/,
+    expiryField = /^(expiresAt|cleanupAt|(?!lease|dispatch)\w+ExpiresAt)$/
+const expires = (table: TableNames) =>
+    serverIndexes(table).some((index) => expiryIndex.test(index.indexDescriptor)) ||
+    fieldNames(table).some((field) => expiryField.test(field))
+// Expiring tables no retention pass reads, with what removes their rows or why the rows stay
+const RETENTION_EXEMPT: Partial<Record<TableNames, string>> = {
+    backupPreviewJobs: "One row per server that stays until the purge. expiresAt ends a waiting request",
+    dashboardConfigurationJobs: "Each job schedules its deletion for cleanupAt",
+    dashboardMessageJobs: "Each job schedules its deletion for cleanupAt",
+    dashboardMetadataJobs: "Each job schedules its deletion for cleanupAt",
+    dashboardPrivateAccessJobs: "Each check schedules its deletion for cleanupAt",
+    dashboardRoleJobs: "Each job schedules its deletion for cleanupAt",
+    dashboardSetupJobs: "One row per server that stays until the purge. expiresAt ends a waiting check",
+    dashboardStructureJobs: "Each editor row schedules its deletion for cleanupAt",
+    lfgGroups: "The LFG worker closes expired groups, because the bot must mark their cards",
+    rolePickerSnapshots: "Each snapshot schedules its deletion for expiresAt",
+    verificationLinks: "Each link schedules its deletion for expiresAt",
+}
 const count = (t: Backend, table: "responseReceipts" | "moderationReceipts" | "securityRecoveries" | "suggestions") =>
     t.run(async (ctx) => (await ctx.db.query(table).collect()).length)
+
+test("Every table whose rows expire is read by a retention pass or names what removes its rows", async () => {
+    const t = backend(),
+        read = new Set<string>()
+    // An empty database proves the pass reads the table unconditionally, since no other row leads it there
+    await t.run(async (ctx) => {
+        const db = new Proxy(ctx.db, {
+            get(target, key) {
+                if (key === "query")
+                    return (table: TableNames) => {
+                        read.add(table)
+                        return target.query(table)
+                    }
+                const value = Reflect.get(target, key)
+                return typeof value === "function" ? value.bind(target) : value
+            },
+        })
+        const recording = { ...ctx, db } as MutationCtx
+        for (const [, pass] of RETENTION_PASSES) await pass(recording, now)
+        for (const pass of RETENTION_START_PASSES) await pass(recording, now)
+    })
+    const expiring = tableNames.filter(expires),
+        uncovered = expiring.filter((table) => !read.has(table) && !(table in RETENTION_EXEMPT)),
+        stale = (Object.keys(RETENTION_EXEMPT) as TableNames[]).filter(
+            (table) => !expiring.includes(table) || read.has(table),
+        )
+    assert.deepEqual(uncovered, [], "Expiring tables that no retention pass reads and that have no stated exemption")
+    assert.deepEqual(stale, [], "Exempt tables that no longer expire or that a retention pass now reads")
+})
 
 test("An idle run visits every module once, reads no rows and schedules nothing", async () => {
     const t = backend()

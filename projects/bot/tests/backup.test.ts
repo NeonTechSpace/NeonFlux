@@ -730,7 +730,7 @@ test("the encrypted backup files name their server, and an archive of several pa
             Effect.gen(function* () {
                 const bot = yield* createTestBot({ token: "synthetic-backup-token" }),
                     dmId = bot.fixtures.nextId()
-                const sent = bot.rest.respond("POST /channels/:id/messages", (request) => ({
+                const sent = bot.rest.respond("POST /channels/:id/messages", () => ({
                     body: bot.fixtures.message({ channel_id: dmId, content: "" }),
                 }))
                 yield* bot.ready()
@@ -2435,8 +2435,8 @@ test(
     },
 )
 
-// Runs on a controlled clock that moves only once both checks wait for Fluxer's member request limit, which the bot shares between them
-// and the SDK paces by that clock. The node timeout only guards a hang
+// Runs on a controlled clock that moves only once the check whose turn it is waits for Fluxer's member request limit, which the bot shares
+// between them and the SDK paces by that clock. The node timeout only guards a hang
 test(
     "two checks that share the bot's member request limit each end their member reads in time, so neither proof holds a stale member",
     { timeout: 120000 },
@@ -2469,6 +2469,7 @@ test(
                                 return { proof, sentAt: yield* Clock.currentTimeMillis }
                             }),
                         ),
+                        { queued: true },
                     )
                 }),
             ).pipe(Effect.provide(TestClock.layer())),

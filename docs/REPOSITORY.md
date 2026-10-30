@@ -14,7 +14,7 @@ For the selected stack and version pins, see [technology choices](TECHNOLOGY.md)
 | [projects/backend/](../projects/backend/) | The Convex backend package `@neonflux/backend` |
 | [projects/contracts/](../projects/contracts/) | The shared contracts package `@neonflux/contracts` |
 | [projects/web/](../projects/web/) | The dashboard and web verification package `@neonflux/web` |
-| [projects/scripts/](../projects/scripts/) | The [heavy-task gate](../projects/scripts/heavy.mjs) that limits concurrent machine-heavy package scripts, with [its test](../projects/scripts/heavy.test.mjs), and the [Effect typecheck runner](../projects/scripts/effect-tsc.mjs) |
+| [projects/scripts/](../projects/scripts/) | The [heavy-task gate](../projects/scripts/heavy.mjs) that limits concurrent machine-heavy package scripts, with [its test](../projects/scripts/heavy.test.mjs), the [Effect typecheck runner](../projects/scripts/effect-tsc.mjs), the [lint runner](../projects/scripts/lint.mjs) and the repository scans it runs, each with a test that plants a violation |
 
 The workspace [manifest](../projects/package.json), [workspace configuration](../projects/pnpm-workspace.yaml) and generated [lockfile](../projects/pnpm-lock.yaml) own shared dependency management.
 The [Node version file](../projects/.node-version) owns the exact development runtime
@@ -36,6 +36,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 - [suggestion-forum.ts](../projects/bot/src/suggestion-forum.ts) adds and applies the status tags of suggestion posts in a forum destination, and [events.ts](../projects/bot/src/events.ts) starts and closes event discussion threads
 - [protections.ts](../projects/bot/src/protections.ts) sends messages and joins to automod and security, including webhook and other bots' messages for a server that checks them, and remembers whether each server does, so their messages cost nothing while it is off
 - [reply-style.ts](../projects/bot/src/reply-style.ts) builds every status, detail and list reply once, from a title, labelled fields, an optional closing note that may hold commands, mentions and times and an optional plain footer, and renders it as an embed or as plain text in the style the server chose with its prefix in [general-settings.ts](../projects/bot/src/general-settings.ts)
+- [command-arguments.ts](../projects/bot/src/command-arguments.ts) holds the argument forms commands share, [paging.ts](../projects/bot/src/paging.ts) remembers where each list sent with `next` stopped, and [runtime-reload.ts](../projects/bot/src/runtime-reload.ts) brings what running features keep in memory up to date after a dashboard change or a restored backup item. [effect-compat.d.ts](../projects/bot/src/effect-compat.d.ts) declares the browser types Effect's declarations need, as [technology choices](TECHNOLOGY.md#build-and-check-constraints) describes
 - [help.ts](../projects/bot/src/help.ts) holds the one table of built-in commands that help pages and typo hints read,
   [setup-check.ts](../projects/bot/src/setup-check.ts) owns `!setup`, `!health` with its safety audit, `!recovery` and
   the dashboard's permission check, and [permission-fix.ts](../projects/bot/src/permission-fix.ts) turns a missing
@@ -141,7 +142,7 @@ pnpm run check
 ```
 
 pnpm selects the exact version pinned in the workspace manifest.
-The aggregate check checks formatting with Prettier, then runs the heavy-task gate's test, then the contracts typecheck, then the backend checks, then the bot typecheck, build and tests, then the web build, which regenerates the route tree, and the web typecheck and tests.
+The aggregate check checks formatting with Prettier, then runs the lint, then the tests of the workspace scripts, then the contracts typecheck, then the backend checks, then the bot typecheck, build and tests, then the web build, which regenerates the route tree, and the web typecheck and tests.
 Tests need no live credentials.
 The opt-in live smoke runs separately through `pnpm run smoke:live` and is not part of the aggregate check
 

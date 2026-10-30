@@ -251,7 +251,7 @@ async function failedBefore(ctx: MutationCtx, ticket: Doc<"tickets">, attempt: D
         const closing = attempt.grant!.action.startsWith("close-")
         // A first step proven unchanged leaves the ticket as it was, while a second step keeps the first one's progress
         if (ticket.completedSteps !== 0)
-            return void (await ctx.db.patch(ticket._id, { state: closing ? "closing" : "reopening" }))
+            return await ctx.db.patch(ticket._id, { state: closing ? "closing" : "reopening" })
         await ctx.db.patch(ticket._id, {
             state: closing ? "open" : "closed",
             transition: undefined,

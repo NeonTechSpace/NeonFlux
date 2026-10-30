@@ -106,7 +106,7 @@ export async function configurationNativeTarget(
             saved = row?.config.routes[route]
         if (op.type === "configure" || (op.type === "module" && op.enabled === true)) {
             if (op.channelId || saved?.channelId) target.channelId = requireId(op.channelId ?? saved?.channelId)
-            const templateName = op.templateName ?? saved?.templateName
+            const templateName = typeof op.templateName === "string" ? op.templateName : saved?.templateName
             // A saved route posts what the greeting itself sends: its template's latest content while that is valid for the
             // route, otherwise the copy saved with it. A newly chosen template is checked as it is, and configuring validates it
             const content =

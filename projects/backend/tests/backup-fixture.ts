@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, mock, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import type {
     BackupBinding,
     BackupConfigObject,
@@ -11,7 +10,6 @@ import type {
     BackupPlan,
     BackupStructureObject,
 } from "@neonflux/contracts/backup"
-import schema from "../convex/schema.ts"
 import { cleanupBackups } from "../convex/backupRetention.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import {
@@ -23,6 +21,7 @@ import {
 } from "@neonflux/contracts/backup"
 import { backupHash } from "../convex/backupDomain.ts"
 import { createHash } from "node:crypto"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 export const secret = "synthetic-backup-test-secret-000000000000000000"
@@ -86,7 +85,7 @@ export async function fixture(t: TestContext) {
     let now = Date.parse("2026-01-01T00:00:00Z"),
         sequence = 10000
     t.mock.method(Date, "now", () => now)
-    const db = convexTest({ schema, modules, transactionLimits: true }),
+    const db = convexBackend(modules),
         provider = "https://api.example.test"
     const context = (): BackupContext => ({
         provider,

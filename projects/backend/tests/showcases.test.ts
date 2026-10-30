@@ -2,8 +2,6 @@ import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
 import { ConvexError } from "convex/values"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
 import type { MemberContentContext } from "@neonflux/contracts/member-content"
 import type { AutomodRule } from "@neonflux/contracts/moderation"
@@ -16,6 +14,7 @@ import type {
     ShowcaseState,
 } from "@neonflux/contracts/showcases"
 import { defaultSettings } from "../convex/moderationDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const modules = Object.fromEntries([
@@ -86,7 +85,7 @@ const content = {
 }
 
 async function fixture() {
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     let sequence = 1000,
         request = 0
     const raw = (path: string, body: Record<string, unknown>) =>

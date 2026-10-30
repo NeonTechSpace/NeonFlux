@@ -303,6 +303,22 @@ function backupConfigReferences(
             item.value.forumIds.forEach((id) => channel(id))
             channel(item.value.guardChannelId)
             break
+        // These name no channel, role or member that must exist. Expected alert bots stay as they are, like member IDs in
+        // an access list. A new family is listed here or above, so none skips the reference check by accident
+        case "alerts":
+        case "analytics":
+        case "cleanup":
+        case "draft":
+        case "events":
+        case "general":
+        case "helpdeskAnswer":
+        case "milestones":
+        case "profile":
+        case "publishing":
+        case "responses":
+        case "schedules":
+        case "tickets":
+            break
     }
     return refs
 }

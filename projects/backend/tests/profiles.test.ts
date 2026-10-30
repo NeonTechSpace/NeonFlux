@@ -2,8 +2,6 @@ import assert from "node:assert/strict"
 import { readdirSync } from "node:fs"
 import { afterEach, beforeEach, mock, test } from "node:test"
 import { ConvexError } from "convex/values"
-import { convexTest } from "convex-test"
-import schema from "../convex/schema.ts"
 import { api, internal } from "../convex/_generated/api.js"
 import type { MemberContentContext } from "@neonflux/contracts/member-content"
 import type { MemberDataDeletePage } from "@neonflux/contracts/member-data"
@@ -11,6 +9,7 @@ import type { ProfileJob, ProfileMemberOperation, ProfileShowResult, ProfileStat
 import type { AutomodRule } from "@neonflux/contracts/moderation"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import { defaultSettings } from "../convex/moderationDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 import { countedProfile, insertDocument } from "./schema-documents.ts"
 import { defaultLevelingSettings } from "../convex/levelingDomain.ts"
@@ -84,7 +83,7 @@ const saved: ProfileMemberOperation = {
 }
 
 async function fixture() {
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     let sequence = 1000,
         request = 0,
         session: string | undefined

@@ -21,10 +21,11 @@ const AUDIT_BATCH = 256,
     SUMMARY_LIMIT = 500,
     CHANGES_SHOWN = 8
 // A detail value is cut after this many UTF-16 code units, more than any single Fluxer text field holds, so only pasted bulk
-// text is shortened. One entry's detail stays under this many bytes of JSON, below Convex's 1 MiB document limit, and rows past
-// it are only counted
+// text is shortened. One entry's detail stays under this many bytes of JSON, below Convex's 1 MiB document limit, and within
+// Convex's 8,192 values per array, and rows past either are only counted
 const DETAIL_VALUE_LIMIT = 8000,
-    DETAIL_BYTES = 512 * 1024
+    DETAIL_BYTES = 512 * 1024,
+    DETAIL_ROWS = 8192
 
 const clip = (value: string, limit: number) => (value.length > limit ? `${value.slice(0, limit - 1)}…` : value)
 const record = (value: unknown): Record<string, unknown> =>
@@ -45,7 +46,7 @@ function detailRows(changes: readonly ValueChange[]) {
             ...(long.length ? { cut: Math.max(...long.map((x) => (x as string).length)) } : {}),
         }
         const size = new TextEncoder().encode(JSON.stringify(row)).length
-        if (bytes + size > DETAIL_BYTES) break
+        if (bytes + size > DETAIL_BYTES || rows.length === DETAIL_ROWS) break
         bytes += size
         rows.push(row)
     }
@@ -230,7 +231,10 @@ export function operationLabel(operation: unknown): string {
         "userId",
     ]
         .map((key) => named[key])
-        .find((item) => typeof item === "number" || (typeof item === "string" && item.length > 0 && item.length <= 40))
+        .find(
+            (item): item is string | number =>
+                typeof item === "number" || (typeof item === "string" && item.length > 0 && item.length <= 40),
+        )
     return [typeof op.type === "string" ? op.type : "change", ...(target === undefined ? [] : [String(target)])].join(
         " ",
     )

@@ -18,7 +18,7 @@ import { startDashboardRolesWorker } from "../src/dashboard-roles.ts"
 import { platform, token } from "./moderation-fixture.ts"
 
 // A hang guard only. Every wait inside is a controlled clock step, an awaited flush or a gate the test opens
-const test = (name: string, body: () => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
+const test = (name: string, body: () => Promise<void>) => void nodeTest(name, { timeout: 30000 }, body)
 const HOUR = 3600000,
     DAY = 86400000,
     serverId = createFixtures().ids.guild

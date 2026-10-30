@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import type {
     RolesClaim,
     RolesEvaluateOperation,
@@ -10,10 +9,10 @@ import type {
     RolesWithdrawal,
 } from "@neonflux/contracts/roles"
 import type { ModerationActor, RolesMemberContext } from "@neonflux/contracts/shared"
-import schema from "../convex/schema.ts"
 import { cleanupRoles } from "../convex/roleLifecycle.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import { ROLES_DAY } from "../convex/rolesDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID,
@@ -77,7 +76,7 @@ function fixture(test: TestContext) {
         sequence = 1000,
         post = 0
     test.mock.method(Date, "now", () => now)
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const rawHttp = (route: string, body: unknown, auth = true) => botCall(t, route, body, auth ? {} : { secret: null })
     const http = async (route: string, body: any, auth = true): Promise<Response> => {

@@ -12,7 +12,7 @@ import { createGeneralSettingsStore, missingNicknamePermission } from "../../bot
 import { BackendRequestError } from "../../bot/src/backend-http.ts"
 import { processDashboardConfigurationPass } from "../../bot/src/dashboard-configuration.ts"
 
-const test = (name: string, body: (t: TestContext) => Promise<void>) => nodeTest(name, { timeout: 30000 }, body)
+const test = (name: string, body: (t: TestContext) => Promise<void>) => void nodeTest(name, { timeout: 30000 }, body)
 const modules = {
     "../convex/generalSettings.ts": () => import("../convex/generalSettings.ts"),
     "../convex/dashboard.ts": () => import("../convex/dashboard.ts"),

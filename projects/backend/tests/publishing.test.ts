@@ -1,13 +1,12 @@
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, test, type TestContext } from "node:test"
-import { convexTest } from "convex-test"
 import type { PublishingDraft, PublishingManageResult, PublishingQueryResult } from "@neonflux/contracts/publishing"
 import type { PublishingGrant, PublishingPost } from "@neonflux/contracts/publishing-base"
 import type { ModerationActor } from "@neonflux/contracts/shared"
-import schema from "../convex/schema.ts"
 import { cleanupPublishing } from "../convex/publishing.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import { canonicalPublishingContent, publishingContent, PUBLISHING_DAY } from "../convex/publishingDomain.ts"
+import { convexBackend } from "./convex-backend.ts"
 import { botCall } from "./bot-service.ts"
 
 const oldServer = process.env.NEONFLUX_SERVER_ID,
@@ -45,7 +44,7 @@ function fixture(ctx: TestContext) {
     let now = 1700000000000,
         sequence = 1000
     ctx.mock.method(Date, "now", () => now)
-    const t = convexTest({ schema, modules, transactionLimits: true })
+    const t = convexBackend(modules)
     const source = () => ({ serverId: "1", messageId: String(++sequence), createdAt: now })
     const request = (operation: unknown, actor = owner) => ({ ...source(), actor, operation })
     const http = (operation: string, body: unknown, auth = true) =>
