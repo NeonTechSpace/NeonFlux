@@ -9,9 +9,8 @@ import type {
     ModerationManageOperation,
 } from "@neonflux/contracts/moderation"
 import type { ModerationActor, ModerationSource } from "@neonflux/contracts/shared"
-import { createClient } from "@neontechspace/fluxerly/effect"
+import { createClient, snowflakes } from "@neontechspace/fluxerly/effect"
 import { Cause, Data, Effect, Exit, Redacted } from "effect"
-import { randomBytes } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { actionPermission } from "../src/action-executor.ts"
 import { readConfig } from "../src/config.ts"
@@ -38,11 +37,15 @@ const run = <A, E>(name: string, effect: Effect.Effect<A, E>) =>
     })
 const restore = (name: string, effect: Effect.Effect<unknown, unknown>) =>
     Effect.addFinalizer(() => Effect.ignore(run(name, effect)))
-// Synthetic source IDs stand in for the command message a staff member would send
-const source = () => ({
-    messageId: ((BigInt(`0x${randomBytes(8).toString("hex")}`) >> 1n) | 1n).toString(),
-    createdAt: Date.now(),
-})
+// Synthetic source IDs stand in for the command message a staff member would send. Like real message IDs they follow the clock
+// and always rise, since the backend refuses a settings change whose ID is not above the last one and a random ID would fence out
+// every later real command
+let lastSource = 0n
+const source = () => {
+    const createdAt = Date.now()
+    lastSource = [BigInt(snowflakes.boundary(new Date(createdAt))), lastSource + 1n].reduce((a, b) => (a > b ? a : b))
+    return { messageId: lastSource.toString(), createdAt }
+}
 
 const program = Effect.scoped(
     Effect.gen(function* () {
@@ -63,8 +66,8 @@ const program = Effect.scoped(
             Effect.flatMap(adoptBackendScope),
             Effect.mapError((error) => new SmokeLiveError({ message: error.message })),
         )
-        if (!bot.backend || serverId !== bot.serverId)
-            return yield* failure(`${configPath} must name the one server that the backend configured in .env serves`)
+        if (!bot.backend || (bot.scope?.mode !== "multi" && serverId !== bot.serverId))
+            return yield* failure(`${configPath} must name a server that the backend configured in .env serves`)
         const ids = {
             serverId: serverId as string,
             operatorId: operatorId as string,
@@ -76,7 +79,8 @@ const program = Effect.scoped(
             rest: { concurrency: 1, defaultTimeoutMs: 5000 },
             logging: { level: "silent" },
         })
-        const backend = createModerationStore(bot.backend)
+        // Each request is bound to the server, as a server runtime binds its own
+        const backend = createModerationStore({ ...bot.backend, serverId: ids.serverId })
         // Remembers which staff logs and private notices the production delivery path reports as sent
         const delivered = new Set<string>()
         const store: ModerationStore = {
@@ -215,8 +219,9 @@ const program = Effect.scoped(
         for (const level of [2, 1] as const) {
             yield* run(`set defcon ${level}`, setSettings({ defcon: level }))
             const member: ModerationActor = {
+                originServerId: ids.serverId,
                 userId: ids.targetId,
-                roleIds: [],
+                roleIds: [ids.serverId],
                 isOwner: false,
                 isAdministrator: false,
                 nativePermissionAuthorized: false,

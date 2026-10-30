@@ -397,7 +397,7 @@ Members see only their own cases and appeals. Each case accepts one open appeal 
 
 ### Live moderation check
 
-`pnpm smoke:live` from `projects/` is an opt-in script that checks moderation against a real development server through REST, without a gateway connection. Copy [the example](../projects/bot/smoke-live.example.json) to the ignored `projects/bot/smoke-live.local.json` and fill in the one server that the backend in `projects/bot/.env` serves, an owner or Administrator as operator, a willing member below the operator and bot as target, and a channel
+`pnpm smoke:live` from `projects/` is an opt-in script that checks moderation against a real development server through REST, without a gateway connection. Copy [the example](../projects/bot/smoke-live.example.json) to the ignored `projects/bot/smoke-live.local.json` and fill in a server that the backend in `projects/bot/.env` serves, an owner or Administrator as operator, a willing member below the operator and bot as target, and a channel
 
 Stop the gateway bot first. The script warns the target, quarantines them for 30 seconds, locks the channel and checks the DEFCON gates, then reverses each change and restores the original settings, also after a failure or Ctrl+C. It prints each check and exits with code 1 when one fails. Cases and notices remain as normal history. Its command sources are synthetic, so a pass does not prove gateway command dispatch, member DMs, visible presence or restart behavior
 
