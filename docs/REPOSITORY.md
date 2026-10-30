@@ -14,6 +14,7 @@ For the selected stack and version pins, see [technology choices](TECHNOLOGY.md)
 | [projects/backend/](../projects/backend/) | The Convex backend package `@neonflux/backend` |
 | [projects/contracts/](../projects/contracts/) | The shared contracts package `@neonflux/contracts` |
 | [projects/web/](../projects/web/) | The dashboard and web verification package `@neonflux/web` |
+| [projects/evals/](../projects/evals/) | Labeled cases for the deceptive link judge and the lookalike name check, and the [baseline](../projects/evals/baseline.json) of cases they fail today, as [the contributing guide](CONTRIBUTING.md#detector-evals) describes |
 | [projects/scripts/](../projects/scripts/) | The [heavy-task gate](../projects/scripts/heavy.mjs) that limits concurrent machine-heavy package scripts, with [its test](../projects/scripts/heavy.test.mjs), the [Effect typecheck runner](../projects/scripts/effect-tsc.mjs), the [lint runner](../projects/scripts/lint.mjs) and the repository scans it runs, each with a test that plants a violation |
 
 The workspace [manifest](../projects/package.json), [workspace configuration](../projects/pnpm-workspace.yaml) and generated [lockfile](../projects/pnpm-lock.yaml) own shared dependency management.

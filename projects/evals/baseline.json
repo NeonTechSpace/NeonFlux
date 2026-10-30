@@ -1,0 +1,15 @@
+{
+    "deceptive-links/train": [
+        "shared a doc with you https://google-docs-share.online/d/1xQ8p"
+    ],
+    "deceptive-links/holdout": [
+        "Open the issue here: gihub.com",
+        "The airdrop perks just opened: https://fluxer-airdrop-perks.com/",
+        "Try the updated chat client: fluxxer.app",
+        "Unlock the prize vault today: https://steampowered-prize-vault.net/",
+        "Your cashback is ready to collect: https://paypal-cashback-center.net/",
+        "Your creator payout is pending: https://youtube-creator-payout.com/"
+    ],
+    "impersonation/train": [],
+    "impersonation/holdout": []
+}

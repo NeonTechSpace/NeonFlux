@@ -1,0 +1,702 @@
+[
+    {
+        "staff": "CopperBadger",
+        "name": "C0pperBadger",
+        "lookalike": true,
+        "family": "leet",
+        "why": "A zero substitutes for the o in the staff name"
+    },
+    {
+        "staff": "Marlene",
+        "name": "Mar1ene",
+        "lookalike": true,
+        "family": "leet",
+        "why": "A one substitutes for the l in the staff name"
+    },
+    {
+        "staff": "VelvetRaven",
+        "name": "V3lvetRaven",
+        "lookalike": true,
+        "family": "leet",
+        "why": "A three substitutes for the e in the staff name"
+    },
+    {
+        "staff": "AstralCoyote",
+        "name": "4stralCoyote",
+        "lookalike": true,
+        "family": "leet",
+        "why": "A four substitutes for the initial A in the staff name"
+    },
+    {
+        "staff": "SilverOtter",
+        "name": "5ilverOtter",
+        "lookalike": true,
+        "family": "leet",
+        "why": "A five substitutes for the initial S in the staff name"
+    },
+    {
+        "staff": "Tobias",
+        "name": "7obias",
+        "lookalike": true,
+        "family": "leet",
+        "why": "A seven substitutes for the initial T in the staff name"
+    },
+    {
+        "staff": "SableQuest",
+        "name": "$ableQuest",
+        "lookalike": true,
+        "family": "leet",
+        "why": "A dollar sign substitutes for the initial S in the staff name"
+    },
+    {
+        "staff": "HarborWarden",
+        "name": "H@rborWarden",
+        "lookalike": true,
+        "family": "leet",
+        "why": "An at sign substitutes for the a in the staff name"
+    },
+    {
+        "staff": "CoralKeeper",
+        "name": "CоralKeeper",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "A Cyrillic о visually replaces the Latin o"
+    },
+    {
+        "staff": "RavenScout",
+        "name": "RаvenScout",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "A Cyrillic а visually replaces the Latin a"
+    },
+    {
+        "staff": "Stella",
+        "name": "Stellα",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "A Greek alpha visually replaces the final a"
+    },
+    {
+        "staff": "VioletFox",
+        "name": "ＶｉｏｌｅｔＦｏｘ",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Fullwidth letters preserve the visible staff name"
+    },
+    {
+        "staff": "Dorian",
+        "name": "𝐃𝐨𝐫𝐢𝐚𝐧",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Mathematical bold letters preserve the visible staff name"
+    },
+    {
+        "staff": "LumenScribe",
+        "name": "𝑳𝒖𝒎𝒆𝒏𝑺𝒄𝒓𝒊𝒃𝒆",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Mathematical styled letters preserve the visible staff name"
+    },
+    {
+        "staff": "BirchMage",
+        "name": "ΒirchMage",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "A Greek capital beta visually replaces the Latin B"
+    },
+    {
+        "staff": "Comet7",
+        "name": "Сomet7",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "A Cyrillic capital С visually replaces the Latin C"
+    },
+    {
+        "staff": "AmberFalcon",
+        "name": "Amber.Falcon",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "An inserted dot leaves the staff name recognizable"
+    },
+    {
+        "staff": "QuartzRunner",
+        "name": "Quartz_Runner",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "An inserted underscore leaves the staff name recognizable"
+    },
+    {
+        "staff": "MapleKnight",
+        "name": "Maple Knight",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "An inserted space leaves the staff name recognizable"
+    },
+    {
+        "staff": "MothPilot42",
+        "name": "Moth​Pilot42",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "An inserted zero-width space leaves the visible name unchanged"
+    },
+    {
+        "staff": "ほしぞら管理人",
+        "name": "ほしぞら 管理人",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "An inserted space preserves the Japanese staff name"
+    },
+    {
+        "staff": "Светлана",
+        "name": "Свет лана",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "An inserted space preserves the Russian staff name"
+    },
+    {
+        "staff": "ياسمين",
+        "name": "ياسمين‌",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "A trailing zero-width non-joiner preserves the Arabic staff name"
+    },
+    {
+        "staff": "Juniper🌙",
+        "name": "Juniper⁠🌙",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "An inserted invisible word joiner preserves the name and emoji"
+    },
+    {
+        "staff": "Celeste",
+        "name": "Célèste",
+        "lookalike": true,
+        "family": "accent",
+        "why": "Added accents preserve the underlying staff name"
+    },
+    {
+        "staff": "Magnolia",
+        "name": "Magnólia",
+        "lookalike": true,
+        "family": "accent",
+        "why": "An added accent preserves the underlying staff name"
+    },
+    {
+        "staff": "Renata",
+        "name": "Rénàta",
+        "lookalike": true,
+        "family": "accent",
+        "why": "Added accents preserve the underlying staff name"
+    },
+    {
+        "staff": "Gunther",
+        "name": "Günther",
+        "lookalike": true,
+        "family": "accent",
+        "why": "An added umlaut preserves the underlying staff name"
+    },
+    {
+        "staff": "NimblePanda",
+        "name": "NimblePañda",
+        "lookalike": true,
+        "family": "accent",
+        "why": "An added tilde preserves the underlying staff name"
+    },
+    {
+        "staff": "Falcon9",
+        "name": "Fálcon9",
+        "lookalike": true,
+        "family": "accent",
+        "why": "An added accent preserves the staff name and digit"
+    },
+    {
+        "staff": "Dorian",
+        "name": "Dorin",
+        "lookalike": true,
+        "family": "typo",
+        "why": "A single omitted letter closely imitates a name of at least five letters"
+    },
+    {
+        "staff": "VelvetRaven",
+        "name": "VelvetRavn",
+        "lookalike": true,
+        "family": "typo",
+        "why": "A single omitted letter closely imitates the staff name"
+    },
+    {
+        "staff": "QuartzRunner",
+        "name": "QuarzRunnr",
+        "lookalike": true,
+        "family": "typo",
+        "why": "Two omitted letters closely imitate a staff name of at least ten letters"
+    },
+    {
+        "staff": "SilverOtter42",
+        "name": "SilvrOttr42",
+        "lookalike": true,
+        "family": "typo",
+        "why": "Two omitted letters closely imitate a long staff name with digits"
+    },
+    {
+        "staff": "MapleKnight",
+        "name": "MapleKnihgt",
+        "lookalike": true,
+        "family": "typo",
+        "why": "A swapped letter pair closely imitates a name of at least ten letters"
+    },
+    {
+        "staff": "RavenScout",
+        "name": "RavenScou",
+        "lookalike": true,
+        "family": "typo",
+        "why": "A single omitted final letter closely imitates the staff name"
+    },
+    {
+        "staff": "Beatrice",
+        "name": "Beatrce",
+        "lookalike": true,
+        "family": "typo",
+        "why": "A single omitted letter closely imitates the staff name"
+    },
+    {
+        "staff": "Анастасия",
+        "name": "Анастасиа",
+        "lookalike": true,
+        "family": "typo",
+        "why": "One changed Cyrillic letter closely imitates the Russian staff name"
+    },
+    {
+        "staff": "OrchidWarden",
+        "name": "OrchidWarden ✓",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A check mark decorates the complete staff name"
+    },
+    {
+        "staff": "HarborKeeper",
+        "name": "[Guide] HarborKeeper",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A role-like prefix decorates the complete staff name"
+    },
+    {
+        "staff": "Juniper🌙",
+        "name": "Juniper🌙 ✦",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A star decoration preserves the staff name and emoji"
+    },
+    {
+        "staff": "CobaltMoth",
+        "name": "CobaltMoth_",
+        "lookalike": true,
+        "family": "affix",
+        "why": "An underscore decorates the complete staff name"
+    },
+    {
+        "staff": "星空の案内人",
+        "name": "【案内】星空の案内人",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A role-like prefix decorates the complete Japanese staff name"
+    },
+    {
+        "staff": "Виктория",
+        "name": "Виктория (Команда)",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A team suffix decorates the complete Russian staff name"
+    },
+    {
+        "staff": "عبدالرحمن",
+        "name": "★ عبدالرحمن",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A star decoration preserves the complete Arabic staff name"
+    },
+    {
+        "staff": "MothPilot42",
+        "name": "MothPilot42 | Team",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A team suffix decorates the complete staff name and digits"
+    },
+    {
+        "staff": "PixelSailor",
+        "name": "PIXELSAILOR",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only Latin letter case changes"
+    },
+    {
+        "staff": "Aria99",
+        "name": "aria99",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only letter case changes while the digits remain identical"
+    },
+    {
+        "staff": "Людмила",
+        "name": "ЛЮДМИЛА",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only Cyrillic letter case changes"
+    },
+    {
+        "staff": "Pebble🦉",
+        "name": "pEBBLE🦉",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only letter case changes while the emoji remains identical"
+    },
+    {
+        "staff": "Ian",
+        "name": "Jan",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common three-letter names"
+    },
+    {
+        "staff": "Leo",
+        "name": "Leon",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common names shorter than five letters"
+    },
+    {
+        "staff": "Mia",
+        "name": "Nia",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common three-letter names"
+    },
+    {
+        "staff": "Eva",
+        "name": "Eve",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common three-letter names"
+    },
+    {
+        "staff": "Max",
+        "name": "Maks",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common names shorter than five letters"
+    },
+    {
+        "staff": "Ben",
+        "name": "Ken",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common three-letter names"
+    },
+    {
+        "staff": "Ada",
+        "name": "Ida",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common three-letter names"
+    },
+    {
+        "staff": "Nico",
+        "name": "Nina",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common four-letter names"
+    },
+    {
+        "staff": "Elle",
+        "name": "Ella",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common four-letter names"
+    },
+    {
+        "staff": "Josh",
+        "name": "John",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common four-letter names"
+    },
+    {
+        "staff": "Оля",
+        "name": "Юля",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common Russian short names"
+    },
+    {
+        "staff": "Ира",
+        "name": "Инна",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common Russian names shorter than five letters"
+    },
+    {
+        "staff": "نور",
+        "name": "نورا",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct Arabic names shorter than five letters"
+    },
+    {
+        "staff": "علي",
+        "name": "عمر",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct common Arabic three-letter names"
+    },
+    {
+        "staff": "葵",
+        "name": "茜",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct Japanese one-character names"
+    },
+    {
+        "staff": "美咲",
+        "name": "美月",
+        "lookalike": false,
+        "family": "short",
+        "why": "These are distinct Japanese two-character names"
+    },
+    {
+        "staff": "VelvetRaven",
+        "name": "VelvetRabbit",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "The shared prefix belongs to two visibly different animal names"
+    },
+    {
+        "staff": "CopperBadger",
+        "name": "CopperBard",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "The shared prefix leads to two different name endings"
+    },
+    {
+        "staff": "AstralCoyote",
+        "name": "AstralComet",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "The shared prefix leads to two different words"
+    },
+    {
+        "staff": "QuartzRunner",
+        "name": "QuartzRider",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "The shared prefix leads to two different role words"
+    },
+    {
+        "staff": "CobaltMoth",
+        "name": "CobaltMountain",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "The shared prefix leads to two different nouns"
+    },
+    {
+        "staff": "HarborKeeper",
+        "name": "HarborKitten",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "The shared prefix leads to two different words"
+    },
+    {
+        "staff": "MapleKnight",
+        "name": "MapleKitchen",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "The shared prefix leads to two different words"
+    },
+    {
+        "staff": "Celeste",
+        "name": "Celerity",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "The shared initial letters do not make these the same name"
+    },
+    {
+        "staff": "Magnolia",
+        "name": "Magnetism",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "The shared initial letters lead to different words"
+    },
+    {
+        "staff": "Светлана",
+        "name": "Светозар",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "These distinct Russian names merely share their initial letters"
+    },
+    {
+        "staff": "星空の案内人",
+        "name": "星空の写真家",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "The Japanese names share a theme but identify different roles"
+    },
+    {
+        "staff": "عبدالرحمن",
+        "name": "عبدالكريم",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "These are distinct Arabic names sharing a common initial component"
+    },
+    {
+        "staff": "Rose",
+        "name": "Rosemary",
+        "lookalike": false,
+        "family": "common-word",
+        "why": "The short common name is part of a different longer name"
+    },
+    {
+        "staff": "Sky",
+        "name": "Skylark",
+        "lookalike": false,
+        "family": "common-word",
+        "why": "The common word is part of a distinct longer name"
+    },
+    {
+        "staff": "River",
+        "name": "Riverstone",
+        "lookalike": false,
+        "family": "common-word",
+        "why": "The common word is part of a distinct compound name"
+    },
+    {
+        "staff": "Willow",
+        "name": "Willowbrook",
+        "lookalike": false,
+        "family": "common-word",
+        "why": "The common word is part of a distinct compound name"
+    },
+    {
+        "staff": "Echo",
+        "name": "EchoLocator",
+        "lookalike": false,
+        "family": "common-word",
+        "why": "The common word is part of a distinct longer handle"
+    },
+    {
+        "staff": "Rain",
+        "name": "Rainbow",
+        "lookalike": false,
+        "family": "common-word",
+        "why": "The short common word is part of a distinct longer word"
+    },
+    {
+        "staff": "Moon",
+        "name": "Moonflower",
+        "lookalike": false,
+        "family": "common-word",
+        "why": "The common word is part of a distinct compound name"
+    },
+    {
+        "staff": "Basil",
+        "name": "Basilisk",
+        "lookalike": false,
+        "family": "common-word",
+        "why": "The common name is part of a different longer word"
+    },
+    {
+        "staff": "Kit",
+        "name": "Toolkit",
+        "lookalike": false,
+        "family": "common-word",
+        "why": "The short common name occurs inside a different word"
+    },
+    {
+        "staff": "نور",
+        "name": "نورالدين",
+        "lookalike": false,
+        "family": "common-word",
+        "why": "The short Arabic name is part of a distinct longer name"
+    },
+    {
+        "staff": "Beatrice",
+        "name": "Isabella",
+        "lookalike": false,
+        "family": "different",
+        "why": "These are visibly different first names"
+    },
+    {
+        "staff": "Marigold",
+        "name": "Obsidian",
+        "lookalike": false,
+        "family": "different",
+        "why": "These are visibly different word-based handles"
+    },
+    {
+        "staff": "MothPilot42",
+        "name": "OtterPilot98",
+        "lookalike": false,
+        "family": "different",
+        "why": "The animal and digits identify a different handle"
+    },
+    {
+        "staff": "Rook27",
+        "name": "Finch83",
+        "lookalike": false,
+        "family": "different",
+        "why": "The bird name and digits identify a different handle"
+    },
+    {
+        "staff": "Juniper🌙",
+        "name": "Cactus☀️",
+        "lookalike": false,
+        "family": "different",
+        "why": "Both the word and emoji identify a different handle"
+    },
+    {
+        "staff": "星空の案内人",
+        "name": "海辺の料理人",
+        "lookalike": false,
+        "family": "different",
+        "why": "These Japanese handles use different places and roles"
+    },
+    {
+        "staff": "Светлана",
+        "name": "Екатерина",
+        "lookalike": false,
+        "family": "different",
+        "why": "These are visibly different Russian first names"
+    },
+    {
+        "staff": "ياسمين",
+        "name": "فاطمة",
+        "lookalike": false,
+        "family": "different",
+        "why": "These are visibly different Arabic first names"
+    },
+    {
+        "staff": "ほしぞら管理人",
+        "name": "もりの音楽家",
+        "lookalike": false,
+        "family": "different",
+        "why": "These Japanese handles identify different themes and roles"
+    },
+    {
+        "staff": "Stella",
+        "name": "Bianca",
+        "lookalike": false,
+        "family": "different",
+        "why": "These are visibly different first names"
+    },
+    {
+        "staff": "Celeste",
+        "name": "Vanessa",
+        "lookalike": false,
+        "family": "different",
+        "why": "These are visibly different first names"
+    },
+    {
+        "staff": "OrchidWarden",
+        "name": "BambooCourier",
+        "lookalike": false,
+        "family": "different",
+        "why": "Both parts of these compound handles are different"
+    }
+]

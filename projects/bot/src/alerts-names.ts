@@ -41,6 +41,32 @@ const lookalikes: Record<string, string> = {
     τ: "t",
     υ: "u",
     χ: "x",
+    // Latin small capitals
+    ᴀ: "a",
+    ʙ: "b",
+    ᴄ: "c",
+    ᴅ: "d",
+    ᴇ: "e",
+    ꜰ: "f",
+    ɢ: "g",
+    ʜ: "h",
+    ɪ: "l",
+    ᴊ: "j",
+    ᴋ: "k",
+    ʟ: "l",
+    ᴍ: "m",
+    ɴ: "n",
+    ᴏ: "o",
+    ᴘ: "p",
+    ꞯ: "q",
+    ʀ: "r",
+    ꜱ: "s",
+    ᴛ: "t",
+    ᴜ: "u",
+    ᴠ: "v",
+    ᴡ: "w",
+    ʏ: "y",
+    ᴢ: "z",
 }
 
 /** A name reduced to what it looks like: compatibility forms and accents removed, lowercase, lookalikes folded and only letters and digits kept */
@@ -58,7 +84,8 @@ export function nameSkeleton(name: string) {
 
 /**
  * Whether two names look alike. Names of fewer than three characters never match. The same skeleton always matches, one
- * edit matches names of at least five characters and two edits names of at least ten, so short common names stay quiet
+ * edit matches names of at least five characters and two edits names of at least ten, so short common names stay quiet.
+ * A name of at least five characters also matches a whole part of the other name separated by spaces or symbols
  */
 export function namesLookAlike(left: string, right: string) {
     const a = nameSkeleton(left),
@@ -66,9 +93,14 @@ export function namesLookAlike(left: string, right: string) {
         shorter = Math.min(a.length, b.length)
     if (shorter < 3) return false
     if (a === b) return true
+    if (shorter >= 5 && (hasNamePart(left, b) || hasNamePart(right, a))) return true
     const limit = shorter >= 10 ? 2 : shorter >= 5 ? 1 : 0
     return limit > 0 && Math.abs(a.length - b.length) <= limit && editDistance(a, b) <= limit
 }
+/** Compare whole parts before punctuation is removed, so a name inside a longer word stays distinct */
+const hasNamePart = (name: string, skeleton: string) =>
+    name.split(/[^\p{L}\p{N}\p{M}]+/u).some((part) => nameSkeleton(part) === skeleton)
+
 /** Changed, added or removed characters between two strings, where swapping two neighboring characters counts as one */
 function editDistance(left: string, right: string) {
     const rows = Array.from({ length: left.length + 1 }, (_, row) =>

@@ -12,7 +12,8 @@
         "dev:web": "pnpm --filter @neonflux/web run dev",
         "deploy:dev": "pnpm --filter @neonflux/backend run deploy:dev",
         "start": "pnpm --filter @neonflux/bot run start",
-        "smoke:live": "pnpm --filter @neonflux/bot run smoke:live"
+        "smoke:live": "pnpm --filter @neonflux/bot run smoke:live",
+        "evals": "node scripts/evals.mjs"
     },
     "engines": {
         "node": ">=24 <25"

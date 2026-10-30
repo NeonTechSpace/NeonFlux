@@ -1,0 +1,1436 @@
+[
+    {
+        "message": "yo who wants free nitro?? https://dіscord.gift/Xk29PqLm",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Cyrillic і replaces the Latin i in discord.gift"
+    },
+    {
+        "message": "steam support here, verify ur inventory before the ban: https://ѕteamcommunity.com/tradeoffer/new/?partner=118293",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Cyrillic ѕ replaces the Latin s in steamcommunity.com"
+    },
+    {
+        "message": "Your refund is waiting, log in within 24h https://www.pаypal.com/signin?ref=refund",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Cyrillic а replaces the first a in paypal.com"
+    },
+    {
+        "message": "here's the repo with the auto claimer https://gіthub.com/neonflux-tools/autoclaim",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Cyrillic і replaces the i in github.com"
+    },
+    {
+        "message": "omg this video is literally about you lol https://www.yоutube.com/watch?v=Qm8sPz1kLr0",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Cyrillic о replaces the first o in youtube.com"
+    },
+    {
+        "message": "drops are live, link ur account fast https://twіtch.tv/drops/claim",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Cyrillic і replaces the i in twitch.tv"
+    },
+    {
+        "message": "fill this in for the giveaway https://gοogle.com/forms/d/1FAIpQLSf9",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Greek omicron replaces the first o in google.com"
+    },
+    {
+        "message": "new server invite since the old one got nuked: https://discοrd.gg/neonhub",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Greek omicron replaces the o in discord.gg"
+    },
+    {
+        "message": "Staff verification required, please log in: https://fluхer.app/verify",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Cyrillic х replaces the x in fluxer.app"
+    },
+    {
+        "message": "free skins event, ends tonight https://steamcommսnity.com/gift/claim",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Armenian ս replaces the u in steamcommunity.com"
+    },
+    {
+        "message": "Payment received, confirm the transfer here https://рауаӏ.com/confirm",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "The name part is written entirely in Cyrillic letters that look like paypal"
+    },
+    {
+        "message": "your billing failed, update it or lose nitro https://discօrd.com/billing",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Armenian օ replaces the o in discord.com"
+    },
+    {
+        "message": "Discord is giving 3 months of nitro to active members https://xn--dscord-pvf.com/nitro",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for discord.com with a Cyrillic і"
+    },
+    {
+        "message": "check my trade offer pls https://xn--steamcommunty-eil.com/tradeoffer/new/?partner=40211",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for steamcommunity.com with a Cyrillic і"
+    },
+    {
+        "message": "invoice for the commission: https://www.xn--paypl-7ve.com/invoice/p/#INV2-8D2K",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for paypal.com with a Cyrillic а"
+    },
+    {
+        "message": "leaked footage https://xn--youtub-8of.com/watch?v=Zx81LmPq2Aa",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for youtube.com with a Cyrillic е"
+    },
+    {
+        "message": "im live go go go https://xn--twith-4ye.tv/neonsy_live",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for twitch.tv with a Cyrillic с"
+    },
+    {
+        "message": "sign in to see the doc https://accounts.xn--ggle-55da.com/signin",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for google.com with two Cyrillic о letters"
+    },
+    {
+        "message": "join quick before it fills https://xn--dscord-pvf.gg/nitrodrop",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for discord.gg with a Cyrillic і"
+    },
+    {
+        "message": "summer sale keys here https://store.xn--steampwered-wnj.com/app/1172470",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for steampowered.com with a Cyrillic о"
+    },
+    {
+        "message": "new invite after the raid https://xn--fluxr-2we.gg/neonhub",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for fluxer.gg with a Cyrillic е"
+    },
+    {
+        "message": "source code for the cheat https://xn--gthub-n2e.com/aimtools/release",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for github.com with a Cyrillic і"
+    },
+    {
+        "message": "gift for u <3 https://xn--discrd-l0e.gift/aB3dE5fG7h",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Punycode for discord.gift with a Greek omicron"
+    },
+    {
+        "message": "FREE NITRO for 1 month, just log in https://dlscord.com/gifts/8hKq2",
+        "deceptive": true,
+        "family": "typo",
+        "why": "dlscord.com puts an l where discord.com has an i"
+    },
+    {
+        "message": "claim before it expires https://discorcl.gift/nitro-classic",
+        "deceptive": true,
+        "family": "typo",
+        "why": "discorcl.gift writes the d of discord.gift as cl"
+    },
+    {
+        "message": "join the giveaway server https://dicsord.gg/giveaway",
+        "deceptive": true,
+        "family": "typo",
+        "why": "dicsord.gg swaps the s and c of discord.gg"
+    },
+    {
+        "message": "add this bot to get the verified role https://discordd.com/oauth2/authorize?client_id=99213&scope=bot",
+        "deceptive": true,
+        "family": "typo",
+        "why": "discordd.com doubles the final d of discord.com"
+    },
+    {
+        "message": "real deal giveaway https://disc0rd.gg/r34ldeal",
+        "deceptive": true,
+        "family": "typo",
+        "why": "disc0rd.gg uses a zero for the o of discord.gg"
+    },
+    {
+        "message": "accept the trade or the items go back https://steamcommunlty.com/tradeoffer/new/?partner=40211&token=Hx2pQ",
+        "deceptive": true,
+        "family": "typo",
+        "why": "steamcommunlty.com puts an l where steamcommunity.com has an i"
+    },
+    {
+        "message": "bro check my inventory https://stearncommunity.com/id/kirito_77/inventory",
+        "deceptive": true,
+        "family": "typo",
+        "why": "stearncommunity.com writes the m of steamcommunity.com as rn"
+    },
+    {
+        "message": "is this you?? https://steamcommuntiy.com/profiles/76561198012345678",
+        "deceptive": true,
+        "family": "typo",
+        "why": "steamcommuntiy.com swaps the i and t of steamcommunity.com"
+    },
+    {
+        "message": "game is free for 48h https://store.steampovvered.com/app/1172470",
+        "deceptive": true,
+        "family": "typo",
+        "why": "steampovvered.com writes the w of steampowered.com as vv"
+    },
+    {
+        "message": "u won a gift, accept it here https://steamcommunnity.com/gift/accept",
+        "deceptive": true,
+        "family": "typo",
+        "why": "steamcommunnity.com doubles the n of steamcommunity.com"
+    },
+    {
+        "message": "pay the invoice before friday https://paypa1.com/invoice/p/#INV2-7Q3M",
+        "deceptive": true,
+        "family": "typo",
+        "why": "paypa1.com uses a digit 1 for the l of paypal.com"
+    },
+    {
+        "message": "send the money through https://paypall.com/pay/neonshop",
+        "deceptive": true,
+        "family": "typo",
+        "why": "paypall.com doubles the l of paypal.com"
+    },
+    {
+        "message": "your account is limited, check here https://pyapal.com/myaccount/summary",
+        "deceptive": true,
+        "family": "typo",
+        "why": "pyapal.com swaps the a and y of paypal.com"
+    },
+    {
+        "message": "all the pics are in here https://drive.gooogle.com/file/d/1aZx9Qw",
+        "deceptive": true,
+        "family": "typo",
+        "why": "gooogle.com adds a third o to google.com"
+    },
+    {
+        "message": "verify your account https://g00gle.com/accounts/recovery",
+        "deceptive": true,
+        "family": "typo",
+        "why": "g00gle.com uses zeros for the o letters of google.com"
+    },
+    {
+        "message": "better miner, just run the exe https://githuub.com/xmrig-tools/miner/releases",
+        "deceptive": true,
+        "family": "typo",
+        "why": "githuub.com doubles the u of github.com"
+    },
+    {
+        "message": "plugin that unlocks everything https://glthub.com/fluxer-mods/better-fluxer",
+        "deceptive": true,
+        "family": "typo",
+        "why": "glthub.com puts an l where github.com has an i"
+    },
+    {
+        "message": "watch me live rn https://twltch.tv/neonsy_live",
+        "deceptive": true,
+        "family": "typo",
+        "why": "twltch.tv puts an l where twitch.tv has an i"
+    },
+    {
+        "message": "raid this streamer with me https://twiitch.tv/pixelwitch",
+        "deceptive": true,
+        "family": "typo",
+        "why": "twiitch.tv doubles the i of twitch.tv"
+    },
+    {
+        "message": "this is so you https://yotube.com/watch?v=Rk2pLm9QaZx",
+        "deceptive": true,
+        "family": "typo",
+        "why": "yotube.com drops the u of youtube.com"
+    },
+    {
+        "message": "lmaooo look https://youtuhe.com/shorts/Hq72kLp0zXa",
+        "deceptive": true,
+        "family": "typo",
+        "why": "youtuhe.com writes the b of youtube.com as h"
+    },
+    {
+        "message": "staff need to re-login after the update https://f1uxer.app/login",
+        "deceptive": true,
+        "family": "typo",
+        "why": "f1uxer.app uses a digit 1 for the l of fluxer.app"
+    },
+    {
+        "message": "cheap keys, legit https://steampowerd.com/checkout",
+        "deceptive": true,
+        "family": "typo",
+        "why": "steampowerd.com drops the last e of steampowered.com"
+    },
+    {
+        "message": "discord is gifting nitro this week 🎁 https://discord.gifts/kP0x2LmQ",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "discord.gifts is not one of Discord's domains"
+    },
+    {
+        "message": "sending u the trade https://steamcommunity.ru/tradeoffer/new/?partner=88213&token=a9Kq",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "steamcommunity.ru puts the Steam community name under a Russian ending Valve does not use"
+    },
+    {
+        "message": "here is the invoice for the order https://paypal.co/invoice/p/#INV2-9K1L",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "paypal.co is not a PayPal address"
+    },
+    {
+        "message": "click to claim ur nitro https://discord.click/nitro",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "discord.click is not one of Discord's domains"
+    },
+    {
+        "message": "new link https://discord.gq/neonhub",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "discord.gq imitates discord.gg with another country ending"
+    },
+    {
+        "message": "look at my new knife https://steamcommunity.icu/id/kirito_77",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "steamcommunity.icu is not a Valve domain"
+    },
+    {
+        "message": "sale ends in 2 hours https://store.steampowered.cfd/login",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "steampowered.cfd is not a Valve domain"
+    },
+    {
+        "message": "the exploit repo got moved https://github.sbs/neonflux/exploit",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "github.sbs is not a GitHub domain"
+    },
+    {
+        "message": "free sub for followers https://twitch.monster/claim",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "twitch.monster is not a Twitch domain"
+    },
+    {
+        "message": "watch before they delete it https://youtube.quest/watch?v=Pq81zLm2Qx",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "youtube.quest is not a YouTube domain"
+    },
+    {
+        "message": "your google account needs recovery https://google.bond/account-recovery",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "google.bond is not a Google domain"
+    },
+    {
+        "message": "Fluxer is gifting premium to early members https://fluxer.gift/claim",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "fluxer.gift is not one of Fluxer's domains"
+    },
+    {
+        "message": "staff applications are open https://fluxer.icu/staff-apply",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "fluxer.icu is not one of Fluxer's domains"
+    },
+    {
+        "message": "open a dispute here https://paypal.rest/resolution-center",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "paypal.rest is not a PayPal domain"
+    },
+    {
+        "message": "nitro is free for everyone today https://discord.com.gift-claim.ru/nitro",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "discord.com sits in front of the real host gift-claim.ru"
+    },
+    {
+        "message": "unusual sign in detected https://login.paypal.com-secure.net/signin",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "The real host is com-secure.net, paypal.com is only a prefix"
+    },
+    {
+        "message": "check the offer https://steamcommunity.com.tradeoffer.site/new/?partner=40211",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "steamcommunity.com sits in front of the real host tradeoffer.site"
+    },
+    {
+        "message": "download v2 here https://github.com.release-download.top/neonflux/app/v2.zip",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "github.com sits in front of the real host release-download.top"
+    },
+    {
+        "message": "u gotta see this https://www.youtube.com.watch-video.cc/watch?v=Kx9pLm2Qa",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "youtube.com sits in front of the real host watch-video.cc"
+    },
+    {
+        "message": "drops campaign is live https://twitch.tv.drops-claim.xyz/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "twitch.tv sits in front of the real host drops-claim.xyz"
+    },
+    {
+        "message": "all staff must verify by friday https://fluxer.app.verify-account.ru/staff",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "fluxer.app sits in front of the real host verify-account.ru"
+    },
+    {
+        "message": "doc is restricted, sign in https://accounts.google.com.signin-verify.online/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "google.com sits in front of the real host signin-verify.online"
+    },
+    {
+        "message": "steam guard reset https://steampowered.com.login-steam.ru/openid/login",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "steampowered.com sits in front of the real host login-steam.ru"
+    },
+    {
+        "message": "server moved, join again https://discord.gg.invite-join.top/neonhub",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "discord.gg sits in front of the real host invite-join.top"
+    },
+    {
+        "message": "your case was escalated https://paypal.com.resolution-center.info/case/PP-D-48213",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "paypal.com sits in front of the real host resolution-center.info"
+    },
+    {
+        "message": "event rewards for active members https://fluxer.gg.events-reward.xyz/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "fluxer.gg sits in front of the real host events-reward.xyz"
+    },
+    {
+        "message": "cs2 is 90% off rn https://store.steampowered.com.app-sale.shop/app/730",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "steampowered.com sits in front of the real host app-sale.shop"
+    },
+    {
+        "message": "claim the gift before midnight https://discord.com-nitro.gift/claim",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "The real host is com-nitro.gift, discord.com is only a prefix"
+    },
+    {
+        "message": "free nitro for the first 500 https://discord-nitro-gift.com/claim",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "Discord's name plus gift lure words on a host Discord does not own"
+    },
+    {
+        "message": "I sent you a trade, accept it here https://steam-trade-offer.net/offer/88213",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "Steam's name plus trade lure words on a host Valve does not own"
+    },
+    {
+        "message": "your account is on hold https://paypal-verify-account.com/login",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "PayPal's name plus verify lure words on a host PayPal does not own"
+    },
+    {
+        "message": "free robux if u follow https://free-robux-twitch.tv-promo.xyz",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "twitch.tv appears inside a promo host Twitch does not own"
+    },
+    {
+        "message": "nitro for free, works 100% https://discordnitro.ru/free",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "discordnitro.ru joins Discord's name with nitro on a Russian host"
+    },
+    {
+        "message": "got an extra code, here https://nitro-discord.gift/aB3dE5",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "nitro-discord.gift imitates discord.gift with a lure word"
+    },
+    {
+        "message": "free 50$ wallet codes https://steamgift-cards.ru/redeem",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "Steam's name plus gift card lure words on a Russian host"
+    },
+    {
+        "message": "security alert on your repo https://github-security-alert.com/verify",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "GitHub's name plus alert lure words on a host GitHub does not own"
+    },
+    {
+        "message": "you got a copyright strike, appeal here https://youtube-copyright-strike.com/appeal",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "YouTube's name plus strike lure words on a host YouTube does not own"
+    },
+    {
+        "message": "shared a doc with you https://google-docs-share.online/d/1xQ8p",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "Google's name plus docs lure words on a host Google does not own"
+    },
+    {
+        "message": "drops for every viewer https://twitchdrops.xyz/claim",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "twitchdrops.xyz joins Twitch's name with drops on a host Twitch does not own"
+    },
+    {
+        "message": "all mods need to verify here https://fluxer-staff-verify.com/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "Fluxer's name plus staff verify lure words on a host Fluxer does not own"
+    },
+    {
+        "message": "giving away my inventory https://steamcommunity-giveaway.com/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "steamcommunity plus giveaway on a host Valve does not own"
+    },
+    {
+        "message": "your refund is ready https://paypal-refund-center.net/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "PayPal's name plus refund lure words on a host PayPal does not own"
+    },
+    {
+        "message": "premium for free forever https://youtubepremium-free.site/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "YouTube Premium name plus free on a host YouTube does not own"
+    },
+    {
+        "message": "we are hiring moderators, apply https://discord-moderator-apply.com/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "Discord's name plus moderator lure words on a host Discord does not own"
+    },
+    {
+        "message": "[discord.com/gift](https://dlscord-gift.ru/claim/3kPq)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label shows discord.com but the link opens dlscord-gift.ru"
+    },
+    {
+        "message": "claim here: [https://discord.gift/HxPq29](https://nitro-claims.xyz/HxPq29)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label shows discord.gift but the link opens nitro-claims.xyz"
+    },
+    {
+        "message": "[steamcommunity.com/tradeoffer/new](https://trade-items.ru/offer)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label shows steamcommunity.com but the link opens trade-items.ru"
+    },
+    {
+        "message": "log in to fix it [https://www.paypal.com/myaccount](https://secure-billing-check.com/login)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label shows paypal.com but the link opens secure-billing-check.com"
+    },
+    {
+        "message": "source: [github.com/neonsy/neonflux](https://download-release.top/neonflux.exe)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label shows github.com but the link opens download-release.top"
+    },
+    {
+        "message": "[youtube.com/watch?v=Qm8sPz1kLr0](https://grabify.link/ABC123)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label shows youtube.com but the link opens an IP logger"
+    },
+    {
+        "message": "watch me here [twitch.tv/neonsy](https://twitch-viewers.ru/neonsy)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label shows twitch.tv but the link opens twitch-viewers.ru"
+    },
+    {
+        "message": "[fluxer.app/settings](https://fluxer-settings.click/)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label shows fluxer.app but the link opens fluxer-settings.click"
+    },
+    {
+        "message": "the install guide [wiki.archlinux.org](https://bit.ly/3xYz9Kq)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names wiki.archlinux.org but the link opens a bit.ly short link"
+    },
+    {
+        "message": "read the docs first [docs.python.org/3/library](https://pyth0n-docs.ru/lib)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names docs.python.org but the link opens pyth0n-docs.ru"
+    },
+    {
+        "message": "free game this week [https://store.epicgames.com/free](https://epic-free-games.top/claim)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names store.epicgames.com but the link opens epic-free-games.top"
+    },
+    {
+        "message": "my profile [roblox.com/users/119482/profile](https://roblox.com.ml/users/119482)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names roblox.com but the link opens roblox.com.ml"
+    },
+    {
+        "message": "redeem your gift card [www.amazon.com/gp/gift](https://amzn-gift.click/redeem)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names amazon.com but the link opens amzn-gift.click"
+    },
+    {
+        "message": "[google.com](https://iplogger.org/2xHq5)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names google.com but the link opens an IP logger"
+    },
+    {
+        "message": "new song [https://youtu.be/xvFZjo5PgG0](https://youtube.com.watch-now.cc/xvFZjo5PgG0)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names youtu.be but the link opens watch-now.cc"
+    },
+    {
+        "message": "official nitro promo: https://discord.com@nitro-promo.ru/claim",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "Everything before @ is a user name, the real host is nitro-promo.ru"
+    },
+    {
+        "message": "trade link https://steamcommunity.com@steam-login.ru/tradeoffer/new/?partner=40211",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The real host is steam-login.ru, steamcommunity.com is only a user name"
+    },
+    {
+        "message": "confirm payment https://www.paypal.com@193.43.12.8/login",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The real host is a bare IP address, paypal.com is only a user name"
+    },
+    {
+        "message": "v3 build https://github.com@gh-releases.xyz/neonflux/v3.zip",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The real host is gh-releases.xyz, github.com is only a user name"
+    },
+    {
+        "message": "join https://discord.gg:invite@join-server.top/neonhub",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The real host is join-server.top, discord.gg:invite is only user info"
+    },
+    {
+        "message": "sign in to view https://accounts.google.com@login-check.online/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The real host is login-check.online, google.com is only a user name"
+    },
+    {
+        "message": "premium trial https://www.youtube.com@yt-premium.site/watch?v=Zx81LmPq2Aa",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The real host is yt-premium.site, youtube.com is only a user name"
+    },
+    {
+        "message": "staff check https://fluxer.app@fluxer-verify.ru/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The real host is fluxer-verify.ru, fluxer.app is only a user name"
+    },
+    {
+        "message": "drops here https://twitch.tv@drops-twitch.click/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The real host is drops-twitch.click, twitch.tv is only a user name"
+    },
+    {
+        "message": "you make the bot here https://discord.com/developers/applications",
+        "deceptive": false,
+        "family": "official",
+        "why": "discord.com is Discord's own domain"
+    },
+    {
+        "message": "python server if anyone wants it https://discord.gg/python",
+        "deceptive": false,
+        "family": "official",
+        "why": "discord.gg is Discord's own invite domain"
+    },
+    {
+        "message": "screenshot of the error https://cdn.discordapp.com/attachments/1029384756/1182384756/screenshot.png",
+        "deceptive": false,
+        "family": "official",
+        "why": "cdn.discordapp.com is Discord's attachment host"
+    },
+    {
+        "message": "https://media.discordapp.net/attachments/1029384756/1182384757/clip.mp4",
+        "deceptive": false,
+        "family": "official",
+        "why": "media.discordapp.net is Discord's media host"
+    },
+    {
+        "message": "there's an article about it https://support.discord.com/hc/en-us/articles/360040724612",
+        "deceptive": false,
+        "family": "official",
+        "why": "support.discord.com is Discord's help center"
+    },
+    {
+        "message": "gifted u nitro for ur bday https://discord.gift/aB3dE5fG7hJ9kL1m",
+        "deceptive": false,
+        "family": "official",
+        "why": "discord.gift is Discord's real gift link domain"
+    },
+    {
+        "message": "made a template for the server https://discord.new/abcDEF123xyz",
+        "deceptive": false,
+        "family": "official",
+        "why": "discord.new is Discord's real template link domain"
+    },
+    {
+        "message": "old invite still works https://discordapp.com/invite/minecraft",
+        "deceptive": false,
+        "family": "official",
+        "why": "discordapp.com is Discord's older domain"
+    },
+    {
+        "message": "is it down for everyone? https://discordstatus.com",
+        "deceptive": false,
+        "family": "official",
+        "why": "discordstatus.com is Discord's status page"
+    },
+    {
+        "message": "report it through https://dis.gd/report",
+        "deceptive": false,
+        "family": "official",
+        "why": "dis.gd is Discord's own short link domain"
+    },
+    {
+        "message": "on sale rn https://store.steampowered.com/app/1145360/Hades/",
+        "deceptive": false,
+        "family": "official",
+        "why": "store.steampowered.com is Steam's store"
+    },
+    {
+        "message": "try the recovery wizard https://help.steampowered.com/en/wizard/HelpWithLogin",
+        "deceptive": false,
+        "family": "official",
+        "why": "help.steampowered.com is Steam support"
+    },
+    {
+        "message": "add me https://steamcommunity.com/id/neonsy",
+        "deceptive": false,
+        "family": "official",
+        "why": "steamcommunity.com is Steam's community site"
+    },
+    {
+        "message": "here's my real trade link https://steamcommunity.com/tradeoffer/new/?partner=1182392&token=xK2pQ9mL",
+        "deceptive": false,
+        "family": "official",
+        "why": "A genuine Steam trade link on steamcommunity.com"
+    },
+    {
+        "message": "friend invite https://s.team/p/fkdj-bqgr/ABCDEFGH",
+        "deceptive": false,
+        "family": "official",
+        "why": "s.team is Valve's short link domain for Steam invites"
+    },
+    {
+        "message": "header image https://cdn.akamai.steamstatic.com/steam/apps/730/header.jpg",
+        "deceptive": false,
+        "family": "official",
+        "why": "steamstatic.com is Steam's image host"
+    },
+    {
+        "message": "the steamworks docs cover it https://partner.steamgames.com/doc/home",
+        "deceptive": false,
+        "family": "official",
+        "why": "partner.steamgames.com is Valve's developer site"
+    },
+    {
+        "message": "deck restock https://www.steamdeck.com/en/",
+        "deceptive": false,
+        "family": "official",
+        "why": "steamdeck.com is Valve's Steam Deck site"
+    },
+    {
+        "message": "pay me back here https://paypal.me/neonsy/15",
+        "deceptive": false,
+        "family": "official",
+        "why": "paypal.me is PayPal's own payment link domain"
+    },
+    {
+        "message": "check your balance https://www.paypal.com/myaccount/summary",
+        "deceptive": false,
+        "family": "official",
+        "why": "paypal.com is PayPal's own domain"
+    },
+    {
+        "message": "https://www.paypalobjects.com/webstatic/icon/pp258.png",
+        "deceptive": false,
+        "family": "official",
+        "why": "paypalobjects.com is PayPal's asset host"
+    },
+    {
+        "message": "someone had the same issue https://www.paypal-community.com/t5/Disputes-and-Limitations/bd-p/disputes",
+        "deceptive": false,
+        "family": "official",
+        "why": "paypal-community.com is PayPal's own community forum"
+    },
+    {
+        "message": "my config https://gist.github.com/neonsy/8f3a2b1c9d0e",
+        "deceptive": false,
+        "family": "official",
+        "why": "gist.github.com is GitHub's gist service"
+    },
+    {
+        "message": "install script https://raw.githubusercontent.com/neonsy/dotfiles/main/install.sh",
+        "deceptive": false,
+        "family": "official",
+        "why": "raw.githubusercontent.com is GitHub's raw file host"
+    },
+    {
+        "message": "my portfolio https://neonsy.github.io/portfolio/",
+        "deceptive": false,
+        "family": "official",
+        "why": "github.io hosts GitHub Pages sites"
+    },
+    {
+        "message": "read this first https://docs.github.com/en/actions",
+        "deceptive": false,
+        "family": "official",
+        "why": "docs.github.com is GitHub's documentation"
+    },
+    {
+        "message": "they announced it https://github.blog/changelog/",
+        "deceptive": false,
+        "family": "official",
+        "why": "github.blog is GitHub's own blog"
+    },
+    {
+        "message": "open it in the web editor https://github.dev/neonsy/neonflux",
+        "deceptive": false,
+        "family": "official",
+        "why": "github.dev is GitHub's web editor"
+    },
+    {
+        "message": "actions are broken again https://www.githubstatus.com",
+        "deceptive": false,
+        "family": "official",
+        "why": "githubstatus.com is GitHub's status page"
+    },
+    {
+        "message": "https://youtu.be/dQw4w9WgXcQ",
+        "deceptive": false,
+        "family": "official",
+        "why": "youtu.be is YouTube's short link domain"
+    },
+    {
+        "message": "embed for the site https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+        "deceptive": false,
+        "family": "official",
+        "why": "youtube-nocookie.com is YouTube's privacy embed domain"
+    },
+    {
+        "message": "this song slaps https://music.youtube.com/watch?v=Qm8sPz1kLr0",
+        "deceptive": false,
+        "family": "official",
+        "why": "music.youtube.com is YouTube Music"
+    },
+    {
+        "message": "subscribe pls https://www.youtube.com/@neonsy",
+        "deceptive": false,
+        "family": "official",
+        "why": "youtube.com is YouTube's own domain"
+    },
+    {
+        "message": "thumbnail https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
+        "deceptive": false,
+        "family": "official",
+        "why": "ytimg.com is YouTube's image host"
+    },
+    {
+        "message": "my kid only uses https://www.youtubekids.com",
+        "deceptive": false,
+        "family": "official",
+        "why": "youtubekids.com is YouTube's own kids site"
+    },
+    {
+        "message": "signup sheet https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit",
+        "deceptive": false,
+        "family": "official",
+        "why": "docs.google.com is Google Docs"
+    },
+    {
+        "message": "event form https://forms.gle/xYz123AbC9",
+        "deceptive": false,
+        "family": "official",
+        "why": "forms.gle is Google Forms' short link domain"
+    },
+    {
+        "message": "https://www.google.co.uk/search?q=fluxer+bots",
+        "deceptive": false,
+        "family": "official",
+        "why": "google.co.uk is Google's UK site"
+    },
+    {
+        "message": "the meetup spot https://www.google.com.au/maps/place/Sydney",
+        "deceptive": false,
+        "family": "official",
+        "why": "google.com.au is Google's Australian site"
+    },
+    {
+        "message": "profile pic https://lh3.googleusercontent.com/a/ACg8ocKx9",
+        "deceptive": false,
+        "family": "official",
+        "why": "googleusercontent.com is Google's content host"
+    },
+    {
+        "message": "https://www.google.de/search?q=neonflux",
+        "deceptive": false,
+        "family": "official",
+        "why": "google.de is Google's German site"
+    },
+    {
+        "message": "clip of the century https://clips.twitch.tv/BraveClumsyOtterKappa",
+        "deceptive": false,
+        "family": "official",
+        "why": "clips.twitch.tv is Twitch's clip site"
+    },
+    {
+        "message": "going live in 5 https://www.twitch.tv/neonsy_live",
+        "deceptive": false,
+        "family": "official",
+        "why": "twitch.tv with a channel name is Twitch itself"
+    },
+    {
+        "message": "vod from yesterday https://m.twitch.tv/videos/1928374650",
+        "deceptive": false,
+        "family": "official",
+        "why": "m.twitch.tv is Twitch's mobile site"
+    },
+    {
+        "message": "tickets for the con https://www.twitchcon.com",
+        "deceptive": false,
+        "family": "official",
+        "why": "twitchcon.com is Twitch's own event site"
+    },
+    {
+        "message": "join our community https://fluxer.gg/neonhub",
+        "deceptive": false,
+        "family": "official",
+        "why": "fluxer.gg is Fluxer's invite domain"
+    },
+    {
+        "message": "get the desktop app https://fluxer.app/download",
+        "deceptive": false,
+        "family": "official",
+        "why": "fluxer.app is Fluxer's own domain"
+    },
+    {
+        "message": "the api docs are at https://docs.fluxer.app/bots",
+        "deceptive": false,
+        "family": "official",
+        "why": "A subdomain of fluxer.app belongs to Fluxer"
+    },
+    {
+        "message": "price history https://steamdb.info/app/730/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "SteamDB is a known third-party Steam database"
+    },
+    {
+        "message": "vote for the bot https://top.gg/bot/1029384756",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "top.gg is a known bot listing site"
+    },
+    {
+        "message": "we're listed on https://discordbotlist.com/bots/neonflux",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "discordbotlist.com is a known bot listing site"
+    },
+    {
+        "message": "found the server on https://discords.com/servers/neonhub",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "discords.com is a known server listing site"
+    },
+    {
+        "message": "mirror is on https://gitlab.com/neonsy/neonflux",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "GitLab is an unrelated code host"
+    },
+    {
+        "message": "he's growing fast https://twitchtracker.com/neonsy_live",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "TwitchTracker is a known Twitch stats site"
+    },
+    {
+        "message": "player count is dropping https://steamcharts.com/app/730",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Steam Charts is a known player count site"
+    },
+    {
+        "message": "cheapest key price https://isthereanydeal.com/game/hades/info/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "IsThereAnyDeal is a known price tracker"
+    },
+    {
+        "message": "bump us on https://disboard.org/server/1029384756",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Disboard is a known server listing site"
+    },
+    {
+        "message": "check the guide https://discord.js.org/docs/packages/discord.js/main",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "discord.js.org is the discord.js library's documentation"
+    },
+    {
+        "message": "https://discordpy.readthedocs.io/en/stable/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "discord.py's documentation on Read the Docs"
+    },
+    {
+        "message": "grid art https://www.steamgriddb.com/game/5248123",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "SteamGridDB is a known artwork site"
+    },
+    {
+        "message": "does it run on deck? https://www.protondb.com/app/1145360",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "ProtonDB is a known compatibility site"
+    },
+    {
+        "message": "emote sets https://twitchemotes.com/channels/123456",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "twitchemotes.com is a known emote directory"
+    },
+    {
+        "message": "old version of the terms https://web.archive.org/web/2023/https://discord.com/terms",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "The Wayback Machine hosts the copy, the brand is only in the path"
+    },
+    {
+        "message": "stats for the channel https://socialblade.com/youtube/c/neonsy",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Social Blade is a known stats site"
+    },
+    {
+        "message": "use the webhook editor https://discohook.org",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Discohook is a known webhook message tool"
+    },
+    {
+        "message": "the bot dashboard https://mee6.xyz/dashboard/1029384756",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "MEE6 is a known bot's own site"
+    },
+    {
+        "message": "steam level leaderboard https://steamladder.com/profile/76561198012345678/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Steam Ladder is a known leaderboard site"
+    },
+    {
+        "message": "look up the steam id https://steamid.io/lookup/neonsy",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "steamid.io is a known Steam ID lookup site"
+    },
+    {
+        "message": "patch notes https://www.minecraft.net/en-us/article/minecraft-java-edition-1-21",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated game site"
+    },
+    {
+        "message": "read this before you click anything https://en.wikipedia.org/wiki/Phishing",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated reference site"
+    },
+    {
+        "message": "crash log https://pastebin.com/raw/Hk2pQ9mL",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated paste site"
+    },
+    {
+        "message": "наш сайт https://пример.рф",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A Russian IDN domain that imitates no brand"
+    },
+    {
+        "message": "hab das buch hier bestellt https://bücher.de/shop/fantasy",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A German IDN domain that imitates no brand"
+    },
+    {
+        "message": "このサイト見て https://例え.jp",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A Japanese IDN domain that imitates no brand"
+    },
+    {
+        "message": "Termin beim Amt https://münchen.de/rathaus",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A German city IDN domain that imitates no brand"
+    },
+    {
+        "message": "same site in punycode https://xn--e1afmkfd.xn--p1ai/",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "Punycode for пример.рф, which imitates no brand"
+    },
+    {
+        "message": "https://xn--bcher-kva.de/shop",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "Punycode for bücher.de, which imitates no brand"
+    },
+    {
+        "message": "η σελίδα δοκιμής https://ουτοπία.δπθ.gr/",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A Greek IDN test domain that imitates no brand"
+    },
+    {
+        "message": "заказал тут https://орех.рф/каталог",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A Russian word domain whose letters look Latin but imitate no brand"
+    },
+    {
+        "message": "attached report.pdf, check page 3",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A file name, not an address"
+    },
+    {
+        "message": "the config is in settings.json and the entry is bot.ts",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "File names, not addresses"
+    },
+    {
+        "message": "i'm using discord.js v14 and it keeps crashing on login",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A library name, not an address"
+    },
+    {
+        "message": "check discord.com settings, the toggle is under Privacy",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A plain mention of Discord's real domain"
+    },
+    {
+        "message": "[click here](https://example.com/signup)",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A masked link whose label is plain words"
+    },
+    {
+        "message": "[patch notes](https://store.steampowered.com/news/app/730)",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A plain word label on a genuine Steam link"
+    },
+    {
+        "message": "[github.com/neonsy/neonflux](https://github.com/neonsy/neonflux)",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The label names the same address the link opens"
+    },
+    {
+        "message": "see the [docs](https://docs.github.com/en/rest) for the endpoints",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A plain word label on a genuine GitHub link"
+    },
+    {
+        "message": "email me at sam.carter@gmail.com if the form breaks",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An email address at an unrelated provider"
+    },
+    {
+        "message": "node v20.11.1 and pnpm 9.1 btw",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "Version numbers, not addresses"
+    },
+    {
+        "message": "same bug here https://www.reddit.com/r/discordapp/comments/1abcd2/voice_keeps_dropping/",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "Reddit link, the brand is only in the path"
+    },
+    {
+        "message": "got it on sale https://www.amazon.de/dp/B0CHX1W1XY",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated shop"
+    },
+    {
+        "message": "our game https://www.roblox.com/games/1818/Classic-Crossroads",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated game site"
+    },
+    {
+        "message": "song of the day https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated music site"
+    },
+    {
+        "message": "memes https://imgur.com/a/xYz12Ab",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated image host"
+    },
+    {
+        "message": "my wifi is fine https://www.speedtest.net/result/15829374650",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated speed test site"
+    },
+    {
+        "message": "dashboard runs at http://localhost:3000/dashboard",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A local development address"
+    },
+    {
+        "message": "router page is http://192.168.1.1/admin",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A local network address"
+    },
+    {
+        "message": "wrote a guide https://example.org/discord-setup-guide",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The brand is only in the path of an unrelated host"
+    },
+    {
+        "message": "steam is down again lol",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "Mentions a brand with no link"
+    },
+    {
+        "message": "the paypal app keeps logging me out",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "Mentions a brand with no link"
+    },
+    {
+        "message": "mfw google translate turns gift into poison in german",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "Mentions a brand with no link"
+    },
+    {
+        "message": "https://translate.google.com/?sl=de&tl=en&text=Gift",
+        "deceptive": false,
+        "family": "official",
+        "why": "translate.google.com is Google's own translator"
+    },
+    {
+        "message": "version 1.2.10 fixed it for me",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A version number, not an address"
+    },
+    {
+        "message": "best mod https://www.nexusmods.com/skyrimspecialedition/mods/12604",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated mod site"
+    },
+    {
+        "message": "get sodium https://modrinth.com/mod/sodium",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated mod site"
+    },
+    {
+        "message": "jei download https://www.curseforge.com/minecraft/mc-mods/jei",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An unrelated mod site"
+    },
+    {
+        "message": "he posted it https://x.com/neonsy/status/1829384756102938475",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "x.com is X, unrelated to any protected brand"
+    },
+    {
+        "message": "https://t.co/AbC123xYz9",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "t.co is X's short link domain, unrelated to the protected brands"
+    },
+    {
+        "message": "found the vinyl https://www.discogs.com/release/249504",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "Discogs is a real music database that only resembles discord"
+    },
+    {
+        "message": "indie games for cheap https://itch.io/games/free",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "itch.io is a real game store that only resembles twitch"
+    },
+    {
+        "message": "app is built with https://flutter.dev/docs",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "flutter.dev is a real framework site that only resembles fluxer"
+    },
+    {
+        "message": "お店はここで払える https://paypay.ne.jp/",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "PayPay is a real Japanese payment service, not PayPal"
+    },
+    {
+        "message": "our wiki is on https://www.gitbook.com",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "GitBook is a real docs service, not GitHub"
+    },
+    {
+        "message": "the forum runs on https://www.discourse.org/",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "Discourse is real forum software, not Discord"
+    },
+    {
+        "message": "deploying with https://fluxcd.io/flux/",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "Flux CD is a real project, not Fluxer"
+    },
+    {
+        "message": "paid with https://paytm.com in india",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "Paytm is a real payment service, not PayPal"
+    },
+    {
+        "message": "source is at [socket.io](https://github.com/socketio/socket.io)",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A project name as a label, with its code hosted elsewhere"
+    },
+    {
+        "message": "old link [x.com](https://twitter.com/neonsy)",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A plain site name pointing at the same service's older domain"
+    },
+    {
+        "message": "archived copy [example.com](https://web.archive.org/web/2020/https://example.com)",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A label naming the archived site"
+    },
+    {
+        "message": "my notes https://kirito-notes.github.io/guide",
+        "deceptive": false,
+        "family": "official",
+        "why": "An ordinary GitHub Pages site"
+    },
+    {
+        "message": "sign in [github.com/login](https://kirito-login.github.io/login)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "A label names github.com but opens a stranger's GitHub Pages site"
+    },
+    {
+        "message": "the release [github.com/release](https://raw.githubusercontent.com/kirito/x/main/a.exe)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "A label names a github.com page but opens a stranger's raw file"
+    },
+    {
+        "message": "download [discord.com/nitro](https://cdn.discordapp.com/attachments/1/2/nitro.exe)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "A label names discord.com but opens an uploaded file"
+    },
+    {
+        "message": "bank site [https://mybank.pages.dev](https://sign-in.pages.dev)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "Tenants of a shared host are different sites"
+    },
+    {
+        "message": "claim here https://paypals.com/claim",
+        "deceptive": true,
+        "family": "typo",
+        "why": "One letter added to paypal.com"
+    }
+]

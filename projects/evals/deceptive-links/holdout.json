@@ -1,0 +1,842 @@
+[
+    {
+        "message": "The repository moved here: https://gіthub.com/",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "A Cyrillic і replaces the i in GitHub"
+    },
+    {
+        "message": "Here is the livestream replay: https://yоutube.com/",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "A Cyrillic о replaces the o in YouTube"
+    },
+    {
+        "message": "The tournament broadcast is here: https://twіtch.tv/",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "A Cyrillic і replaces the i in Twitch"
+    },
+    {
+        "message": "Grab the desktop client here: https://flսxer.app/",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "An Armenian ս replaces the u in Fluxer"
+    },
+    {
+        "message": "Open the shared workspace here: https://gοοgle.com/",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "Greek omicrons replace both o letters in Google"
+    },
+    {
+        "message": "Your payout is waiting: https://xn--ypal-43d9g.com/",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "The encoded hostname uses Cyrillic р and а to imitate PayPal"
+    },
+    {
+        "message": "Our replacement community invite: https://xn--dscord-pvf.gg/",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "The encoded hostname uses a Cyrillic і to imitate Discord"
+    },
+    {
+        "message": "I posted the screenshot here: https://xn--steamcmmunity-n7k.com/",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "The encoded hostname uses a Cyrillic о to imitate Steam Community"
+    },
+    {
+        "message": "Download the launcher patch: https://xn--steamowered-koj.com/",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "The encoded hostname uses a Cyrillic р to imitate Steam Powered"
+    },
+    {
+        "message": "Join the new discussion room: https://xn--flxer-tde.gg/",
+        "deceptive": true,
+        "family": "homoglyph",
+        "why": "The encoded hostname uses a Greek υ to imitate Fluxer"
+    },
+    {
+        "message": "Open the issue here: gihub.com",
+        "deceptive": true,
+        "family": "typo",
+        "why": "The hostname drops the t from GitHub"
+    },
+    {
+        "message": "The source code is here: https://g1thub.com/",
+        "deceptive": true,
+        "family": "typo",
+        "why": "The hostname replaces the i in GitHub with the digit one"
+    },
+    {
+        "message": "Watch the highlights here: http://y0utube.com/",
+        "deceptive": true,
+        "family": "typo",
+        "why": "The hostname replaces the o in YouTube with the digit zero"
+    },
+    {
+        "message": "The recording is ready: https://youtbe.com/",
+        "deceptive": true,
+        "family": "typo",
+        "why": "The hostname drops the second u from YouTube"
+    },
+    {
+        "message": "The stream starts soon: https://twtich.tv/",
+        "deceptive": true,
+        "family": "typo",
+        "why": "The hostname swaps the i and t in Twitch"
+    },
+    {
+        "message": "Try the updated chat client: fluxxer.app",
+        "deceptive": true,
+        "family": "typo",
+        "why": "The hostname doubles the x in Fluxer"
+    },
+    {
+        "message": "Here is our new room: https://flxuer.gg/",
+        "deceptive": true,
+        "family": "typo",
+        "why": "The hostname swaps the u and x in Fluxer"
+    },
+    {
+        "message": "Send the reimbursement here: <https://paypall.com/>",
+        "deceptive": true,
+        "family": "typo",
+        "why": "The hostname adds an extra l to PayPal"
+    },
+    {
+        "message": "Install the client update: https://steampovvered.com/",
+        "deceptive": true,
+        "family": "typo",
+        "why": "The hostname replaces the w in Steam Powered with vv"
+    },
+    {
+        "message": "My player profile is here: https://steamcornmunity.com/",
+        "deceptive": true,
+        "family": "typo",
+        "why": "The hostname replaces an m in Steam Community with rn"
+    },
+    {
+        "message": "This says it is the Fluxer download page: https://fluxer.example/",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "The Fluxer name appears under the reserved example ending"
+    },
+    {
+        "message": "Use this Twitch browser page: https://twitch.test/",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "The Twitch name appears under the reserved test ending"
+    },
+    {
+        "message": "This is supposed to be the Discord member portal: https://discord.example/",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "The Discord name appears under the reserved example ending"
+    },
+    {
+        "message": "The Discord help desk sent me this: https://discord.invalid/",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "The Discord name appears under the reserved invalid ending"
+    },
+    {
+        "message": "Open your Steam Community profile here: https://steamcommunity.test/",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "The Steam Community name appears under the reserved test ending"
+    },
+    {
+        "message": "Here is the Steam installer page: https://steampowered.invalid/",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "The Steam Powered name appears under the reserved invalid ending"
+    },
+    {
+        "message": "The PayPal payment page is here: https://paypal.example/",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "The PayPal name appears under the reserved example ending"
+    },
+    {
+        "message": "Use this GitHub session page: https://github.test/",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "The GitHub name appears under the reserved test ending"
+    },
+    {
+        "message": "Continue to the Google document here: https://google.invalid/",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "The Google name appears under the reserved invalid ending"
+    },
+    {
+        "message": "The YouTube replay is here: https://youtube.example/",
+        "deceptive": true,
+        "family": "tld-swap",
+        "why": "The YouTube name appears under the reserved example ending"
+    },
+    {
+        "message": "Confirm your membership here: https://fluxer.app.member-check.example/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "Fluxer is only a subdomain of member-check.example"
+    },
+    {
+        "message": "Your community pass is ready: https://fluxer.gg.community-pass.example/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "Fluxer is only a subdomain of community-pass.example"
+    },
+    {
+        "message": "Access the event room: https://discord.gg.event-access.example/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "Discord is only a subdomain of event-access.example"
+    },
+    {
+        "message": "Activate your member benefits: https://discord.com.member-benefits.example/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "Discord is only a subdomain of member-benefits.example"
+    },
+    {
+        "message": "Review the inventory warning: https://steamcommunity.com.inventory-review.example/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "Steam Community is only a subdomain of inventory-review.example"
+    },
+    {
+        "message": "The client patch is here: https://steampowered.com.client-patch.example/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "Steam Powered is only a subdomain of client-patch.example"
+    },
+    {
+        "message": "Your payment receipt is ready: https://paypal.com.payment-receipt.example/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "PayPal is only a subdomain of payment-receipt.example"
+    },
+    {
+        "message": "Restore the repository session: https://github.com.session-restore.example/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "GitHub is only a subdomain of session-restore.example"
+    },
+    {
+        "message": "Your storage quota needs attention: https://google.com-storage-quota.example/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "The apparent Google address is part of com-storage-quota.example"
+    },
+    {
+        "message": "Your subscription perks are ready: https://twitch.tv-subscription-perks.example/",
+        "deceptive": true,
+        "family": "brand-prefix",
+        "why": "The apparent Twitch address is part of tv-subscription-perks.example"
+    },
+    {
+        "message": "Your premium pass expires tonight: https://fluxer-premium-pass.com/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "The host attaches a premium pass lure to the Fluxer name"
+    },
+    {
+        "message": "The community bonus drop is live: https://discord-bonus-drop.net/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "The host attaches a bonus drop lure to the Discord name"
+    },
+    {
+        "message": "Get the wallet refill before the weekend: https://steam-wallet-refill.com/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "The host attaches a wallet refill lure to the Steam name"
+    },
+    {
+        "message": "Your cashback is ready to collect: https://paypal-cashback-center.net/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "The host attaches a cashback lure to the PayPal name"
+    },
+    {
+        "message": "Finish the device recovery step: https://github-device-recovery.com/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "The host attaches a device recovery lure to the GitHub name"
+    },
+    {
+        "message": "Fix the storage billing warning: https://google-storage-billing.net/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "The host attaches a storage billing lure to the Google name"
+    },
+    {
+        "message": "Your creator payout is pending: https://youtube-creator-payout.com/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "The host attaches a creator payout lure to the YouTube name"
+    },
+    {
+        "message": "Redeem your subscription reward: https://twitch-subscription-reward.net/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "The host attaches a subscription reward lure to the Twitch name"
+    },
+    {
+        "message": "The airdrop perks just opened: https://fluxer-airdrop-perks.com/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "The host attaches an airdrop lure to the Fluxer name"
+    },
+    {
+        "message": "Unlock the prize vault today: https://steampowered-prize-vault.net/",
+        "deceptive": true,
+        "family": "brand-lure",
+        "why": "The host attaches a prize vault lure to the Steam Powered name"
+    },
+    {
+        "message": "The handbook is at [https://handbook.example/start](https://mirror-docs.example/start)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names handbook.example but the target is mirror-docs.example"
+    },
+    {
+        "message": "Screenshots: [www.gallery.example/album](https://image-drop.example/album)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names gallery.example but the target is image-drop.example"
+    },
+    {
+        "message": "Join us at [https://forum.example/join](https://forum.example.session-gate.test/join)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The target adds an unrelated host after the labeled address"
+    },
+    {
+        "message": "Open [https://docs.github.com/en](https://repository-session.example/en) for the guide",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names GitHub documentation but the target is repository-session.example"
+    },
+    {
+        "message": "Pay here: [https://developer.paypal.com/dashboard](https://billing-desk.example/dashboard)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names PayPal but the target is billing-desk.example"
+    },
+    {
+        "message": "This is the recording: [https://music.youtube.com/watch?v=abcd](https://recording-box.example/watch?v=abcd)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names YouTube but the target is recording-box.example"
+    },
+    {
+        "message": "Map: [https://www.openstreetmap.org/](https://www.wikipedia.org/)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label names OpenStreetMap but the target is Wikipedia"
+    },
+    {
+        "message": "Mirror: [https://downloads.example/build](https://downloads-example.test/build)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The labeled domain and target domain are different"
+    },
+    {
+        "message": "Read [https://manual.example/intro](https://manual.example@file-cabinet.test/intro)",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The target treats the labeled address as user information rather than the host"
+    },
+    {
+        "message": "Try [https://alpha.project.example](https://beta.project.example) instead",
+        "deceptive": true,
+        "family": "masked",
+        "why": "The label and target name different subdomains"
+    },
+    {
+        "message": "The membership page is here: https://fluxer.app@member-desk.example/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The Fluxer address is user information and member-desk.example is the host"
+    },
+    {
+        "message": "Enter the room from here: https://fluxer.gg@room-access.example/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The Fluxer address is user information and room-access.example is the host"
+    },
+    {
+        "message": "Use this event invite: https://discord.gg@event-ticket.example/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The Discord address is user information and event-ticket.example is the host"
+    },
+    {
+        "message": "Check the inventory notice: https://steamcommunity.com@inventory-desk.example/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The Steam Community address is user information and inventory-desk.example is the host"
+    },
+    {
+        "message": "The launcher repair is here: https://steampowered.com@launcher-repair.example/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The Steam Powered address is user information and launcher-repair.example is the host"
+    },
+    {
+        "message": "The refund page is ready: https://paypal.com@refund-desk.example/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The PayPal address is user information and refund-desk.example is the host"
+    },
+    {
+        "message": "Approve the repository session: https://github.com@repository-check.example/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The GitHub address is user information and repository-check.example is the host"
+    },
+    {
+        "message": "Open the shared document: https://google.com@document-access.example/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The Google address is user information and document-access.example is the host"
+    },
+    {
+        "message": "Finish setting up your channel: https://youtube.com@creator-panel.example/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The YouTube address is user information and creator-panel.example is the host"
+    },
+    {
+        "message": "Restore your stream dashboard: https://twitch.tv@stream-panel.example/",
+        "deceptive": true,
+        "family": "userinfo",
+        "why": "The Twitch address is user information and stream-panel.example is the host"
+    },
+    {
+        "message": "Discord is having an outage: https://status.discord.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official Discord status subdomain"
+    },
+    {
+        "message": "I checked the outage dashboard: https://discordstatus.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "Discord uses this official status domain"
+    },
+    {
+        "message": "I am testing the Canary client: https://canary.discord.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is an official Discord client subdomain"
+    },
+    {
+        "message": "I switched to the public test build: https://ptb.discord.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is an official Discord client subdomain"
+    },
+    {
+        "message": "The image attachment is here: https://media.discordapp.net/attachments/123/456/image.png",
+        "deceptive": false,
+        "family": "official",
+        "why": "Discord uses this official media host"
+    },
+    {
+        "message": "My avatar is served from here: https://avatars.steamstatic.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "Steam uses this official static asset host"
+    },
+    {
+        "message": "The Steam API entry point is here: https://api.steampowered.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official Steam API subdomain"
+    },
+    {
+        "message": "The Steamworks partner portal is here: https://partner.steamgames.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "Valve uses this official Steamworks domain"
+    },
+    {
+        "message": "The handheld information is here: https://steamdeck.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "Valve uses this official Steam Deck domain"
+    },
+    {
+        "message": "The payment API docs are here: https://developer.paypal.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official PayPal developer subdomain"
+    },
+    {
+        "message": "I am testing the payment sandbox: https://sandbox.paypal.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is an official PayPal sandbox subdomain"
+    },
+    {
+        "message": "This is the payment API endpoint: https://api-m.paypal.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is an official PayPal API subdomain"
+    },
+    {
+        "message": "The release announcement is here: https://github.blog/",
+        "deceptive": false,
+        "family": "official",
+        "why": "GitHub uses this official blog domain"
+    },
+    {
+        "message": "The GitHub documentation is here: https://docs.github.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official GitHub documentation subdomain"
+    },
+    {
+        "message": "The API root is public: https://API.GITHUB.COM/",
+        "deceptive": false,
+        "family": "official",
+        "why": "Hostname capitalization does not change this official GitHub subdomain"
+    },
+    {
+        "message": "The student developer resources are here: https://education.github.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official GitHub Education subdomain"
+    },
+    {
+        "message": "Manage your Google session here: https://accounts.google.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is an official Google authentication subdomain"
+    },
+    {
+        "message": "I translated the instructions here: https://translate.google.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official Google Translate subdomain"
+    },
+    {
+        "message": "Put the meeting on your calendar: https://calendar.google.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official Google Calendar subdomain"
+    },
+    {
+        "message": "The folder is on Google Drive: https://drive.google.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official Google Drive subdomain"
+    },
+    {
+        "message": "I used the German Google site: https://www.google.de/",
+        "deceptive": false,
+        "family": "official",
+        "why": "Google uses this official German domain"
+    },
+    {
+        "message": "The playlist is on [https://music.youtube.com/](https://music.youtube.com/)",
+        "deceptive": false,
+        "family": "official",
+        "why": "The masked label and target name the same official YouTube subdomain"
+    },
+    {
+        "message": "Edit the channel from YouTube Studio: https://studio.youtube.com/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official YouTube Studio subdomain"
+    },
+    {
+        "message": "The extension docs start here: https://dev.twitch.tv/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official Twitch developer subdomain"
+    },
+    {
+        "message": "My channel dashboard is here: https://dashboard.twitch.tv/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official Twitch dashboard subdomain"
+    },
+    {
+        "message": "Twitch announced the change here: https://blog.twitch.tv/",
+        "deceptive": false,
+        "family": "official",
+        "why": "This is the official Twitch blog subdomain"
+    },
+    {
+        "message": "I found a community listing here: https://discord.me/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Discord Me is an independent community directory"
+    },
+    {
+        "message": "The server directory is here: https://discordservers.com/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "DiscordServers is a legitimate third-party community directory"
+    },
+    {
+        "message": "We posted our server listing here: https://disboard.org/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Disboard is an independent Discord server directory"
+    },
+    {
+        "message": "The client customization project is here: https://betterdiscord.app/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "BetterDiscord is an independent customization project"
+    },
+    {
+        "message": "The Vencord project page is here: https://vencord.dev/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Vencord is an independent Discord client modification project"
+    },
+    {
+        "message": "I checked the player reputation here: https://steamrep.com/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "SteamRep is an independent reputation service"
+    },
+    {
+        "message": "The community giveaway discussion is here: https://steamgifts.com/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "SteamGifts is an established independent community site"
+    },
+    {
+        "message": "The trading discussion is here: https://steamtrades.com/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "SteamTrades is an established independent trading community"
+    },
+    {
+        "message": "I looked up the player identifier here: https://steamid.io/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "SteamID is an independent identifier lookup service"
+    },
+    {
+        "message": "The Steam service status overview is here: https://steamstat.us/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Steam Status is an independent service status site"
+    },
+    {
+        "message": "Our documentation is published here: https://gitbook.com/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "GitBook is a separate legitimate documentation service"
+    },
+    {
+        "message": "The repository scanning tool is here: https://gitguardian.com/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "GitGuardian is a separate legitimate security service"
+    },
+    {
+        "message": "This is the desktop Git client I use: https://git-tower.com/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Tower is an independent legitimate Git client"
+    },
+    {
+        "message": "The raw file preview service is here: https://raw.githack.com/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "GitHack is an independent file serving service"
+    },
+    {
+        "message": "The stream metrics are here: https://twitchmetrics.net/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "TwitchMetrics is an independent analytics service"
+    },
+    {
+        "message": "The channel statistics are here: https://twitchstats.net/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "TwitchStats is an independent analytics service"
+    },
+    {
+        "message": "The Twitch community tools are here: https://twitchinsights.net/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "Twitch Insights is an independent community tools site"
+    },
+    {
+        "message": "I posted my developer profile here: https://gitconnected.com/",
+        "deceptive": false,
+        "family": "third-party",
+        "why": "GitConnected is a separate legitimate developer community"
+    },
+    {
+        "message": "The reference article is at [https://www.wikipedia.org/](https://www.wikipedia.org/)",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The masked label and target name the same unrelated address"
+    },
+    {
+        "message": "I found the old recording at [https://archive.org/](https://archive.org/)",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The masked label and target name the same unrelated address"
+    },
+    {
+        "message": "Browser information: https://www.mozilla.org/en-US/firefox/?source=discord",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A brand name in the query does not change the unrelated host"
+    },
+    {
+        "message": "The lesson starts at https://www.khanacademy.org/",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "This is an unrelated education address"
+    },
+    {
+        "message": "The map is at https://www.openstreetmap.org/",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "This is an unrelated mapping address"
+    },
+    {
+        "message": "The project explanation: https://www.gnu.org/software/?reference=github.com",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A protected domain in a query does not change the unrelated host"
+    },
+    {
+        "message": "City information: https://münchen.de/",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The accented city name does not imitate a protected brand"
+    },
+    {
+        "message": "Погода на выходные: https://погода.example/",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The Cyrillic word for weather does not imitate a protected brand"
+    },
+    {
+        "message": "天気はこちら https://天気.example/",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The Japanese weather hostname does not imitate a protected brand"
+    },
+    {
+        "message": "رابط المكتبة https://مكتبة.example/",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The Arabic library hostname does not imitate a protected brand"
+    },
+    {
+        "message": "I uploaded minutes.docx in the attachment above",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "A document filename in prose is not a deceptive link"
+    },
+    {
+        "message": "Use portrait.png as the avatar attachment",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An image filename in prose is not a deceptive link"
+    },
+    {
+        "message": "The audio file is named soundtrack.flac",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An audio filename in prose is not a deceptive link"
+    },
+    {
+        "message": "Unpack archive.tar.gz after downloading the attachment",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "An archive filename in prose is not a deceptive link"
+    },
+    {
+        "message": "Read the [meeting notes](https://notes.example/weekly) before tomorrow",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The masked label is ordinary prose rather than an address"
+    },
+    {
+        "message": "Please read the [server rules](https://community.example/rules)",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The masked label makes no claim about the target address"
+    },
+    {
+        "message": "You should [watch this](https://vimeo.com/123456789) before the session",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The masked label is ordinary prose rather than an address"
+    },
+    {
+        "message": "I posted a [code sample](https://codeberg.org/sample/demo)",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "The masked label makes no claim about the target address"
+    },
+    {
+        "message": "YouTube captions were helpful during the lecture today",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "Mentioning YouTube without a link is harmless"
+    },
+    {
+        "message": "Our Steam session starts after dinner",
+        "deceptive": false,
+        "family": "ordinary",
+        "why": "Mentioning Steam without a link is harmless"
+    },
+    {
+        "message": "The indie game page is here: https://itch.io/",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "Itch is a separate game marketplace despite sharing letters with Twitch"
+    },
+    {
+        "message": "The blockchain project is here: https://steem.com/",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "Steem is a separate project rather than a misspelled Steam address"
+    },
+    {
+        "message": "The project is hosted on Gitee: https://gitee.com/",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "Gitee is a separate code hosting service rather than a GitHub imitation"
+    },
+    {
+        "message": "The Gitea product site is here: https://gitea.com/",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "Gitea is a separate code hosting product rather than a GitHub imitation"
+    },
+    {
+        "message": "The GitGud project is hosted here: https://gitgud.io/",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "GitGud is a separate code hosting service rather than a GitHub imitation"
+    },
+    {
+        "message": "The photo album service is here: https://flickr.com/",
+        "deceptive": false,
+        "family": "near-name",
+        "why": "Flickr is an unrelated photography service rather than a Fluxer imitation"
+    }
+]

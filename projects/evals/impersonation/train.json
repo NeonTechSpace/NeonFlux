@@ -1,0 +1,1143 @@
+[
+    {
+        "staff": "NeonAdmin",
+        "name": "N3onAdmin",
+        "lookalike": true,
+        "family": "leet",
+        "why": "3 stands in for e"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "Ne0nAdm1n",
+        "lookalike": true,
+        "family": "leet",
+        "why": "0 for o and 1 for i"
+    },
+    {
+        "staff": "ShadowReaper",
+        "name": "Shad0wR3aper",
+        "lookalike": true,
+        "family": "leet",
+        "why": "0 for o and 3 for e"
+    },
+    {
+        "staff": "Pixelwitch",
+        "name": "P1xelw1tch",
+        "lookalike": true,
+        "family": "leet",
+        "why": "1 stands in for both i letters"
+    },
+    {
+        "staff": "Stardust",
+        "name": "$tardu$t",
+        "lookalike": true,
+        "family": "leet",
+        "why": "$ stands in for both s letters"
+    },
+    {
+        "staff": "CaptainNova",
+        "name": "C4pt41nN0v4",
+        "lookalike": true,
+        "family": "leet",
+        "why": "4, 1 and 0 stand in for a, i and o"
+    },
+    {
+        "staff": "TheLastGuardian",
+        "name": "Th3La5tGuard1an",
+        "lookalike": true,
+        "family": "leet",
+        "why": "3, 5 and 1 stand in for e, s and i"
+    },
+    {
+        "staff": "Valkyrie",
+        "name": "V4lkyr1e",
+        "lookalike": true,
+        "family": "leet",
+        "why": "4 for a and 1 for i"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "Kur0mi",
+        "lookalike": true,
+        "family": "leet",
+        "why": "0 stands in for o"
+    },
+    {
+        "staff": "ElectricSheep",
+        "name": "3l3ctr1cSh33p",
+        "lookalike": true,
+        "family": "leet",
+        "why": "3 for every e and 1 for i"
+    },
+    {
+        "staff": "Marcellus",
+        "name": "M@rcellus",
+        "lookalike": true,
+        "family": "leet",
+        "why": "@ stands in for a"
+    },
+    {
+        "staff": "Zer0Cool",
+        "name": "ZeroCool",
+        "lookalike": true,
+        "family": "leet",
+        "why": "The staff name's 0 is written as the letter o"
+    },
+    {
+        "staff": "xXSlayer2007Xx",
+        "name": "xXSlayer2OO7Xx",
+        "lookalike": true,
+        "family": "leet",
+        "why": "Letter O replaces both zeros in the year"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "NеonAdmin",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Cyrillic е replaces the Latin e"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "Кuromi",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Cyrillic К replaces the Latin K"
+    },
+    {
+        "staff": "Pixelwitch",
+        "name": "Ріxelwitch",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Cyrillic Р and і replace P and i"
+    },
+    {
+        "staff": "ShadowReaper",
+        "name": "ShadowRеapеr",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Cyrillic е replaces both e letters in Reaper"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "ＮｅｏｎＡｄｍｉｎ",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Fullwidth letters spell the same name"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "𝐍𝐞𝐨𝐧𝐀𝐝𝐦𝐢𝐧",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Mathematical bold letters spell the same name"
+    },
+    {
+        "staff": "CaptainNova",
+        "name": "𝐶𝑎𝑝𝑡𝑎𝑖𝑛𝑁𝑜𝑣𝑎",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Mathematical italic letters spell the same name"
+    },
+    {
+        "staff": "Stardust",
+        "name": "ꜱᴛᴀʀᴅᴜꜱᴛ",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Small capital letters spell the same name"
+    },
+    {
+        "staff": "TheLastGuardian",
+        "name": "𝕋𝕙𝕖𝕃𝕒𝕤𝕥𝔾𝕦𝕒𝕣𝕕𝕚𝕒𝕟",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Double-struck math letters spell the same name"
+    },
+    {
+        "staff": "Алексей",
+        "name": "Aлексей",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Latin A replaces the Cyrillic А in a Russian name"
+    },
+    {
+        "staff": "Дмитрий",
+        "name": "Дмитpий",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Latin p replaces the Cyrillic р in a Russian name"
+    },
+    {
+        "staff": "ネオンスター",
+        "name": "ﾈｵﾝｽﾀｰ",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Halfwidth katakana spell the same Japanese name"
+    },
+    {
+        "staff": "Hikari",
+        "name": "Ηikari",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Greek capital Eta replaces the H"
+    },
+    {
+        "staff": "Moderator",
+        "name": "Μоdеrаtоr",
+        "lookalike": true,
+        "family": "homoglyph",
+        "why": "Greek Μ and Cyrillic о, е, а replace Latin letters"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "Neon.Admin",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "A dot splits the name"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "Neon Admin",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "A space splits the name"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "Neon​Admin",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "A zero-width space hides inside the name"
+    },
+    {
+        "staff": "ShadowReaper",
+        "name": "Shadow‍Reaper",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "A zero-width joiner hides inside the name"
+    },
+    {
+        "staff": "Pixelwitch",
+        "name": "Pixel­witch",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "A soft hyphen hides inside the name"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "K.u.r.o.m.i",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "Dots between every letter"
+    },
+    {
+        "staff": "CaptainNova",
+        "name": "Captain⁠Nova",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "A word joiner hides inside the name"
+    },
+    {
+        "staff": "さくらもち",
+        "name": "さくら　もち",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "An ideographic space splits the Japanese name"
+    },
+    {
+        "staff": "صقرالليل",
+        "name": "صقـرالليل",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "An Arabic tatweel stretches a letter without changing the name"
+    },
+    {
+        "staff": "Kitsune🦊",
+        "name": "Kitsune 🦊",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "A space before the emoji"
+    },
+    {
+        "staff": "TheLastGuardian",
+        "name": "The Last Guardian",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "Spaces between the words"
+    },
+    {
+        "staff": "Valkyrie",
+        "name": "Valkyrieㅤ",
+        "lookalike": true,
+        "family": "spacing",
+        "why": "An invisible Hangul filler is appended"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "NéonAdmin",
+        "lookalike": true,
+        "family": "accent",
+        "why": "An acute accent on the e"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "Kurömi",
+        "lookalike": true,
+        "family": "accent",
+        "why": "A diaeresis on the o"
+    },
+    {
+        "staff": "Pixelwitch",
+        "name": "Pïxelwitch",
+        "lookalike": true,
+        "family": "accent",
+        "why": "A diaeresis on the i"
+    },
+    {
+        "staff": "Valkyrie",
+        "name": "Vålkyrie",
+        "lookalike": true,
+        "family": "accent",
+        "why": "A ring on the a"
+    },
+    {
+        "staff": "ShadowReaper",
+        "name": "ShadòwReaper",
+        "lookalike": true,
+        "family": "accent",
+        "why": "A grave accent on the o"
+    },
+    {
+        "staff": "Marcellus",
+        "name": "Márcellus",
+        "lookalike": true,
+        "family": "accent",
+        "why": "An acute accent on the a"
+    },
+    {
+        "staff": "CaptainNova",
+        "name": "CaptainÑova",
+        "lookalike": true,
+        "family": "accent",
+        "why": "A tilde on the N"
+    },
+    {
+        "staff": "Stardust",
+        "name": "Stardúst",
+        "lookalike": true,
+        "family": "accent",
+        "why": "An acute accent on the u"
+    },
+    {
+        "staff": "ElectricSheep",
+        "name": "EléctricSheep",
+        "lookalike": true,
+        "family": "accent",
+        "why": "A combining acute accent on the second e"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "NeonAdmn",
+        "lookalike": true,
+        "family": "typo",
+        "why": "One letter dropped from a nine letter name"
+    },
+    {
+        "staff": "ShadowReaper",
+        "name": "ShadowRaeper",
+        "lookalike": true,
+        "family": "typo",
+        "why": "Two adjacent letters swapped"
+    },
+    {
+        "staff": "Pixelwitch",
+        "name": "Pixelwich",
+        "lookalike": true,
+        "family": "typo",
+        "why": "One letter dropped from a ten letter name"
+    },
+    {
+        "staff": "Moderator",
+        "name": "Moderater",
+        "lookalike": true,
+        "family": "typo",
+        "why": "One letter changed"
+    },
+    {
+        "staff": "Valkyrie",
+        "name": "Valkyrei",
+        "lookalike": true,
+        "family": "typo",
+        "why": "The last two letters swapped"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "Kuromii",
+        "lookalike": true,
+        "family": "typo",
+        "why": "One letter doubled"
+    },
+    {
+        "staff": "TheLastGuardian",
+        "name": "TheLastGaurdain",
+        "lookalike": true,
+        "family": "typo",
+        "why": "Two swaps in a fifteen letter name"
+    },
+    {
+        "staff": "ElectricSheep",
+        "name": "ElectricShep",
+        "lookalike": true,
+        "family": "typo",
+        "why": "One e dropped from a long name"
+    },
+    {
+        "staff": "CaptainNova",
+        "name": "CaptianNova",
+        "lookalike": true,
+        "family": "typo",
+        "why": "Two adjacent letters swapped"
+    },
+    {
+        "staff": "Marcellus",
+        "name": "Marcelus",
+        "lookalike": true,
+        "family": "typo",
+        "why": "One l dropped"
+    },
+    {
+        "staff": "Sentinel",
+        "name": "Sentinal",
+        "lookalike": true,
+        "family": "typo",
+        "why": "One letter changed"
+    },
+    {
+        "staff": "Дмитрий",
+        "name": "Дмитрии",
+        "lookalike": true,
+        "family": "typo",
+        "why": "The Cyrillic й written as и"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "NeonAdmin_",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A trailing underscore"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "NeonAdmin ✓",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A fake verified check mark"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "[Mod] NeonAdmin",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A staff tag in front of the name"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "NeonAdmin (Admin)",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A staff role in brackets after the name"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "Kuromi | Support",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A support tag after the name"
+    },
+    {
+        "staff": "Pixelwitch",
+        "name": "🛡️ Pixelwitch",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A shield emoji in front of the name"
+    },
+    {
+        "staff": "CaptainNova",
+        "name": "CaptainNova [STAFF]",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A staff tag after the name"
+    },
+    {
+        "staff": "🌙 Lunaria",
+        "name": "🌙 Lunaria ✓",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A check mark added to the emoji name"
+    },
+    {
+        "staff": "✨Stardust✨",
+        "name": "Stardust",
+        "lookalike": true,
+        "family": "affix",
+        "why": "The staff name without its sparkle decoration"
+    },
+    {
+        "staff": "Дмитрий",
+        "name": "Дмитрий [Модератор]",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A Russian moderator tag after the name"
+    },
+    {
+        "staff": "صقر_الليل",
+        "name": "صقر_الليل ✓",
+        "lookalike": true,
+        "family": "affix",
+        "why": "A check mark after the Arabic name"
+    },
+    {
+        "staff": "TheLastGuardian",
+        "name": "Official TheLastGuardian",
+        "lookalike": true,
+        "family": "affix",
+        "why": "An official prefix before the name"
+    },
+    {
+        "staff": "Hikari",
+        "name": "Hikari (Owner)",
+        "lookalike": true,
+        "family": "affix",
+        "why": "An owner tag after the name"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "neonadmin",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only the case differs"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "KUROMI",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only the case differs"
+    },
+    {
+        "staff": "ShadowReaper",
+        "name": "shadowreaper",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only the case differs"
+    },
+    {
+        "staff": "Pixelwitch",
+        "name": "PixelWitch",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only the case of the W differs"
+    },
+    {
+        "staff": "CaptainNova",
+        "name": "captainNOVA",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only the case differs"
+    },
+    {
+        "staff": "xVortexx",
+        "name": "XVORTEXX",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only the case differs"
+    },
+    {
+        "staff": "Алексей",
+        "name": "АЛЕКСЕЙ",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only the case of the Russian name differs"
+    },
+    {
+        "staff": "Marcellus",
+        "name": "mARCELLUS",
+        "lookalike": true,
+        "family": "case",
+        "why": "Only the case differs"
+    },
+    {
+        "staff": "Alex",
+        "name": "Alec",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Sam",
+        "name": "Pam",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Kai",
+        "name": "Kia",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Leo",
+        "name": "Lea",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Mia",
+        "name": "Mila",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Noah",
+        "name": "Noel",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Ana",
+        "name": "Ava",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Eli",
+        "name": "Ali",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Jake",
+        "name": "Jade",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Tom",
+        "name": "Tim",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Ray",
+        "name": "Roy",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Ben",
+        "name": "Ken",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Rin",
+        "name": "Ren",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short Japanese names"
+    },
+    {
+        "staff": "Олег",
+        "name": "Ольга",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short Russian names"
+    },
+    {
+        "staff": "يوسف",
+        "name": "يونس",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short Arabic names, Yusuf and Yunus"
+    },
+    {
+        "staff": "ゆき",
+        "name": "ゆい",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short Japanese names"
+    },
+    {
+        "staff": "Jo",
+        "name": "J0",
+        "lookalike": false,
+        "family": "too-short",
+        "why": "Two letter names are too short to judge"
+    },
+    {
+        "staff": "AJ",
+        "name": "A.J.",
+        "lookalike": false,
+        "family": "too-short",
+        "why": "Two letter names are too short to judge"
+    },
+    {
+        "staff": "Ty",
+        "name": "Ty_",
+        "lookalike": false,
+        "family": "too-short",
+        "why": "Two letter names are too short to judge"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "NeonFan",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Neon prefix"
+    },
+    {
+        "staff": "Moderator",
+        "name": "Modern",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Mod prefix"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "NeonAddict",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares the prefix but is a different name"
+    },
+    {
+        "staff": "Pixelwitch",
+        "name": "PixelPirate",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Pixel prefix"
+    },
+    {
+        "staff": "ShadowReaper",
+        "name": "ShadowRunner",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Shadow prefix"
+    },
+    {
+        "staff": "CaptainNova",
+        "name": "CaptainNemo",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Captain prefix"
+    },
+    {
+        "staff": "TheLastGuardian",
+        "name": "TheLastOfUsFan",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the TheLast prefix"
+    },
+    {
+        "staff": "ElectricSheep",
+        "name": "ElectricSoup",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Three letters differ in the second word"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "Kurosawa",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Kuro prefix"
+    },
+    {
+        "staff": "Marcellus",
+        "name": "Marcelo",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "A different name with a similar start"
+    },
+    {
+        "staff": "Sentinel",
+        "name": "Sentry",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Sent prefix"
+    },
+    {
+        "staff": "Дмитрий",
+        "name": "Дмитриев",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "A surname that shares the start of the first name"
+    },
+    {
+        "staff": "さくらもち",
+        "name": "さくらんぼ",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Different Japanese words sharing さくら"
+    },
+    {
+        "staff": "GhostRider",
+        "name": "GhostRecon",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Ghost prefix"
+    },
+    {
+        "staff": "DarkKnight",
+        "name": "DarkSouls",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Dark prefix"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "NeonArcade",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Neon prefix"
+    },
+    {
+        "staff": "Moderator",
+        "name": "Modular",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Mod prefix"
+    },
+    {
+        "staff": "Valkyrie",
+        "name": "Valerie",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "A different real name two letters away"
+    },
+    {
+        "staff": "Alex",
+        "name": "Alexander",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common short name inside a longer one"
+    },
+    {
+        "staff": "Luna",
+        "name": "Lunatic",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word inside another word"
+    },
+    {
+        "staff": "Shadow",
+        "name": "ShadowHunter42",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word used in a different name"
+    },
+    {
+        "staff": "Nova",
+        "name": "Supernova",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word inside another word"
+    },
+    {
+        "staff": "Sam",
+        "name": "Samantha",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A short name inside a longer one"
+    },
+    {
+        "staff": "Max",
+        "name": "Maxwell",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A short name inside a longer one"
+    },
+    {
+        "staff": "Kai",
+        "name": "Kaiser",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A short name inside another word"
+    },
+    {
+        "staff": "Ash",
+        "name": "Ashley",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A short name inside a longer one"
+    },
+    {
+        "staff": "Phoenix",
+        "name": "PhoenixRising",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word used in a different name"
+    },
+    {
+        "staff": "Raven",
+        "name": "Ravenclaw",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word inside another word"
+    },
+    {
+        "staff": "Blaze",
+        "name": "BlazeIt420",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word used in a different name"
+    },
+    {
+        "staff": "Ghost",
+        "name": "GhostFace",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word used in a different name"
+    },
+    {
+        "staff": "Wolf",
+        "name": "Werewolf",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word inside another word"
+    },
+    {
+        "staff": "Иван",
+        "name": "Иванушка",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A Russian name inside its longer folk form"
+    },
+    {
+        "staff": "Rose",
+        "name": "Rosemary",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common name inside a longer one"
+    },
+    {
+        "staff": "Storm",
+        "name": "Stormbreaker",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word used in a different name"
+    },
+    {
+        "staff": "NeonAdmin",
+        "name": "PixelAdmin",
+        "lookalike": false,
+        "family": "different",
+        "why": "Shares only the Admin suffix"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "Melody",
+        "lookalike": false,
+        "family": "different",
+        "why": "Unrelated names"
+    },
+    {
+        "staff": "ShadowReaper",
+        "name": "SoulReaper",
+        "lookalike": false,
+        "family": "different",
+        "why": "Shares only the Reaper suffix"
+    },
+    {
+        "staff": "CaptainNova",
+        "name": "CommanderNova",
+        "lookalike": false,
+        "family": "different",
+        "why": "Different rank word before Nova"
+    },
+    {
+        "staff": "Алексей",
+        "name": "Алёна",
+        "lookalike": false,
+        "family": "different",
+        "why": "Different Russian names"
+    },
+    {
+        "staff": "Stardust",
+        "name": "Moonbeam",
+        "lookalike": false,
+        "family": "different",
+        "why": "Unrelated names"
+    },
+    {
+        "staff": "さくらもち",
+        "name": "もちもち",
+        "lookalike": false,
+        "family": "different",
+        "why": "Different Japanese words"
+    },
+    {
+        "staff": "صقر_الليل",
+        "name": "نسر_الصحراء",
+        "lookalike": false,
+        "family": "different",
+        "why": "Different Arabic names, Night Falcon and Desert Eagle"
+    },
+    {
+        "staff": "Kitsune🦊",
+        "name": "Tanuki🦝",
+        "lookalike": false,
+        "family": "different",
+        "why": "Different names with different emoji"
+    },
+    {
+        "staff": "🌙 Lunaria",
+        "name": "🌙 Celestia",
+        "lookalike": false,
+        "family": "different",
+        "why": "Same emoji but a different name"
+    },
+    {
+        "staff": "xVortexx",
+        "name": "xVertigo",
+        "lookalike": false,
+        "family": "different",
+        "why": "Shares only the x prefix"
+    },
+    {
+        "staff": "Hikari",
+        "name": "Hotaru",
+        "lookalike": false,
+        "family": "different",
+        "why": "Different Japanese names"
+    },
+    {
+        "staff": "Hikari",
+        "name": "Akari",
+        "lookalike": false,
+        "family": "different",
+        "why": "A different Japanese name two letters away"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "Romiku",
+        "lookalike": false,
+        "family": "different",
+        "why": "Same letters in another order form a different name"
+    },
+    {
+        "staff": "Marcellus",
+        "name": "Marcus",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "A different name with a similar start"
+    },
+    {
+        "staff": "Pixelwitch",
+        "name": "Pixelknight",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Pixel prefix"
+    },
+    {
+        "staff": "ElectricSheep",
+        "name": "ElectricBlue",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Electric prefix"
+    },
+    {
+        "staff": "Stardust",
+        "name": "Stargazer",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Shares only the Star prefix"
+    },
+    {
+        "staff": "Sentinel",
+        "name": "Sentiment",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "A different word three letters away"
+    },
+    {
+        "staff": "Алексей",
+        "name": "Алексеев",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "A surname that shares the start of the first name"
+    },
+    {
+        "staff": "ネオンスター",
+        "name": "ネオンライト",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Different Japanese names sharing ネオン"
+    },
+    {
+        "staff": "صقر_الليل",
+        "name": "صقر_الصحراء",
+        "lookalike": false,
+        "family": "prefix",
+        "why": "Night Falcon and Desert Falcon are different Arabic names"
+    },
+    {
+        "staff": "Kuromi",
+        "name": "Kirby",
+        "lookalike": false,
+        "family": "different",
+        "why": "Unrelated names"
+    },
+    {
+        "staff": "Kitsune🦊",
+        "name": "Kitsunebi🔥",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word inside a different word with another emoji"
+    },
+    {
+        "staff": "Liz",
+        "name": "Lia",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Bea",
+        "name": "Bee",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Zoe",
+        "name": "Joe",
+        "lookalike": false,
+        "family": "short",
+        "why": "Different short common names"
+    },
+    {
+        "staff": "Jade",
+        "name": "JadeDragon",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common name used in a different name"
+    },
+    {
+        "staff": "Bear",
+        "name": "Gummybear",
+        "lookalike": false,
+        "family": "contains",
+        "why": "A common word inside another word"
+    }
+]

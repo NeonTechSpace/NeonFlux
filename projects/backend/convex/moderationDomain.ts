@@ -170,18 +170,23 @@ export function wordMatches(folded: string, pattern: string) {
     }
     return false
 }
-export function domains(content: string): string[] {
-    const result: string[] = []
+/** The links in a message, parsed the way a browser reads them */
+export function links(content: string): URL[] {
+    const result: URL[] = []
     for (const match of content.matchAll(/\b(?:https?:\/\/|www\.)[^\s<>]+/gi)) {
         try {
             const raw = match[0].replace(/[),.!?;]+$/, "")
-            const parsed = new URL(/^www\./i.test(raw) ? `https://${raw}` : raw)
-            result.push(parsed.hostname.toLowerCase().replace(/\.$/, ""))
+            result.push(new URL(/^www\./i.test(raw) ? `https://${raw}` : raw))
         } catch {
             /* Malformed local text is not a URL */
         }
     }
     return result
+}
+/** The lowercase host of a link */
+export const hostname = (url: URL) => url.hostname.toLowerCase().replace(/\.$/, "")
+export function domains(content: string): string[] {
+    return links(content).map(hostname)
 }
 export function domainMatches(hosts: string[], patterns: string[]) {
     return hosts.some((host) => patterns.some((p) => host === p || host.endsWith(`.${p}`)))

@@ -665,6 +665,14 @@ test("lookalike names fold accents, digits and other scripts, while short or dif
     assert.ok(!namesLookAlike("Alex", "Alec"))
     assert.ok(!namesLookAlike("Al", "Al"))
     assert.ok(!namesLookAlike("NeonAdmin", "NeonFan"))
+    for (const decorated of ["[Guide] CopperFinch", "CopperFinch | Helper"]) {
+        assert.ok(namesLookAlike("CopperFinch", decorated))
+        assert.ok(namesLookAlike(decorated, "CopperFinch"))
+    }
+    assert.ok(!namesLookAlike("Copper", "Copperhead"))
+    assert.ok(!namesLookAlike("Ivy", "Ivy Guide"))
+    assert.ok(namesLookAlike("QuietBadger", "ꞯᴜɪᴇᴛʙᴀᴅɢᴇʀ"))
+    assert.equal(nameSkeleton("ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘꞯʀꜱᴛᴜᴠᴡxʏᴢ"), nameSkeleton("abcdefghijklmnopqrstuvwxyz"))
 })
 
 test("managers turn alerts on and mark bots expected in chat, which applies at once, and other members are refused", async () => {
