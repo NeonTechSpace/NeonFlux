@@ -18,7 +18,7 @@
     },
     "dependencies": {
         "@neonflux/contracts": "workspace:*",
-        "@neontechspace/fluxerly": "1000.0.0-nightly.20261030.37",
+        "@neontechspace/fluxerly": "1000.0.0-nightly.20261030.38",
         "convex": "catalog:",
         "effect": "catalog:"
     }

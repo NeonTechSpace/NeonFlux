@@ -826,8 +826,10 @@ export function metadataClip(value: string, max: number) {
     if (/(?:^|[^\\])(?:\\\\)*\\$/.test(cut)) cut = cut.slice(0, -1)
     return `${cut}…`
 }
-// Line breaks, control, bidi and zero-width characters, which could fake a line or hide text
-const hidden = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g
+// Line breaks, control, bidi and zero-width characters, which could fake a line or hide text. The joining character U+200D
+// stays between emoji, where it builds one such as a technologist from a person and a laptop
+const hidden =
+    /[\u0000-\u001f\u007f-\u009f\u200b\u200c\u200e\u200f\u2028-\u202e\u2060-\u2069\ufeff]|(?<![\p{Extended_Pictographic}\p{Emoji_Modifier}\ufe0f])\u200d|\u200d(?!\p{Extended_Pictographic})/gu
 /** A member-chosen name or value for one log line: hidden characters become spaces and markdown is escaped, so it cannot fake a line, a mention or formatting */
 export const metadataPlain = (value: string, max = 300) =>
     metadataClip(value.replace(hidden, " ").replace(/[\\*_~`|<>#[\]()@]/g, "\\$&"), max)

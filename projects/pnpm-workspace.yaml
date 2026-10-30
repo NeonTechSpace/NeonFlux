@@ -17,4 +17,4 @@ allowBuilds:
     esbuild@0.28.2: true
 
 minimumReleaseAgeExclude:
-    - "@neontechspace/fluxerly@1000.0.0-nightly.20261030.37"
+    - "@neontechspace/fluxerly@1000.0.0-nightly.20261030.38"

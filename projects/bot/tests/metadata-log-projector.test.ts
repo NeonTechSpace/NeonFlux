@@ -3,7 +3,12 @@ import test from "node:test"
 import { createFixtures } from "@neontechspace/fluxerly/effect/testing"
 import { Schema } from "effect"
 import { projectMetadataEvent } from "../src/metadata-log-projector.ts"
-import { MetadataLogsEvent, metadataEventLabel, metadataLogContent } from "@neonflux/contracts/metadata-logs"
+import {
+    MetadataLogsEvent,
+    metadataEventLabel,
+    metadataLogContent,
+    metadataPlain,
+} from "@neonflux/contracts/metadata-logs"
 
 const f = createFixtures(),
     scope = {
@@ -207,6 +212,34 @@ test("member, role, channel and server updates name their changed values, or say
         { field: "permissions", added: "Administrator, Send messages" },
     ])
     decode(roleEvent)
+    const iconChange = (before: object, after: object) => {
+        const event = projectMetadataEvent("guildRoleUpdate", { ...role, ...after }, scope, {
+            ...role,
+            ...before,
+        } as never)!
+        decode(event)
+        return event.details?.changes
+    }
+    const none = { icon: null, unicodeEmoji: null },
+        emoji = (unicodeEmoji: string) => ({ icon: null, unicodeEmoji }),
+        picture = (icon: string) => ({ icon, unicodeEmoji: null })
+    assert.deepEqual(iconChange(none, picture("a")), [{ field: "icon", before: "(none)", after: "Image" }])
+    assert.deepEqual(iconChange(picture("a"), picture("b")), [{ field: "icon", after: "Changed" }])
+    assert.deepEqual(iconChange(picture("a"), none), [{ field: "icon", before: "Image", after: "(none)" }])
+    assert.deepEqual(iconChange(emoji("🛡️"), picture("a")), [{ field: "icon", before: "🛡️", after: "Image" }])
+    assert.deepEqual(iconChange(picture("a"), emoji("🛡️")), [{ field: "icon", before: "Image", after: "🛡️" }])
+    assert.deepEqual(iconChange(none, emoji("🛡️")), [{ field: "icon", before: "(none)", after: "🛡️" }])
+    assert.deepEqual(iconChange(emoji("🛡️"), none), [{ field: "icon", before: "🛡️", after: "(none)" }])
+    assert.deepEqual(iconChange(emoji("🧑‍💻"), emoji("🏃🏻‍♂️")), [{ field: "icon", before: "🧑‍💻", after: "🏃🏻‍♂️" }])
+    // Either field alone proves what the role shows
+    assert.deepEqual(iconChange({ unicodeEmoji: "🛡️" }, picture("a")), [
+        { field: "icon", before: "🛡️", after: "Image" },
+    ])
+    assert.deepEqual(iconChange({ icon: "a" }, emoji("🛡️")), [{ field: "icon", before: "Image", after: "🛡️" }])
+    // A snapshot without either field says nothing about what the role showed
+    assert.equal(iconChange({}, picture("a")), undefined)
+    // A joining character stays only inside an emoji, since elsewhere it could hide text
+    assert.equal(metadataPlain("a\u200db 🧑\u200d c \u200d🧑"), "a b 🧑  c  🧑")
     const channel = {
         guildId: f.ids.guild,
         id: f.ids.channel,

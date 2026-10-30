@@ -124,6 +124,12 @@ export function memberChanges(before: GuildMember, after: GuildMember) {
     value(changes, "deafened", before.isDeafened, after.isDeafened, yes)
     return changes
 }
+// A role shows an emoji or an image and never both, so either one proves what it shows. Absent means unavailable
+const roleIcon = (role: GuildRole) => {
+    if (role.unicodeEmoji) return plain(role.unicodeEmoji)
+    if (role.icon) return "Image"
+    return role.icon === undefined && role.unicodeEmoji === undefined ? undefined : ""
+}
 /** The changed values of a role against the role the bot knew before */
 export function roleChanges(before: GuildRole, after: GuildRole) {
     const changes: Change[] = []
@@ -132,7 +138,8 @@ export function roleChanges(before: GuildRole, after: GuildRole) {
     permissions(before.permissions, after.permissions, changes)
     value(changes, "hoist", before.hoist, after.hoist, yes)
     value(changes, "mentionable", before.mentionable, after.mentionable, yes)
-    value(changes, "icon", before.unicodeEmoji, after.unicodeEmoji, plain)
+    if (before.icon && after.icon) image(changes, "icon", before.icon, after.icon)
+    else value(changes, "icon", roleIcon(before), roleIcon(after), (v) => v)
     value(changes, "position", before.position, after.position, String)
     return changes
 }
