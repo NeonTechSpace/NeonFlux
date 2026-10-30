@@ -1,5 +1,8 @@
 import assert from "node:assert/strict"
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
+import { once } from "node:events"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
 
@@ -38,27 +41,43 @@ test("the built entrypoint rejects a missing server ID without a backend and wit
     assert.ok(!(result.stdout + result.stderr).includes(token))
 })
 
-test("the built entrypoint refuses a server ID in the bot environment with a backend, before any request and without exposing secrets", () => {
+test("the built entrypoint refuses a server ID in the bot environment with a backend, before any request and without exposing secrets", async () => {
     const token = "synthetic-neonflux-test-token"
     const secret = "synthetic-neonflux-backend-secret-for-tests"
-    const result = spawnSync(process.execPath, [entrypoint], {
-        env: environment({
-            FLUXER_BOT_TOKEN: token,
-            // An unreachable deployment, so a request would fail with a different message
-            CONVEX_URL: "https://synthetic-test.invalid",
-            NEONFLUX_BOT_API_SECRET: secret,
-            NEONFLUX_SERVER_ID: "123456789012345678",
-        }),
-        encoding: "utf8",
-        timeout: 10_000,
+    // A local deployment that records the Convex client's requests, so a request made before the refusal would show.
+    // Other software on the machine may probe a loopback port, so a request without the client's header is not counted
+    const requests: string[] = []
+    const deployment = createServer((request, response) => {
+        if (request.headers["convex-client"]) requests.push(`${request.method} ${request.url}`)
+        response.writeHead(500).end()
     })
+    deployment.listen(0, "127.0.0.1")
+    await once(deployment, "listening")
+    try {
+        const child = spawn(process.execPath, [entrypoint], {
+            env: environment({
+                FLUXER_BOT_TOKEN: token,
+                CONVEX_URL: `http://127.0.0.1:${(deployment.address() as AddressInfo).port}`,
+                NEONFLUX_BOT_API_SECRET: secret,
+                NEONFLUX_SERVER_ID: "123456789012345678",
+            }),
+            timeout: 10_000,
+        })
+        let output = "",
+            stderr = ""
+        child.stdout.setEncoding("utf8").on("data", (chunk: string) => (output += chunk))
+        child.stderr.setEncoding("utf8").on("data", (chunk: string) => ((output += chunk), (stderr += chunk)))
+        const [status] = (await once(child, "close")) as [number | null]
 
-    assert.ifError(result.error)
-    assert.equal(result.status, 1)
-    assert.match(
-        result.stderr,
-        /Remove NEONFLUX_SERVER_ID from the bot environment\. With a backend, the server mode and server ID are set only in the Convex deployment/,
-    )
-    const output = result.stdout + result.stderr
-    for (const value of [token, secret, "123456789012345678"]) assert.ok(!output.includes(value))
+        assert.equal(status, 1)
+        assert.match(
+            stderr,
+            /Remove NEONFLUX_SERVER_ID from the bot environment\. With a backend, the server mode and server ID are set only in the Convex deployment/,
+        )
+        assert.deepEqual(requests, [])
+        for (const value of [token, secret, "123456789012345678"]) assert.ok(!output.includes(value))
+    } finally {
+        deployment.close()
+        deployment.closeAllConnections()
+    }
 })

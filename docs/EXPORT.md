@@ -10,8 +10,8 @@ data from other bots
 
 Only the current server owner can export, because the file holds private moderation data
 
-- On the dashboard, open **Server export** under Insights and choose **Export server data**. NeonFlux checks with Fluxer that you own the server, the same live check [private cases](WEB.md#private-cases) use, then reads the export and offers the file to save
-- In chat, send `!export` to NeonFlux in a one-to-one DM, with `--server <serverId>` in multi-server mode. NeonFlux checks that you own the server and sends the file in the DM, as [the bot guide](BOT.md#server-export) describes
+- On the dashboard, open **Server export** under Insights and choose **Export server data**. NeonFlux checks with Fluxer that the signed-in member owns the server, the same live check [private cases](WEB.md#private-cases) use, then reads the export and offers the file to save
+- In chat, send `!export` to NeonFlux in a one-to-one DM, with `--server <serverId>` in multi-server mode. NeonFlux checks that the member owns the server and sends the file in the DM, as [the bot guide](BOT.md#server-export) describes
 
 The server's [audit log](WEB.md#audit-log) records each export with who started it and from where, never its content
 

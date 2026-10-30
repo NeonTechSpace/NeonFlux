@@ -5,7 +5,7 @@ It covers the checks a change must pass, generated files, the documentation styl
 
 ## Prepare and check
 
-Prepare the toolchain as [the repository guide](REPOSITORY.md#prepare-the-toolchain) describes, then run the aggregate check from `projects/` before you open a pull request
+Prepare the toolchain as [the repository guide](REPOSITORY.md#prepare-the-toolchain) describes, then run the aggregate check from `projects/` before a pull request is opened
 
 ```sh
 pnpm run check
@@ -36,6 +36,7 @@ Commit generated files together with the change that needs them
 
 - Describe only behavior that works today, and mark unbuilt work as planned
 - Use plain, concrete words and the names the code and the interface use
+- Use impersonal wording that never addresses the reader, except in a tagline
 - Use no em dashes, no semicolons in prose and no final period at the end of a paragraph, list item or table cell
 - Link to other guides with repository-relative links instead of copying their content
 - Never put tokens, keys, archives or member data in documentation, examples or tests. Use clearly synthetic values

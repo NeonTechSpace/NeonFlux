@@ -54,6 +54,10 @@ const pages = (): ServerExportPage[] => [
     { section: "appeals", appeals: [], cursor: null },
 ]
 
+const expectedLevels = [...levels(0, 500), ...levels(500, 500)]
+const expectedCases = pages().flatMap((page) => (page.section === "cases" ? page.cases : []))
+const expectedCorrections = pages().flatMap((page) => (page.section === "corrections" ? page.corrections : []))
+
 test("Export parts merge a family's continuing lists, split large exports into complete files under the part size and keep every record once", () => {
     const partBytes = 64 * 1024,
         parts = serverExportParts(f.ids.guild, 1, partBytes),
@@ -80,15 +84,18 @@ test("Export parts merge a family's continuing lists, split large exports into c
         watchlist: [{ userId: "1" }, { userId: "2" }],
         rules: [],
     })
-    const all = files.flatMap((file) => file.levels.map((row) => row.userId))
-    assert.deepEqual([all.length, new Set(all).size], [1000, 1000])
+    // Every record comes back unchanged and in order, so a swapped member or a corrupted XP value fails
     assert.deepEqual(
-        files.flatMap((file) => file.cases.map((row) => row.caseNo)),
-        [1],
+        files.flatMap((file) => file.levels),
+        expectedLevels,
     )
     assert.deepEqual(
-        files.flatMap((file) => file.corrections.map((row) => row.caseNo)),
-        [2],
+        files.flatMap((file) => file.cases),
+        expectedCases,
+    )
+    assert.deepEqual(
+        files.flatMap((file) => file.corrections),
+        expectedCorrections,
     )
     // A small export is one file
     const small = serverExportParts(f.ids.guild, 1)
@@ -98,7 +105,7 @@ test("Export parts merge a family's continuing lists, split large exports into c
             .filter(Boolean).length,
         0,
     )
-    assert.equal(small.finish().levels.length, 1000)
+    assert.deepEqual(small.finish().levels, expectedLevels)
 })
 
 function exportStore() {

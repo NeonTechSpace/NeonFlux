@@ -5,7 +5,7 @@ This guide is for operators running NeonFlux's website next to an existing bot a
 ## Set up the website
 
 1. Use the Node version in [the Node version file](../projects/.node-version) and the pnpm version in [the workspace manifest](../projects/package.json), then run `pnpm install --frozen-lockfile` from `projects/`
-2. Copy [the web environment example](../projects/web/.env.example) to `projects/web/.env`. Set the Fluxer application's client secret, the Convex deployment URL, a random `WEB_SESSION_SECRET` of at least 32 bytes and your public `TURNSTILE_SITE_KEY`
+2. Copy [the web environment example](../projects/web/.env.example) to `projects/web/.env`. Set the Fluxer application's client secret, the Convex deployment URL, a random `WEB_SESSION_SECRET` of at least 32 bytes and the public `TURNSTILE_SITE_KEY`
 3. Register `http://localhost:3000/auth/fluxer/callback` in the application's OAuth settings
 4. In the Convex environment, set `FLUXER_CLIENT_ID` to the application ID, `NEONFLUX_WEBSITE_URL=http://localhost:3000` and `TURNSTILE_SECRET_KEY`. Then deploy the backend as described in [the backend guide](BACKEND.md). Local environment files do not set Convex variables
 5. Restart the bot, which reads the website origin from the deployment
@@ -21,15 +21,15 @@ Run `pnpm --filter @neonflux/web run check` from `projects/` for type checks, te
 
 ## Dashboard
 
-Server owners and members with Manage community, including Administrators, can configure the servers NeonFlux serves. Every save rechecks permissions with Fluxer. Read access expires after five minutes unless refreshed, and an open tab refreshes it. A tab you return to rechecks your permissions with Fluxer before it shows anything. A sign-in lasts while you use it at least once every 30 days, for at most 90 days. Signing in on a sixth device signs out the one you used longest ago, and signing out ends the session at once
+Server owners and members with Manage community, including Administrators, can configure the servers NeonFlux serves. Every save rechecks permissions with Fluxer. Read access expires after five minutes unless refreshed, and an open tab refreshes it. A tab that is returned to rechecks the signed-in member's permissions with Fluxer before it shows anything. A sign-in lasts while it is used at least once every 30 days, for at most 90 days. Signing in on a sixth device signs out the one used longest ago, and signing out ends the session at once
 
-In single-server mode the dashboard opens on the configured server and offers no invite link. In multi-server mode it opens on a server picker that shows each server's icon, or its initials, for the servers you manage that NeonFlux has joined. Switch server returns to the picker, and next to it the dashboard says how many sections of the open server have unsaved drafts, if any
+In single-server mode the dashboard opens on the configured server and offers no invite link. In multi-server mode it opens on a server picker that shows each server's icon, or its initials, for the servers the member manages that NeonFlux has joined. Switch server returns to the picker, and next to it the dashboard says how many sections of the open server have unsaved drafts, if any
 
 The section menu starts with **Find a section**. While it has text, the menu lists only the sections whose names match, Enter opens the first one and Escape clears the field and brings back the groups. Moving by search keeps unsaved drafts exactly as moving by the menu does, and the match count is announced to screen readers
 
-A server opens on its **Overview**: Setup progress, every section by group, and whether each feature is on, on but needing setup, such as a channel or a first entry, or off. Its **Permission check** asks NeonFlux to check its own access when the overview opens and again on **Check again**: the permissions it lacks for each enabled feature, the roles it assigns that rank at or above its own role, a gateway that is not connected and a safety audit of the server's roles, each with its fix. The audit names roles that give dangerous permissions to everyone or to many members, staff roles that lack the permissions their commands need, and role features that let members past Fluxer's verification level, as [the bot guide](BOT.md#help-setup-and-health) describes. The bot reads Fluxer with its own token, so the check never uses your sign-in. A check waits at least 10 seconds after the previous one, and one the bot does not answer within a minute shows that the bot did not answer. The bot's `!health` command reports the same problems. The sidebar and the overview link to each section. Every server and section has its own address, such as `/?server=123&section=rolepicker`, so the back button, reloading and shared links return to the same place. Signing in from such an address returns to it
+A server opens on its **Overview**: Setup progress, every section by group, and whether each feature is on, on but needing setup, such as a channel or a first entry, or off. Its **Permission check** asks NeonFlux to check its own access when the overview opens and again on **Check again**: the permissions it lacks for each enabled feature, the roles it assigns that rank at or above its own role, a gateway that is not connected and a safety audit of the server's roles, each with its fix. The audit names roles that give dangerous permissions to everyone or to many members, staff roles that lack the permissions their commands need, and role features that let members past Fluxer's verification level, as [the bot guide](BOT.md#help-setup-and-health) describes. The bot reads Fluxer with its own token, so the check never uses the member's sign-in. A check waits at least 10 seconds after the previous one, and one the bot does not answer within a minute shows that the bot did not answer. The bot's `!health` command reports the same problems. The sidebar and the overview link to each section. Every server and section has its own address, such as `/?server=123&section=rolepicker`, so the back button, reloading and shared links return to the same place. Signing in from such an address returns to it
 
-On your first visit the dashboard opens a short **Dashboard tour** above the section: What the Overview shows, how
+On an account's first visit the dashboard opens a short **Dashboard tour** above the section: What the Overview shows, how
 sections and their addresses work, how drafts and saving work, where the audit log is, and where `!setup`, `!health` and
 `!help` fit in chat. **Next step** and **Previous step** move through its five steps, and each step moves keyboard focus
 to its heading. **Finish tour**, **Skip tour** or Escape closes it, and it does not open on its own again for that
@@ -38,13 +38,13 @@ that it was closed, in this browser's local storage per account. Another browser
 
 Lists that load in pages, such as events or saved drafts, keep their first page and up to four later pages loaded and live. Loading another page hides the earliest later page, and **Show … from the start** returns to the first pages. Drafts on hidden pages stay in the tab. Each event's forms open from its entry in the list, and an event with an unsaved draft starts open
 
-In multi-server mode the picker ends with **Add NeonFlux to a server**, which also appears when you have no servers yet.
+In multi-server mode the picker ends with **Add NeonFlux to a server**, which also appears when the member has no servers yet.
 It opens Fluxer's bot authorization in a new tab with the permissions listed in [the bot
 guide](BOT.md#add-the-bot-to-a-server). The web server builds the link from the deployment's `FLUXER_CLIENT_ID`. A
-server you add appears after the next sign-in refresh, which runs when you return to the tab, when you reload and every
+server that is added appears after the next sign-in refresh, which runs when the member returns to the tab, when the page reloads and every
 three minutes, also while the tab is in the background. A refresh that fails, for example while Fluxer is unavailable,
-keeps your sign-in and pauses saving until the next refresh succeeds. After you open the invitation, the picker also
-offers **Check again** for a server that NeonFlux had not joined yet when you came back. A server NeonFlux leaves stops
+keeps the sign-in and pauses saving until the next refresh succeeds. After the invitation is opened, the picker also
+offers **Check again** for a server that NeonFlux had not joined yet when the member came back. A server NeonFlux leaves stops
 loading its settings at once and leaves the picker at that refresh. With seven or more servers, the picker has a search
 field that filters servers by name
 
@@ -64,15 +64,15 @@ reads
 
 ### Saving and live updates
 
-Forms update when Convex data changes. Each section has one revision that all its forms share, and the backend rejects a save based on an old revision. A form shows **Changed elsewhere** only when something it edits changed: The stored values of its own fields, or for an action with a confirmation box, the item you confirmed. It then keeps your draft and shows the difference so you can review it before saving. A removal or publication without a box acts on the item as it is when you press the button. A save elsewhere in the same section that leaves the form's fields alone keeps your draft without a warning, and your save is checked against the newest revision. Creating something new never conflicts with other saves, and a name that is already taken is rejected when you save
+Forms update when Convex data changes. Each section has one revision that all its forms share, and the backend rejects a save based on an old revision. A form shows **Changed elsewhere** only when something it edits changed: The stored values of its own fields, or for an action with a confirmation box, the item that was confirmed. It then keeps the draft and shows the difference for review before saving. A removal or publication without a box acts on the item as it is when the button is pressed. A save elsewhere in the same section that leaves the form's fields alone keeps the draft without a warning, and the save is checked against the newest revision. Creating something new never conflicts with other saves, and a name that is already taken is rejected when the form is saved
 
 Chat commands take no revision numbers. A chat change applies to the current settings and moves the section's revision like a save here, so a form whose fields it changed shows **Changed elsewhere**
 
 Unsaved changes are kept as drafts in this browser tab, per server and section, so they survive switching sections or
 servers, reloading and signing in again. A restored form shows **Unsaved draft** with **Discard draft**, which loads the
-current settings. The sidebar marks sections with drafts and the overview lists them. A draft ends when you save or
-discard it, when you sign out or when the tab closes. A list item that someone removes while you have an unsaved draft
-on one of its forms stays in the list with its saves disabled, so you can copy the draft, until you dismiss it or the
+current settings. The sidebar marks sections with drafts and the overview lists them. A draft ends when it is saved or
+discarded, when the member signs out or when the tab closes. A list item that someone removes while an unsaved draft exists
+on one of its forms stays in the list with its saves disabled, so the draft can be copied, until it is dismissed or the
 draft ends. It no longer counts toward the list's limit, and its name can be used again. Without such a draft it leaves
 the list at once. The confirmation forms for a removal keep no draft. Drafts
 belong to the signed-in account, and a tab keeps at most 50, dropping the oldest first
@@ -88,27 +88,27 @@ The bot applies each change after checking the manager's current permissions and
 
 A posted reaction panel's form offers three choices for its message. **Keep the posted message** applies the change to it, **Edit the posted message** also changes its text with the message builder, and **Post a new panel message** posts a fresh one, after which the earlier message no longer gives roles. A switch to one choice needs a new panel message. The form names the emojis whose reactions NeonFlux still has to update
 
-While a form waits for the bot, it keeps your draft, and a request that fails or conflicts says why next to the form. A message request and a structure save keep the draft on screen only while their section stays open. If the bot reports that a message was not sent, or that a structure save failed before NeonFlux read the server, the draft is kept in the tab again, and the message can be requested again unchanged
+While a form waits for the bot, it keeps the draft, and a request that fails or conflicts says why next to the form. A message request and a structure save keep the draft on screen only while their section stays open. If the bot reports that a message was not sent, or that a structure save failed before NeonFlux read the server, the draft is kept in the tab again, and the message can be requested again unchanged
 
 ### General
 
-The General section sets the command prefix, the [reply style](BOT.md#reply-style) and the bot nickname. The reply style chooses embeds or plain text for status, detail and list replies, and saves with the prefix, so a save that meets a newer change keeps your draft for review. Apply nickname sets a nickname of 1 to 32 characters, and Reset to username removes it so the bot's username shows. The bot applies the change as itself and needs the Change own nickname permission
+The General section sets the command prefix, the [reply style](BOT.md#reply-style) and the bot nickname. The reply style chooses embeds or plain text for status, detail and list replies, and saves with the prefix, so a save that meets a newer change keeps the draft for review. Apply nickname sets a nickname of 1 to 32 characters, and Reset to username removes it so the bot's username shows. The bot applies the change as itself and needs the Change own nickname permission
 
 Last result shows whether the bot is still working on the change, whether it was applied, or why it failed. Without Change own nickname, Fluxer keeps the old nickname and the result reads `Grant Change own nickname to the NeonFlux role`. A nickname changed directly in Fluxer stays until the next change here or in chat
 
 ### Moderation and safety
 
-**Automod policy** also has **Check webhook and other bots' messages**, the same switch as `!automod bots on|off`. New automod rules offer the types **Mentions over time**, **Links over time** and **Deceptive links** beside the others. The rule form starts every type at 5 in 10 seconds, so set the threshold and window you want. See [the bot guide](BOT.md#automod) for how each type counts. The bot learns a changed bot message switch from the server's next member message
+**Automod policy** also has **Check webhook and other bots' messages**, the same switch as `!automod bots on|off`. New automod rules offer the types **Mentions over time**, **Links over time** and **Deceptive links** beside the others. The rule form starts every type at 5 in 10 seconds, so the wanted threshold and window must be set. See [the bot guide](BOT.md#automod) for how each type counts. The bot learns a changed bot message switch from the server's next member message
 
 **Moderation and staff** has **Keep cases**, the same setting as `!mod retention`: **Until erased**, the default, or **For a number of days** from 1 to 3650. A rule holds up to 1000 patterns. Besides one field per pattern, the rule form takes a pasted list with one pattern per line and either adds the new ones at once or replaces the whole list with them, leaving lines that are too long or past the limit in the box. **Remove all rule patterns** clears the list in one click. For **Words** rules the form notes that patterns match whole words and that a `*` at the start or end matches part of a word, as [the bot guide](BOT.md#automod) describes
 
 ### Role picker
 
-The Role picker section under Roles turns the role picker on or off, edits its menus and sets who may use it. Each menu has a name, an optional description, single or multiple choice and its roles. A server can have 100 menus, which hold up to 1,000 roles together, and a role belongs to one menu. Before saving, the bot checks every menu role: It must sit below the bot's top role and yours, must not be the everyone role or a staff role, and must carry only ordinary member permissions. The chat command `!rolepicker` changes the same settings, as [the bot guide](BOT.md#role-picker) describes
+The Role picker section under Roles turns the role picker on or off, edits its menus and sets who may use it. Each menu has a name, an optional description, single or multiple choice and its roles. A server can have 100 menus, which hold up to 1,000 roles together, and a role belongs to one menu. Before saving, the bot checks every menu role: It must sit below the bot's top role and the saving member's, must not be the everyone role or a staff role, and must carry only ordinary member permissions. The chat command `!rolepicker` changes the same settings, as [the bot guide](BOT.md#role-picker) describes
 
 Who may use the role picker is set with allowed and blocked roles, up to 500 of each, and user IDs, up to 5,000 of each. A user ID list also takes many IDs or mentions pasted at once, separated by spaces, commas or lines, and either adds the new ones or replaces the whole list with them, leaving entries that are not IDs or past the limit in the box. **Remove all allowed user IDs** and **Remove all blocked user IDs** clear a list in one click. A block always wins over an allow. With both allow lists empty, every member who is not blocked may use it
 
-While the role picker is on, the section has a closed **Choose my roles** disclosure below the settings. Opening it shows the member page below for your own roles, with the same access lists and role rules as every member. The bot reads your roles only once you open it
+While the role picker is on, the section has a closed **Choose my roles** disclosure below the settings. Opening it shows the member page below for the manager's own roles, with the same access lists and role rules as every member. The bot reads the manager's roles only once it is opened
 
 ### Temporary roles
 
@@ -122,7 +122,7 @@ The Newcomer checklist section under Roles sets the same checklist as `!onboardi
 
 ### Setup presets
 
-The Setup presets section under Basics lists the community presets and security levels of [`!preset`](BOT.md#setup-presets), each with exactly the settings it would change now, from their current values, or that the server already matches. **Apply preset** needs the confirmation box and applies exactly the listed changes. When a listed setting changes first, the request fails and the list shows the new changes, so you confirm again. Applying needs the server owner or an Administrator. Each changed feature appears in the audit log as `preset <name>`
+The Setup presets section under Basics lists the community presets and security levels of [`!preset`](BOT.md#setup-presets), each with exactly the settings it would change now, from their current values, or that the server already matches. **Apply preset** needs the confirmation box and applies exactly the listed changes. When a listed setting changes first, the request fails and the list shows the new changes, so the new changes need a new confirmation. Applying needs the server owner or an Administrator. Each changed feature appears in the audit log as `preset <name>`
 
 ### Member role picker
 
@@ -136,9 +136,9 @@ Members can send 10 claims or drops and 10 role checks a minute in each server, 
 
 ### Pickers and message builder
 
-Channel and role pickers search names or IDs as you type. Arrow keys move, Enter chooses and Escape closes. A picker that takes several choices also takes several IDs or mentions pasted at once, separated by spaces, commas or lines, and IDs that match no choice stay in the field. While it holds choices, **Remove all** with the field's name, such as **Remove all blocked roles**, empties it in one click. Role choices exclude `@everyone`. If the list cannot load, retry or enter an exact ID
+Channel and role pickers search names or IDs as the text is typed. Arrow keys move, Enter chooses and Escape closes. A picker that takes several choices also takes several IDs or mentions pasted at once, separated by spaces, commas or lines, and IDs that match no choice stay in the field. While it holds choices, **Remove all** with the field's name, such as **Remove all blocked roles**, empties it in one click. Role choices exclude `@everyone`. If the list cannot load, retry or enter an exact ID
 
-The server's channels and roles load once when you open a server. **Refresh** next to a channel or role picker loads them again, for example after you create a role in Fluxer. The lists loaded earlier stay usable while it runs. Each refresh is one request, at most one runs every ten seconds, and a refresh asked for sooner runs once the wait ends. The lists never reload on a timer. They reload once by themselves when you come back to the tab after opening the bot invitation, and when a temporary voice generator's channel is missing from them
+The server's channels and roles load once when a server is opened. **Refresh** next to a channel or role picker loads them again, for example after a role is created in Fluxer. The lists loaded earlier stay usable while it runs. Each refresh is one request, at most one runs every ten seconds, and a refresh asked for sooner runs once the wait ends. The lists never reload on a timer. They reload once by themselves when the tab is returned to after opening the bot invitation, and when a temporary voice generator's channel is missing from them
 
 The message builder edits text, one embed, fields, author, footer, thumbnail and image, with a live preview. Standalone messages, role panels, drafts and templates share it. Custom responses accept only text or a basic embed with title, description and color. Import and export use this JSON format, and unknown fields, invalid URLs and oversized content are rejected:
 
@@ -162,15 +162,15 @@ The Drafts and templates section has **Send a saved message** below the drafts. 
 
 ### Templates and calendars
 
-Greetings, canned ticket replies and milestones follow their template by name, so an edit to the template applies to the next post right away. Their picker says so. When the template is deleted or an edit makes it invalid for the route, the copy saved when you last chose it is sent. Events and schedules use a saved template version, and schedules can also use a saved draft. Editing the template does not change those until you choose the newer version
+Greetings, canned ticket replies and milestones follow their template by name, so an edit to the template applies to the next post right away. Their picker says so. When the template is deleted or an edit makes it invalid for the route, the copy saved when it was last chosen is sent. Events and schedules use a saved template version, and schedules can also use a saved draft. Editing the template does not change those until the newer version is chosen
 
 Events and schedules take a local date and time, a time zone, a choice for repeated times and a repeat. **Ends** sets when a repeat stops: Never, after a number of dates or on a date. Times that do not exist are rejected, and the first date may be any time ahead. New events start as drafts and new schedules start disabled. A published event's calendar stays editable until the event is cancelled or completed: Dates that have started stay as they were, upcoming dates keep their numbers and replies, and members who replied Going or Maybe are told by DM. Once a repeat's first date has started, an event's or schedule's form starts at its next date and shows the dates a count has left from there. When every counted date has started, the form shows no count and asks for a new end. Moving one date stays in chat with `!event move`
 
-Each saved schedule has a closed **What it posts and when** panel. It shows the message the schedule copied, which is not the source's latest version, how the schedule repeats, and a table of its stored upcoming dates with the time in the schedule's zone and its UTC offset and the same moment in your local time. It does not show whether a date was sent or skipped. Chat has `!publish schedule preview` and `!publish schedule dates` for the same copy
+Each saved schedule has a closed **What it posts and when** panel. It shows the message the schedule copied, which is not the source's latest version, how the schedule repeats, and a table of its stored upcoming dates with the time in the schedule's zone and its UTC offset and the same moment in the viewer's local time. It does not show whether a date was sent or skipped. Chat has `!publish schedule preview` and `!publish schedule dates` for the same copy
 
 ### Leveling
 
-The Leveling section sets message XP, the cooldown, the channels that earn XP and the excluded channels and roles, as `!level` does. **Channels that earn XP** starts empty, which lets every channel earn XP. Once it lists channels, only messages in them and their threads earn XP, and the excluded channels and roles still apply. Paste several channel or role IDs or mentions into a picker to add them at once, up to 500 channels in each channel list and 250 roles, and **Remove all channels that earn XP**, **Remove all excluded XP channels** or **roles** empties a list. **Level-up messages** starts off. **Where the member levels up** posts in the channel or thread of the message that reached the new level, and **In one channel** posts in the text or announcement channel you pick, which the bot checks is in this server. **Only levels with a reward role** limits the messages to levels that give a role. Each message mentions the member without notifying them. **Level reward roles** gives a role at a level, up to 250 rewards. Paste several rewards at once, a level and a role ID or mention each, split by commas or lines, to add them or replace the list, and **Remove all level rewards** empties it
+The Leveling section sets message XP, the cooldown, the channels that earn XP and the excluded channels and roles, as `!level` does. **Channels that earn XP** starts empty, which lets every channel earn XP. Once it lists channels, only messages in them and their threads earn XP, and the excluded channels and roles still apply. Paste several channel or role IDs or mentions into a picker to add them at once, up to 500 channels in each channel list and 250 roles, and **Remove all channels that earn XP**, **Remove all excluded XP channels** or **roles** empties a list. **Level-up messages** starts off. **Where the member levels up** posts in the channel or thread of the message that reached the new level, and **In one channel** posts in the text or announcement channel picked, which the bot checks is in this server. **Only levels with a reward role** limits the messages to levels that give a role. Each message mentions the member without notifying them. **Level reward roles** gives a role at a level, up to 250 rewards. Paste several rewards at once, a level and a role ID or mention each, split by commas or lines, to add them or replace the list, and **Remove all level rewards** empties it
 
 ### Forum channels and discussion threads
 
@@ -208,7 +208,7 @@ The Private cases section under Moderation shows moderation cases, appeals and m
 
 A case or appeal that the owner erased with `!mod erase` shows that it was erased, never its text
 
-Every view asks NeonFlux to check your access. The bot reads your current roles and whether you own the server from Fluxer with its own token, so the check never uses your sign-in. A view waits while the check runs, which usually takes a few seconds. A passed check serves your views for two minutes, so paging and opening cases need no new check, and a role removed in Fluxer stops your access at the next check after those two minutes. A refused check stands for 10 seconds before **Check again** asks the bot once more, and a check the bot does not answer within a minute shows that NeonFlux could not check your access
+Every view asks NeonFlux to check the viewer's access. The bot reads the viewer's current roles and whether the viewer owns the server from Fluxer with its own token, so the check never uses the viewer's sign-in. A view waits while the check runs, which usually takes a few seconds. A passed check serves the views for two minutes, so paging and opening cases need no new check, and a role removed in Fluxer stops the viewer's access at the next check after those two minutes. A refused check stands for 10 seconds before **Check again** asks the bot once more, and a check the bot does not answer within a minute shows that NeonFlux could not check the viewer's access
 
 Members without Manage community reach this section only from the member view of a server that names a private data role, and the check still decides whether they see anything. Every view that shows data is recorded in the [audit log](#audit-log)
 
@@ -254,12 +254,12 @@ restored. A long value starts collapsed and keeps its full text. Identical items
 channel, appear only after **Show identical or left alone**
 
 Opening the section, and **Check again**, asks NeonFlux to read the archive message and the server again with its own
-token and to recheck that you still own the server. A large archive is checked part by part, and the section says so
+token and to recheck that the member still owns the server. A large archive is checked part by part, and the section says so
 while it builds. A check of the same archive on an unchanged server keeps the plan and gives it another day. A restore
 that already started keeps its outcome on screen instead.
 **Match fully** also deletes the channels and categories the archive does not hold, and changing it makes a new check. A
 check waits at least 10 seconds after the previous one, and the page says to wait when it does not take a request. One
-the bot does not answer within a minute says so. When the archive message is gone, the key changed or you no longer own
+the bot does not answer within a minute says so. When the archive message is gone, the key changed or the member no longer owns
 the server, the section says so, and in the last case the check that was never confirmed is removed. A check forgotten
 with `!backup forget`, or removed at least seven days after it expired, is gone from the section as it is from
 `!backup status`, and a new `!backup preview` starts again. The first check comes from `!backup preview` in the DM, because the website never picks an archive. The page prints the exact DM commands to make an encrypted backup and to check an archive, and the commands in its failure messages. When the bot serves several servers, each command names the open server right after the command name, such as `!backup --server 123 preview`
@@ -268,7 +268,7 @@ The **Restore** panel is last. Its button counts what it does, such as **Restore
 categories**, and confirms exactly the check shown, so a page that a newer check replaced cannot confirm it. The button
 is off with its reason while the bot works or builds the check, after a failed check, once the check expired a day
 after it was made and when nothing can be restored. The bot then runs the whole plan in the background, rechecking that
-you still own the server and that the DM is private when a pass starts and again before each item that writes. The page shows how many items
+the member still owns the server and that the DM is private when a pass starts and again before each item that writes. The page shows how many items
 have an outcome. It never says a restore is done while an item is waiting, in progress or not confirmed. When the
 restore ends, the page counts the items by outcome and says to check again to compare with the server. A restore that
 stops says why, such as 10 minutes without progress while the bot was not running. **Check again** and a new restore
@@ -302,29 +302,29 @@ The Dashboard link section under Basics creates, renames or removes the one link
 
 ### Server structure
 
-The Server structure section under Basics shows the server's categories and its text, voice, announcement, forum, media and link channels, as NeonFlux reads them for you with its own token: The channels you can view, a category you cannot view only when it holds one you can, and each channel's active threads under it. Threads are fixed children of their channel and cannot be moved. A private thread is listed only when NeonFlux can see it and you can manage threads in its channel. **Show closed threads** asks NeonFlux for a channel's 100 most recently closed threads. Opening the section and **Check again** ask NeonFlux to read the server again, at most once every 10 seconds, and a read the bot does not answer within a minute says so
+The Server structure section under Basics shows the server's categories and its text, voice, announcement, forum, media and link channels, as NeonFlux reads them for the member with its own token: The channels the member can view, a category the member cannot view only when it holds one the member can, and each channel's active threads under it. Threads are fixed children of their channel and cannot be moved. A private thread is listed only when NeonFlux can see it and the member can manage threads in its channel. **Show closed threads** asks NeonFlux for a channel's 100 most recently closed threads. Opening the section and **Check again** ask NeonFlux to read the server again, at most once every 10 seconds, and a read the bot does not answer within a minute says so
 
 Rename categories and channels, and change their order by dragging a row or with **Up**, **Down** and each channel's
 category choice, which work from the keyboard too. A dragged category goes before the category it is dropped on, and a
-dragged channel goes into the category it is dropped on or before the channel. Channels where you lack Manage channels
+dragged channel goes into the category it is dropped on or before the channel. Channels where the member lacks Manage channels
 cannot be changed. Changes are virtual until **Save changes**, so they stay a draft in this tab, as
 [saving and live updates](#saving-and-live-updates) describes, together with the structure the draft started from.
 Leaving the section or the server keeps the draft, except while a save waits for NeonFlux, and **Discard draft** clears
-it together with the structure it started from. The tree shows the structure as your draft leaves it, and from the first edit each renamed or moved row
+it together with the structure it started from. The tree shows the structure as the draft leaves it, and from the first edit each renamed or moved row
 says what changed, such as `was Chat` or `moved from Chat, after general to Info, after rules`. **Changes only** hides
 the unchanged rows and keeps a category that holds a change. A row it showed stays, even when its change is undone,
-until you turn **Changes only** off or the draft ends. When a channel is created, changed, deleted or reordered after
+until **Changes only** is turned off or the draft ends. When a channel is created, changed, deleted or reordered after
 the read, the section says so while it is open, and **Load the current structure** reads the server again. A draft
 keeps the structure it started from
 
 **Review changes** adds to each changed row what saving would do with it against the latest read: Save it, skip it
 because it is already so, or leave it unsaved because the channel changed elsewhere since the draft started, the
-channel or its new category is gone, or you lack Manage channels in the channel. A count of the outcomes sits above
-**Save changes**. Any later edit removes these lines, and a review still loading when you edit is ignored, so review
+channel or its new category is gone, or the member lacks Manage channels in the channel. A count of the outcomes sits above
+**Save changes**. Any later edit removes these lines, and a review still loading at an edit is ignored, so review
 again before saving. **Save changes** sends the draft to NeonFlux, which reads the server again and checks
-every change with your current permissions. It compares the draft with the structure it started from and the current
+every change with the member's current permissions. It compares the draft with the structure it started from and the current
 one, and reports a change that conflicts with another change instead of overwriting it. NeonFlux then saves the other
-changes with its own token, never your sign-in, and **Last save** shows each change's outcome. A change Fluxer did not
+changes with its own token, never the member's sign-in, and **Last save** shows each change's outcome. A change Fluxer did not
 confirm shows as **Outcome unknown**. NeonFlux never repeats it, so check the server before saving it again. A save
 holds at most 100 changes. Each saved change, and each with an unknown outcome, appears in the
 [audit log](#audit-log)
@@ -333,7 +333,7 @@ NeonFlux needs Manage channels in each channel it changes, and a change it canno
 
 ### Member list order
 
-The Member list order section under Roles lists the roles that Fluxer shows as their own member list groups, top first, from the server's role list. Move roles with **Up** and **Down**, then save the order, or reset it so the member list follows the role hierarchy again. The bot applies the order with the same rules as `!memberlist`: It moves only roles below its own top role and yours, keeps the other roles in place and refuses an order that does not fit around them. A refused order fails with a general reason, and `!memberlist` in chat names the roles in the way. Reset needs the server owner or an Administrator. After a change is applied, the section reloads the role list once to show the new order. See [member list order](BOT.md#member-list-order)
+The Member list order section under Roles lists the roles that Fluxer shows as their own member list groups, top first, from the server's role list. Move roles with **Up** and **Down**, then save the order, or reset it so the member list follows the role hierarchy again. The bot applies the order with the same rules as `!memberlist`: It moves only roles below its own top role and the member's, keeps the other roles in place and refuses an order that does not fit around them. A refused order fails with a general reason, and `!memberlist` in chat names the roles in the way. Reset needs the server owner or an Administrator. After a change is applied, the section reloads the role list once to show the new order. See [member list order](BOT.md#member-list-order)
 
 ### Help desk
 
@@ -341,17 +341,17 @@ The Help desk section under Community adds the forum or media channels the help 
 
 ### Showcases and profiles
 
-The Showcases section under Community turns showcases on or off and sets the showcase channel, the showcases each member may have, from 1 to 50, and the minutes between a member's showcases, from 1 to 10,080. Leave a number empty for no limit. The Profiles section under Community turns profiles on or off and sets the seconds between a member's `!profile` commands, from 1 to 3,600. Each section also sets who may use the feature with allowed and blocked roles and user IDs, with the same limits and pasted lists as the role picker, where a block always wins. The chat commands `!showcase` and `!profile` change the same settings, as [the bot guide](BOT.md#showcases-and-profiles) describes. While a feature is on, its section also shows your own member page below the settings
+The Showcases section under Community turns showcases on or off and sets the showcase channel, the showcases each member may have, from 1 to 50, and the minutes between a member's showcases, from 1 to 10,080. Leave a number empty for no limit. The Profiles section under Community turns profiles on or off and sets the seconds between a member's `!profile` commands, from 1 to 3,600. Each section also sets who may use the feature with allowed and blocked roles and user IDs, with the same limits and pasted lists as the role picker, where a block always wins. The chat commands `!showcase` and `!profile` change the same settings, as [the bot guide](BOT.md#showcases-and-profiles) describes. While a feature is on, its section also shows the manager's own member page below the settings
 
 ### Member showcases and profiles
 
 A member opens **Showcases** or **Your profile** in the member view of a server that offers them. Managers find the same pages in the Showcases and Profiles sections
 
 - **Post a showcase** takes a title of up to 100 characters, text of up to 1,000 and up to three links, one per line. The first HTTPS link to a PNG, JPEG, GIF or WebP image becomes the picture. Files cannot be uploaded
-- **Your showcases** lists your showcases, newest first, 50 per page with **Older** and **Newer** buttons, with their status: Being posted, posted, not confirmed by Fluxer or not posted. **Edit** changes the posted message and **Delete** deletes it, both through the bot. A showcase that is being posted or not confirmed waits until it settles, and staff can check an unconfirmed one
-- **Your profile** saves a bio of up to 300 characters, up to three links and an optional accent color, and **Delete profile** removes it at once, together with any of your saves the bot has not handled yet. **Show my birthday (month and day) on my profile** appears once you have saved a birthday in this server with `!milestone` in a DM with NeonFlux. It starts off, saves as soon as you change it, shows the birthday once you have saved a profile and turns off when you change or remove the birthday or leave the server
+- **Your showcases** lists the member's showcases, newest first, 50 per page with **Older** and **Newer** buttons, with their status: Being posted, posted, not confirmed by Fluxer or not posted. **Edit** changes the posted message and **Delete** deletes it, both through the bot. A showcase that is being posted or not confirmed waits until it settles, and staff can check an unconfirmed one
+- **Your profile** saves a bio of up to 300 characters, up to three links and an optional accent color, and **Delete profile** removes it at once, together with any of the member's saves the bot has not handled yet. **Show my birthday (month and day) on my profile** appears once a birthday is saved in this server with `!milestone` in a DM with NeonFlux. It starts off, saves as soon as it is changed, shows the birthday once a profile is saved and turns off when the member changes or removes the birthday or leaves the server
 
-The bot checks your current roles, the server's settings and its automod rules before it posts, edits or saves, so each request shows as pending until it is done or fails with its reason, such as an automod rule that blocked it or a limit. Members can send 5 requests a minute for each feature in each server, with up to 2 pending at once. Requests expire after two minutes, and their records are deleted after one day
+The bot checks the member's current roles, the server's settings and its automod rules before it posts, edits or saves, so each request shows as pending until it is done or fails with its reason, such as an automod rule that blocked it or a limit. Members can send 5 requests a minute for each feature in each server, with up to 2 pending at once. Requests expire after two minutes, and their records are deleted after one day
 
 ## Web verification
 
