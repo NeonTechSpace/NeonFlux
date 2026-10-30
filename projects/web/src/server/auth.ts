@@ -49,8 +49,11 @@ export function cookieValue(request: Request, name = sessionCookie): string | un
         .filter((value) => value.startsWith(`${name}=`))
     return values.length === 1 ? values[0]!.slice(name.length + 1) : undefined
 }
+// A TLS-terminating proxy reaches the server over plain HTTP, and the server trusts no forwarded headers, so a request URL
+// reads http: behind it. Only its host is compared. The browser's Origin header still has to match the origin in full
+const sameHost = (request: Request, origin: string) => new URL(request.url).host === new URL(origin).host
 export function sameOrigin(request: Request, origin: string): boolean {
-    return new URL(request.url).origin === origin && request.headers.get("origin") === origin
+    return sameHost(request, origin) && request.headers.get("origin") === origin
 }
 function cookie(config: AuthConfig, name: string, value: string, maxAge: number): string {
     return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${config.origin.startsWith("https:") ? "; Secure" : ""}`
@@ -288,7 +291,7 @@ export function createAuthHandlers(deps: AuthDependencies) {
     }
     return {
         async begin(request: Request): Promise<Response> {
-            if (new URL(request.url).origin !== config.origin) return json({ error: "Invalid website origin" }, 400)
+            if (!sameHost(request, config.origin)) return json({ error: "Invalid website origin" }, 400)
             const state = randomBytes(32).toString("base64url"),
                 verifier = randomBytes(32).toString("base64url")
             const returnTo = safeReturnTo(new URL(request.url).searchParams.get("returnTo"))
@@ -318,7 +321,7 @@ export function createAuthHandlers(deps: AuthDependencies) {
             const handshake = decodeHandshake(cookieValue(request, handshakeCookie), config)
             const params = new URL(request.url).searchParams
             if (
-                new URL(request.url).origin !== config.origin ||
+                !sameHost(request, config.origin) ||
                 !handshake ||
                 typeof handshake.issuedAt !== "number" ||
                 deps.now() < handshake.issuedAt ||

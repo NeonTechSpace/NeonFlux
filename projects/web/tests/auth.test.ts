@@ -673,3 +673,22 @@ test("Sign-out revokes the session's refresh token after ending the session, and
     await handlers.logout(sessionCall(refresh, "synthetic-other-session"))
     assert.equal(revoked.length, 2)
 })
+
+test("Behind a TLS proxy the request URL reads http, and sign-in still works on the origin's host alone", async () => {
+    const httpsOrigin = "https://dashboard.example.test"
+    const f = fixture()
+    const handlers = createAuthHandlers({ ...f.deps, config: { ...f.config, origin: httpsOrigin } })
+    const started = await handlers.begin(new Request("http://dashboard.example.test/auth/fluxer"))
+    assert.equal(started.status, 303)
+    assert.equal(
+        new URL(started.headers.get("location")!).searchParams.get("redirect_uri"),
+        `${httpsOrigin}/auth/fluxer/callback`,
+    )
+    // Another host is refused, and so is a browser request whose Origin header is not the website's HTTPS origin
+    assert.equal((await handlers.begin(new Request("http://other.example.test/auth/fluxer"))).status, 400)
+    const session = (headers: Record<string, string>) =>
+        handlers.session(new Request("http://dashboard.example.test/api/session", { headers }))
+    assert.equal((await session({ origin: "http://dashboard.example.test" })).status, 403)
+    assert.equal((await session({ origin: "https://other.example.test" })).status, 403)
+    assert.equal((await session({ origin: httpsOrigin })).status, 401)
+})
