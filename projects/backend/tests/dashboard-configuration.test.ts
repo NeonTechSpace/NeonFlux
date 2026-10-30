@@ -842,3 +842,18 @@ test("A dashboard job holds the largest lists the families allow, such as an aut
         /Configuration is too large/,
     )
 })
+
+test("Changing staff or support roles needs the owner or an Administrator, while saving the same lists does not", async () => {
+    const f = await fixture()
+    const needsAdmin = (family: DashboardConfigurationFamily, operation: unknown) =>
+        f.t.run(
+            async (ctx) => (await configurationNativeTarget(ctx, "10", family, operation)).requiresOwnerAdmin === true,
+        )
+    const settings = (staffRoleIds: Record<string, string[]>) => ({ type: "settings", patch: { staffRoleIds } })
+    assert.equal(await needsAdmin("moderation", settings({ cases: ["60"] })), true)
+    assert.equal(await needsAdmin("moderation", settings({ cases: [] })), false)
+    assert.equal(await needsAdmin("moderation", { type: "settings", patch: { manualModerationEnabled: true } }), false)
+    const category = { type: "category-create", name: "help", visibility: "private" }
+    assert.equal(await needsAdmin("tickets", { ...category, supportRoleIds: ["60"] }), true)
+    assert.equal(await needsAdmin("tickets", { ...category, supportRoleIds: [] }), false)
+})

@@ -147,6 +147,7 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
                             disabled={disabled}
                             onChange={(ids) => edit("logChannelId", ids[0] ?? "")}
                         />
+                        <span className="field-help">Changing staff roles needs a current Owner or Administrator</span>
                         {staffScopes.map((scope) => (
                             <SearchPicker
                                 {...picks}

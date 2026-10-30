@@ -326,6 +326,7 @@ export const stages: ReadonlySet<string> = new Set([
     "observation",
     "outcome",
     "overwrites",
+    "owner-admin",
     "panel",
     "parent",
     "participant",

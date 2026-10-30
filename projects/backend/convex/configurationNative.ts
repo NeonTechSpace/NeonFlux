@@ -23,6 +23,8 @@ import { followedTemplate } from "./greetings.ts"
 import { followedMilestoneTemplate } from "./milestonesStore.ts"
 
 type Read = QueryCtx | MutationCtx
+const sameIds = (ids: unknown, saved: readonly string[] = []) =>
+    Array.isArray(ids) && new Set(ids).size === new Set(saved).size && saved.every((id) => ids.includes(id))
 export async function configurationNativeTarget(
     ctx: Read,
     serverId: string,
@@ -39,6 +41,15 @@ export async function configurationNativeTarget(
             if (Array.isArray(value)) value.forEach((id) => set.add(requireId(id)))
         }
     const patch = op.patch === undefined ? {} : object(op.patch)
+    // Who counts as staff is the owner's or an Administrator's choice, as in chat, so a manager cannot make their own role staff.
+    // A form saves its role lists whole, so only a list that differs from the saved one counts
+    let staffChange = false
+    if (family === "moderation" && patch.staffRoleIds !== undefined) {
+        const saved = (await readSettings(ctx, serverId))?.config.staffRoleIds
+        staffChange = Object.entries(object(patch.staffRoleIds)).some(
+            ([scope, ids]) => !sameIds(ids, saved?.[scope as keyof typeof saved]),
+        )
+    }
     if (family === "responses") {
         const def = op.definition ? object(op.definition) : op
         add(def.channelIds, channels)
@@ -95,6 +106,8 @@ export async function configurationNativeTarget(
                       ? null
                       : requireId(fields.parentId)
             add(fields.supportRoleIds ?? current?.config.supportRoleIds ?? [], roles)
+            if (fields.supportRoleIds !== undefined && !sameIds(fields.supportRoleIds, current?.config.supportRoleIds))
+                staffChange = true
         }
     }
     if (family === "greetings" && !configurationCritical(family, raw)) {
@@ -246,7 +259,8 @@ export async function configurationNativeTarget(
         family === "onboarding" ||
         family === "presets" ||
         // An alert action spends NeonFlux's own permissions, so only the owner or an Administrator turns one on
-        (family === "alerts" && op.type === "action" && op.enabled === true)
+        (family === "alerts" && op.type === "action" && op.enabled === true) ||
+        staffChange
     )
         target.requiresOwnerAdmin = true
     if (channels.size) target.channelIds = [...channels]

@@ -341,6 +341,7 @@ function CategoryFields({
                 disabled={disabled}
                 onChange={(ids) => edit("supportRoleIds", JSON.stringify(ids))}
             />
+            <span className="field-help">Changing support roles needs a current Owner or Administrator</span>
             {existing && (
                 <StringList
                     label="Intake questions"

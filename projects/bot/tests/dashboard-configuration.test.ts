@@ -254,6 +254,11 @@ test("Dashboard destination configuration preserves separate genuine action owne
         const result = await run(st, () => ({ operation: scalar[9]!, native: { requiresOwnerAdmin: true } }))
         assert.equal(result.executions.length, 0)
         assert.equal(result.failures.length, 1)
+        // The failure names the rule, not a connection or permission problem of the bot
+        assert.match(
+            JSON.stringify(result.failures[0]),
+            /Only the server owner or an Administrator can make this change/,
+        )
     })
 })
 

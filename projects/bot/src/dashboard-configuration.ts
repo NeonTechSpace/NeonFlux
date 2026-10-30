@@ -44,7 +44,7 @@ import { ensureSuggestionTags, readSuggestionForum, SuggestionTagError } from ".
 import { reloadServerRuntime } from "./runtime-reload.ts"
 
 export class DashboardConfigurationError extends Data.TaggedError("DashboardConfigurationError")<{
-    readonly stage: "identity" | "reference" | "bot" | "authority" | "result" | "binding"
+    readonly stage: "identity" | "reference" | "bot" | "authority" | "owner-admin" | "result" | "binding"
 }> {}
 
 export function readDashboardHumanIdentity(client: Client, userId: string) {
@@ -178,8 +178,9 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
         })
         const managerAuthorized =
             authority.isOwner || (bits & (Permissions.Administrator | Permissions.ManageGuild)) !== 0n
-        if (!managerAuthorized || (target.requiresOwnerAdmin && !authority.isOwner && !authority.isAdmin))
-            return yield* Effect.fail(new DashboardConfigurationError({ stage: "authority" }))
+        if (!managerAuthorized) return yield* Effect.fail(new DashboardConfigurationError({ stage: "authority" }))
+        if (target.requiresOwnerAdmin && !authority.isOwner && !authority.isAdmin)
+            return yield* Effect.fail(new DashboardConfigurationError({ stage: "owner-admin" }))
         for (const roleId of target.roleIds ?? [])
             references.push({
                 id: roleId,
@@ -218,7 +219,11 @@ const nativeFirst = (job: D.DashboardConfigurationReadyJob) =>
 /** The fix a failed job reports when the bot knows it */
 const tagFix = (cause: Cause.Cause<unknown>) =>
     causeFix(cause, undefined, (error) =>
-        error instanceof SuggestionTagError ? error.fix.replace(/<#\d+>/g, "the forum") : sidebarJobFix(error),
+        error instanceof DashboardConfigurationError && error.stage === "owner-admin"
+            ? "Only the server owner or an Administrator can make this change"
+            : error instanceof SuggestionTagError
+              ? error.fix.replace(/<#\d+>/g, "the forum")
+              : sidebarJobFix(error),
     )
 export function processDashboardConfigurationPass(config: BotConfig, client: Client, publishing?: PublishingStore) {
     return Effect.gen(function* () {

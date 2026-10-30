@@ -21,7 +21,7 @@ Run `pnpm --filter @neonflux/web run check` from `projects/` for type checks, te
 
 ## Dashboard
 
-Server owners and members with Manage community, including Administrators, can configure the servers NeonFlux serves. Every save rechecks permissions with Fluxer. Read access expires after five minutes unless refreshed, and an open tab refreshes it. A tab that is returned to rechecks the signed-in member's permissions with Fluxer before it shows anything. A sign-in lasts while it is used at least once every 30 days, for at most 90 days. Signing in on a sixth device signs out the one used longest ago, and signing out ends the session at once
+Server owners and members with Manage community, including Administrators, can configure the servers NeonFlux serves. Changing moderation staff roles or ticket support roles needs the owner or an Administrator, as in chat, so a manager cannot make their own role staff. Every save rechecks permissions with Fluxer. Read access expires after five minutes unless refreshed, and an open tab refreshes it. A tab that is returned to rechecks the signed-in member's permissions with Fluxer before it shows anything. A sign-in lasts while it is used at least once every 30 days, for at most 90 days. Signing in on a sixth device signs out the one used longest ago, and signing out ends the session at once
 
 In single-server mode the dashboard opens on the configured server and offers no invite link. In multi-server mode it opens on a server picker that shows each server's icon, or its initials, for the servers the member manages that NeonFlux has joined. Switch server returns to the picker, and next to it the dashboard says how many sections of the open server have unsaved drafts, if any
 
