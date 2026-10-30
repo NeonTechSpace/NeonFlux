@@ -1,3 +1,4 @@
+import { cutText } from "@neonflux/contracts/common"
 import type {
     GreetingsContext,
     GreetingsMemberContext,
@@ -104,7 +105,7 @@ export function renderGreeting(
     const fill = (cut: boolean) =>
         mapText(template, (value) => {
             const filled = value.replace(/\{([^{}]+)\}/g, (_, key: string) => values[key] ?? "")
-            return cut && filled.length > value.length ? filled.slice(0, value.length).replace(/\p{Cs}$/u, "") : filled
+            return cut && filled.length > value.length ? cutText(filled, value.length) : filled
         })
     const full = fill(false),
         short = fill(true),

@@ -1,6 +1,6 @@
 import { changeConfiguration } from "./configurationChange.ts"
 import { v } from "convex/values"
-import { isName } from "@neonflux/contracts/common"
+import { cutText, isName } from "@neonflux/contracts/common"
 import {
     PublishingObservation,
     equalPublishingContent,
@@ -209,11 +209,7 @@ export async function publicPost(ctx: Read, row: Doc<"publishingPosts">): Promis
 }
 /** A forum post name: 1 to 100 code units after trimming, as Fluxer requires */
 export const forumPostTitle = (value: string) =>
-    value
-        .replace(/[\u000C\u202E]/g, "")
-        .trim()
-        .slice(0, 100)
-        .trim() || "Post"
+    cutText(value.replace(/[\u000C\u202E]/g, "").trim(), 100).trim() || "Post"
 export async function reservePublishing(
     ctx: MutationCtx,
     input: {

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, test, type TestContext } from "node:test"
 import type { PublishingDraft, PublishingManageResult, PublishingQueryResult } from "@neonflux/contracts/publishing"
 import type { PublishingGrant, PublishingPost } from "@neonflux/contracts/publishing-base"
 import type { ModerationActor } from "@neonflux/contracts/shared"
-import { cleanupPublishing } from "../convex/publishing.ts"
+import { cleanupPublishing, forumPostTitle } from "../convex/publishing.ts"
 import { retentionPass } from "../convex/retentionStore.ts"
 import { canonicalPublishingContent, publishingContent, PUBLISHING_DAY } from "../convex/publishingDomain.ts"
 import { convexBackend } from "./convex-backend.ts"
@@ -159,6 +159,10 @@ async function status(response: Response, expected: number) {
     assert.equal(JSON.stringify(body).includes(secret), false)
 }
 
+test("A forum post name cut at its limit never splits an emoji", () => {
+    assert.equal(forumPostTitle(`${"a".repeat(99)}😀 after`), "a".repeat(99))
+    assert.equal(forumPostTitle(`${"a".repeat(98)}😀 after`), `${"a".repeat(98)}😀`)
+})
 test("Empty content that must be sent is refused in words the bot shows", () => {
     assert.throws(
         () => publishingContent({ content: "" }, true),

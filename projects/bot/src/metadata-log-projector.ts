@@ -8,7 +8,7 @@ import {
     metadataSlice,
     METADATA_TEXT,
 } from "@neonflux/contracts/metadata-logs"
-import { InviteCode } from "@neonflux/contracts/common"
+import { cutText, InviteCode } from "@neonflux/contracts/common"
 import { permissionKeyTitles, permissionNames } from "@neonflux/contracts/permission-names"
 import { randomBytes } from "node:crypto"
 import { Schema } from "effect"
@@ -333,7 +333,7 @@ const attachmentsOf = (value: unknown) =>
               if (!a || !name) return []
               return [
                   {
-                      name: name.slice(0, 256),
+                      name: cutText(name, 256),
                       size: Number.isSafeInteger(a.size) && (a.size as number) >= 0 ? (a.size as number) : 0,
                       ...(typeof a.url === "string" && a.url.length <= 512 && a.url.startsWith("https://")
                           ? { url: a.url }

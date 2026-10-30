@@ -1,3 +1,4 @@
+import { cutText } from "@neonflux/contracts/common"
 import { v } from "convex/values"
 import { query, type MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
@@ -27,12 +28,12 @@ const DETAIL_VALUE_LIMIT = 8000,
     DETAIL_BYTES = 512 * 1024,
     DETAIL_ROWS = 8192
 
-const clip = (value: string, limit: number) => (value.length > limit ? `${value.slice(0, limit - 1)}…` : value)
+const clip = (value: string, limit: number) => (value.length > limit ? `${cutText(value, limit - 1)}…` : value)
 const record = (value: unknown): Record<string, unknown> =>
     value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 
 const cut = (value: unknown) =>
-    typeof value === "string" && value.length > DETAIL_VALUE_LIMIT ? value.slice(0, DETAIL_VALUE_LIMIT) : value
+    typeof value === "string" && value.length > DETAIL_VALUE_LIMIT ? cutText(value, DETAIL_VALUE_LIMIT) : value
 /** The stored rows of a detail within its limits, and how many rows did not fit */
 function detailRows(changes: readonly ValueChange[]) {
     const rows: DashboardAuditDetail["changes"] = []

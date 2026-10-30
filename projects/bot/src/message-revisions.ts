@@ -1,4 +1,5 @@
 import type { Client, Message } from "@neontechspace/fluxerly/effect"
+import { cutText } from "@neonflux/contracts/common"
 import { METADATA_TEXT, metadataSlice } from "@neonflux/contracts/metadata-logs"
 
 // Link previews arrive as message updates that repeat everything else. Features read an update only for an edit, a pin
@@ -43,7 +44,7 @@ interface Entry extends RememberedMessage {
 
 const attachmentsOf = (message: Message) =>
     message.attachments.slice(0, MESSAGE_ATTACHMENT_LIMIT).map((a): RememberedAttachment => ({
-        name: a.filename.slice(0, 256) || "file",
+        name: cutText(a.filename, 256) || "file",
         size: Number.isSafeInteger(a.size) && a.size >= 0 ? a.size : 0,
         ...(a.url && a.url.length <= 512 && a.url.startsWith("https://") ? { url: a.url } : {}),
     }))

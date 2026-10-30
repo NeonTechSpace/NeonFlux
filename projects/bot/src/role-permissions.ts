@@ -1,4 +1,3 @@
-import { isId } from "@neonflux/contracts/common"
 import { permissionBits, format, hierarchy, type Client, type ReactionEmojiInput } from "@neontechspace/fluxerly/effect"
 import { Data, Effect } from "effect"
 import { SAFE_ROLE_PERMISSIONS } from "@neonflux/contracts/roles"
@@ -129,27 +128,12 @@ export function readRoleAuthority(
     })
 }
 
-export function targetedReactionPresent(
+export const targetedReactionPresent = (
     client: Client,
     message: { id: string; channelId: string },
     emoji: ReactionEmojiInput,
     userId: string,
-) {
-    return Effect.gen(function* () {
-        if (!isId(userId)) {
-            return yield* Effect.fail(new RolePermissionError({ stage: "reaction" }))
-        }
-        const page = yield* client.messages
-            .fetchReactionUsers(
-                message,
-                emoji,
-                { limit: 1, ...(userId !== "1" ? { after: (BigInt(userId) - 1n).toString() } : {}) },
-                { timeoutMs: 5000 },
-            )
-            .pipe(
-                Effect.timeout("5 seconds"),
-                Effect.mapError(() => new RolePermissionError({ stage: "reaction" })),
-            )
-        return page.items.length === 1 && page.items[0]?.id === userId
-    })
-}
+) =>
+    client.messages
+        .fetchHasReaction(message, emoji, userId, { timeoutMs: 5000 })
+        .pipe(Effect.mapError(() => new RolePermissionError({ stage: "reaction" })))

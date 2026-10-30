@@ -1,4 +1,5 @@
 import { backupGain } from "@neonflux/contracts/backup"
+import { cutText } from "@neonflux/contracts/common"
 import { permissionNames } from "@neonflux/contracts/permission-names"
 import type {
     BackupBinding,
@@ -290,7 +291,7 @@ const grantIt = (bits: bigint) => (permissionNames(bits.toString()).length > 1 ?
 const backupNameList = (names: readonly string[]) =>
     names
         .slice(0, 3)
-        .map((name) => (name.length > 40 ? `${name.slice(0, 39)}…` : name))
+        .map((name) => (name.length > 40 ? `${cutText(name, 39)}…` : name))
         .join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "")
 /** NeonFlux lacks these permissions, which `where` says the place of, such as " in <#5>" */
 const lacks = (missing: bigint, where: string) =>

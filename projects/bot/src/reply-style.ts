@@ -44,10 +44,10 @@ const LIMIT = {
 
 /**
  * Cut text to a limit, ending with an ellipsis unless suffix says otherwise, and never splitting an emoji such as a flag or
- * skin tone. The SDK refuses ill-formed text, so a lone surrogate becomes U+FFFD
+ * skin tone. The SDK turns a lone surrogate into U+FFFD
  */
 export const clip = (value: string, max: number, suffix?: string) =>
-    text.truncate(value.toWellFormed(), { maxLength: max, ...(suffix === undefined ? {} : { suffix }) })
+    text.truncate(value, { maxLength: max, ...(suffix === undefined ? {} : { suffix }) })
 // An embed field holds 1024 characters, so a longer value continues in further fields. Message text has no such limit and splits as a whole
 const normal = (card: Card, embedded: boolean) => ({
     title: clip(card.title, LIMIT.title),

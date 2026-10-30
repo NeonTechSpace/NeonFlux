@@ -143,6 +143,16 @@ test("kept text ends before a character it would split at the 4000 limit", () =>
     assert.equal(text?.isWellFormed(), true)
 })
 
+test("an attachment name cut at its limit never splits an emoji", () => {
+    const revisions = createMessageRevisions()
+    revisions.keepText("1", true)
+    revisions.created(
+        guild("41", { attachments: [{ id: "1", filename: `${"a".repeat(255)}😀.png`, size: 1, flags: 0 }] }),
+    )
+    const { previous } = revisions.changed(guild("41", { editedAt: "2026-01-01T00:01:00.000Z", content: "Edited" }))
+    assert.equal(previous?.attachments?.[0]?.name, "a".repeat(255))
+})
+
 test("a server that keeps message text keeps none of another bot's, a webhook's or the system's, while still tracking their edits", () => {
     const revisions = createMessageRevisions()
     revisions.keepText("1", true)

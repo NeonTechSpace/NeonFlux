@@ -15,6 +15,8 @@ export const isName = (value: unknown): value is string =>
 export const isToken = (value: unknown): value is string =>
     typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value)
 /** Text without form feeds, right-to-left overrides and surrounding space, which Fluxer removes from names */
+/** The start of text, up to max code units, without half an emoji at the cut. Fluxer answers half a character with a 503 page */
+export const cutText = (value: string, max: number) => value.slice(0, max).replace(/\p{Cs}$/u, "")
 export const visibleText = (value: string) => value.replace(/[\u000c\u202e]/g, "").trim()
 /** Whether text has something left once form feeds, right-to-left overrides and surrounding space are removed */
 export const hasText = (value: string) => visibleText(value) !== ""

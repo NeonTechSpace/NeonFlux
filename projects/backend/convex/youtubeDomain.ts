@@ -1,3 +1,4 @@
+import { cutText } from "@neonflux/contracts/common"
 import type { PublishingContent } from "@neonflux/contracts/publishing-base"
 import {
     isYoutubeChannelId,
@@ -187,7 +188,7 @@ function readEntry(body: string): YoutubeEntry | undefined {
 const authorName = (xml: string) => {
     const author = /<author>([\s\S]*?)<\/author>/.exec(xml),
         name = author ? element(author[1]!, "name")?.trim() : undefined
-    return name ? name.slice(0, 256) : undefined
+    return name ? cutText(name, 256) : undefined
 }
 
 /** A channel's public feed of recent uploads. NeonFlux reads it once when a channel is added and never takes alerts from it */
@@ -214,7 +215,7 @@ export function parseYoutubeFeed(xml: string, youtubeChannelId: string): Youtube
     }
 }
 
-const clip = (text: string, maximum: number) => (text.length > maximum ? `${text.slice(0, maximum - 1)}…` : text)
+const clip = (text: string, maximum: number) => (text.length > maximum ? `${cutText(text, maximum - 1)}…` : text)
 /**
  * An alert: A trimmed embed whose title links to the video's watch page, with YouTube's thumbnail and YouTube named as the source.
  * Mentions in titles are broken up, and the bot sends none. A test built from a video says it is a test above the embed. Without a video, as
