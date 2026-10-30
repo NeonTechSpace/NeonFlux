@@ -2316,6 +2316,8 @@ export default defineSchema({
     })
         .index("by_server_case", ["serverId", "caseNo"])
         .index("by_server_user", ["serverId", "targetId", "caseNo"])
+        .index("by_server_user_action", ["serverId", "targetId", "action", "caseNo"])
+        .index("by_server_user_origin", ["serverId", "targetId", "origin", "caseNo"])
         .index("by_server_source", ["serverId", "sourceId"])
         .index("by_server_incident", ["serverId", "incident", "createdAt"])
         .index("by_expiry", ["expiresAt"])

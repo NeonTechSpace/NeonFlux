@@ -1,4 +1,5 @@
 import type { Appeal, AppealCaseSummary } from "@neonflux/contracts/appeal"
+import { warningLimit } from "@neonflux/contracts/moderation"
 import type {
     AutomodAction,
     AutomodRule,
@@ -118,9 +119,11 @@ const caseBy = (value: ModerationCase) =>
         ? format.userMention(value.actorId)
         : value.origin === "automod"
           ? `Automod${value.ruleName ? ` rule ${value.ruleName}` : ""}`
-          : value.incident
-            ? `Security, ${incidentNames[value.incident].toLowerCase()}`
-            : "Security"
+          : value.origin === "penalty"
+            ? "Automatic, warning limit"
+            : value.incident
+              ? `Security, ${incidentNames[value.incident].toLowerCase()}`
+              : "Security"
 /** A case with its reason and a few facts. Its staff log and member notice show only when they did not arrive, and edits are counted with the command that lists them */
 function caseCard(value: ModerationCase, command: SafetyCommandText): Card {
     const undelivered = (
@@ -168,7 +171,7 @@ function caseHistoryCard(value: Extract<ModerationQueryResult, { type: "case-his
     }
 }
 const caseLine = (value: ModerationCase) =>
-    `**#${value.caseNo}** ${actionNames[value.action]}${subject(value)} by ${value.actorId ? format.userMention(value.actorId) : value.origin === "automod" ? "Automod" : "Security"}, ${outcomeWords[value.outcome]}${value.voided ? ", voided" : ""}, ${ago(value.createdAt)}`
+    `**#${value.caseNo}** ${actionNames[value.action]}${subject(value)} by ${value.actorId ? format.userMention(value.actorId) : value.origin === "automod" ? "Automod" : value.origin === "penalty" ? "Automatic" : "Security"}, ${outcomeWords[value.outcome]}${value.voided ? ", voided" : ""}, ${ago(value.createdAt)}`
 
 const ruleTypeNames: Record<AutomodRuleType, string> = {
     spam: "Spam",
@@ -303,6 +306,7 @@ export function settingsCard(
                         staffNames[kind as StaffClass],
                         staff(ids),
                     ]),
+                    ["Warning limit", warningLimitText(s)],
                     ["Cases kept", s.caseRetentionDays ? `For ${plural(s.caseRetentionDays, "day")}` : "Until erased"],
                 ],
             }
@@ -381,6 +385,13 @@ export function settingsCard(
             }
     }
 }
+/** What the warning limit does now */
+function warningLimitText(s: ModerationSettings) {
+    const limit = warningLimit(s)
+    if (!limit.warningPenaltyEnabled) return "Off"
+    const rule = `A timeout of ${duration(limit.warningPenaltySeconds)} after ${plural(limit.warningPenaltyCount, "warning")} in ${plural(limit.warningPenaltyDays, "day")}`
+    return s.automodMode === "enforce" ? rule : `${rule}. Automod is in test mode, so this only logs`
+}
 /** A settings change in one sentence per changed setting */
 export function settingsChange(
     patch: Extract<ModerationManageOperation, { type: "settings" }>["patch"],
@@ -390,6 +401,11 @@ export function settingsChange(
     return Object.keys(patch)
         .map((key) => {
             switch (key as keyof typeof patch) {
+                case "warningPenaltyEnabled":
+                case "warningPenaltyCount":
+                case "warningPenaltyDays":
+                case "warningPenaltySeconds":
+                    return `Warning limit: ${warningLimitText(s)}`
                 case "manualModerationEnabled":
                     return `Manual moderation is ${now(s.manualModerationEnabled)}`
                 case "staffRoleIds":
@@ -440,6 +456,7 @@ export function settingsChange(
                         : "Cases are now kept until erased"
             }
         })
+        .filter((line, index, lines) => lines.indexOf(line) === index)
         .join("\n")
 }
 

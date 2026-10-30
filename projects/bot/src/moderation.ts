@@ -42,6 +42,7 @@ import {
     channelViewerRoles,
     ownedPostingBits,
     readChannels,
+    readAuthenticatedBotId,
     readSafetyAuthority,
     restorablePostingBits,
     verifyPrivateAuthor,
@@ -62,6 +63,7 @@ import {
     type Card,
 } from "./reply-style.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
+import { warnFailure } from "./contained.ts"
 
 class ModerationHandlingError extends Data.TaggedError("ModerationHandlingError")<{
     readonly stage: "permissions" | "snapshot" | "outcome" | "private-delivery" | "input"
@@ -247,7 +249,8 @@ function recordNotice(store: ModerationStore, serverId: string, notice: Moderati
     })
 }
 
-export function performActionGrant(
+/** Performs one grant and delivers its staff log and member notice */
+function performGrant(
     store: ModerationStore,
     serverId: string,
     actorId: string,
@@ -336,7 +339,73 @@ export function performActionGrant(
             expired,
             logUncertain: Exit.isFailure(logDelivery),
             ...(notice ? { notice } : {}),
+            ...(result.warningPenaltyDue ? { warningPenaltyDue: true as const } : {}),
         }
+    })
+}
+/**
+ * A warning that reached the limit: The bot's fresh read of the member, the backend's decision from it, and the resulting grant, which reads
+ * Fluxer again like every automated action. A failure leaves no penalty case, so the member's next warning triggers it instead, and never
+ * changes the warning's own result
+ */
+function performWarningPenalty(
+    store: ModerationStore,
+    serverId: string,
+    client: Client,
+    warning: ModerationActionGrant,
+    config?: BotConfig,
+) {
+    return Effect.gen(function* () {
+        const botId = yield* readAuthenticatedBotId(client)
+        const authority = yield* readSafetyAuthority(client, serverId, botId, {
+            permission: actionPermission("timeout")!,
+            targetId: warning.targetId!,
+        })
+        const decided = yield* store.warningPenalty({
+            serverId,
+            actionId: warning.actionId,
+            caseNo: warning.caseNo,
+            userId: warning.targetId!,
+            roleIds: [...(authority.target?.roleIds ?? [])],
+            context: actionContext(authority, "timeout"),
+        })
+        if (!decided.grant) return undefined
+        yield* performGrant(store, serverId, botId, client, decided.grant, config)
+        return decided.grant.caseNo
+    }).pipe(
+        Effect.catch((error) =>
+            warnFailure("A warning reached the warning limit, but its penalty could not be applied", error).pipe(
+                Effect.as(undefined),
+            ),
+        ),
+    )
+}
+export function performActionGrant(
+    store: ModerationStore,
+    serverId: string,
+    actorId: string,
+    client: Client,
+    grant: ModerationActionGrant,
+    config?: BotConfig,
+    authority?: SafetyAuthority,
+    authorityReadAt?: number,
+) {
+    return Effect.gen(function* () {
+        const { warningPenaltyDue, ...done } = yield* performGrant(
+            store,
+            serverId,
+            actorId,
+            client,
+            grant,
+            config,
+            authority,
+            authorityReadAt,
+        )
+        const penaltyCaseNo =
+            warningPenaltyDue && grant.targetId
+                ? yield* performWarningPenalty(store, serverId, client, grant, config)
+                : undefined
+        return { ...done, ...(penaltyCaseNo ? { penaltyCaseNo } : {}) }
     })
 }
 
@@ -903,6 +972,7 @@ export function handleSafetyCommand(
             const expired = outcome.expired
                 ? ". Your permissions were checked too long before the action, so nothing was done. Run the command again"
                 : ""
+            const penalty = outcome.penaltyCaseNo ? `. Warning limit reached, see case #${outcome.penaltyCaseNo}` : ""
             const lock =
                 c.action === "lock"
                     ? `. ${lockSummary(ownedPostingBits(result.grant))}. Other role or member grants may still permit them`
@@ -920,7 +990,7 @@ export function handleSafetyCommand(
             }
             yield* answer(
                 context,
-                `Case #${c.caseNo}: ${name}${c.targetId ? ` of ${format.userMention(c.targetId)}` : c.channelId ? ` in ${format.channelMention(c.channelId)}` : ""}${length} ${done}${linked}${expired}${notified}${logged}${lock}`,
+                `Case #${c.caseNo}: ${name}${c.targetId ? ` of ${format.userMention(c.targetId)}` : c.channelId ? ` in ${format.channelMention(c.channelId)}` : ""}${length} ${done}${linked}${expired}${notified}${logged}${penalty}${lock}`,
             )
         } else
             yield* respond(

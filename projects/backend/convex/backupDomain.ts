@@ -9,6 +9,7 @@ import {
     type BackupMove,
     type BackupNativeProof,
 } from "@neonflux/contracts/backup"
+import { warningLimit } from "@neonflux/contracts/moderation"
 import { movedChannels, places } from "@neonflux/contracts/structure"
 import { rule } from "./moderationDomain.ts"
 import { publishingContent } from "./publishingDomain.ts"
@@ -189,7 +190,14 @@ export function backupNormalized(item: BackupConfigObject): BackupConfigObject {
                 },
             }
         case "moderation":
-            return { ...item, value: { ...item.value, caseRetentionDays: item.value.caseRetentionDays ?? null } }
+            return {
+                ...item,
+                value: {
+                    ...item.value,
+                    ...warningLimit(item.value),
+                    caseRetentionDays: item.value.caseRetentionDays ?? null,
+                },
+            }
         case "events":
             return { ...item, value: { ...item.value, threads: item.value.threads ?? false } }
         case "general":

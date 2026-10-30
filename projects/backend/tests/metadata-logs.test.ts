@@ -1299,6 +1299,22 @@ test("Current ticket-slot and moderation-case counters use owning indexed state 
     assert.match(counts.definitions.tickets, /reserved and recovery/)
 })
 
+test("A warning limit change from chat reaches the settings log with the fields it changed", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.read(
+        await f.post("/moderation/manage", {
+            ...f.source(),
+            actor: owner,
+            operation: { type: "settings", patch: { warningPenaltyEnabled: true, warningPenaltyDays: 14 } },
+        }),
+    )
+    const logs = (await f.read(await f.query({ type: "list" }))).records.filter(
+        (r: MetadataLogsRecord) => r.event.source.kind === "settings" && r.event.source.scope === "moderation",
+    )
+    assert.deepEqual(logs.at(-1)?.event.changedFields, ["warningPenaltyEnabled", "warningPenaltyDays"])
+})
+
 test("Automatic security DEFCON settings hooks use exact backend transactions with no invented human actor", async (t) => {
     const f = await fixture(t)
     await f.open()

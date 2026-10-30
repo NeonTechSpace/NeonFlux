@@ -193,6 +193,7 @@ export const BOT_FUNCTIONS = {
     moderationEvaluate: "mutation",
     moderationJoin: "mutation",
     moderationOutcome: "mutation",
+    moderationWarningPenalty: "mutation",
     moderationLogOutcome: "mutation",
     moderationNoticeOutcome: "mutation",
     moderationReconcile: "mutation",

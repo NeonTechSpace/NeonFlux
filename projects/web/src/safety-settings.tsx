@@ -1,4 +1,5 @@
 import { SERVER_ROLES, STRUCTURE_CHANNELS } from "@neonflux/contracts/common"
+import { warningLimit } from "@neonflux/contracts/moderation"
 import type { AutomodRule, ModerationSettings, StaffClass } from "@neonflux/contracts/moderation"
 import { ConfigForm, rowCard } from "./configuration-form"
 import type { ConfigSectionProps } from "./configuration-form"
@@ -85,6 +86,7 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
         picks = { loading: props.catalogLoading, allowManual: props.catalogError, catalog: true },
         channels = publicationChannels(props.catalog),
         roles = selectableRoles(props.catalog)
+    const limit = warningLimit(settings)
     const settingValues: FormValues = {
         manualModerationEnabled: settings.manualModerationEnabled,
         appealsEnabled: settings.appealsEnabled,
@@ -179,6 +181,75 @@ export function SafetySettings(props: ConfigSectionProps<"moderation">) {
                                 min={1}
                                 max={3650}
                             />
+                        )}
+                    </>
+                )}
+            />
+            <ConfigForm<"moderation">
+                {...common}
+                title="Warning limit"
+                description="Time out a member automatically after repeated warnings within a number of days. The member then starts again from zero"
+                snapshot={{
+                    revision,
+                    values: {
+                        enabled: limit.warningPenaltyEnabled,
+                        count: String(limit.warningPenaltyCount),
+                        days: String(limit.warningPenaltyDays),
+                        seconds: String(limit.warningPenaltySeconds),
+                    },
+                }}
+                operation={(values) => ({
+                    type: "settings",
+                    patch: changedSettings(
+                        {
+                            warningPenaltyEnabled: Boolean(values.enabled),
+                            warningPenaltyCount: numberValue(values.count, 2, 20, "warnings before a timeout"),
+                            warningPenaltyDays: numberValue(values.days, 1, 365, "days warnings count"),
+                            warningPenaltySeconds: numberValue(values.seconds, 1, 31536000, "timeout seconds"),
+                        },
+                        // Settings saved before the limit existed have it off
+                        { ...settings, ...limit },
+                    ),
+                })}
+                fields={(values, edit, disabled) => (
+                    <>
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={Boolean(values.enabled)}
+                                disabled={disabled}
+                                onChange={(event) => edit("enabled", event.target.checked)}
+                            />
+                            Warning limit enabled
+                        </label>
+                        <NumberField
+                            label="Warnings before a timeout"
+                            value={String(values.count)}
+                            onChange={(value) => edit("count", value)}
+                            disabled={disabled}
+                            min={2}
+                            max={20}
+                        />
+                        <NumberField
+                            label="Days warnings count"
+                            value={String(values.days)}
+                            onChange={(value) => edit("days", value)}
+                            disabled={disabled}
+                            min={1}
+                            max={365}
+                        />
+                        <NumberField
+                            label="Timeout (seconds)"
+                            value={String(values.seconds)}
+                            onChange={(value) => edit("seconds", value)}
+                            disabled={disabled}
+                            min={1}
+                            max={31536000}
+                        />
+                        {settings.automodMode !== "enforce" && (
+                            <p className="field-help">
+                                Automod mode is dry run, so reaching the limit is only logged until the mode is Enforce
+                            </p>
                         )}
                     </>
                 )}

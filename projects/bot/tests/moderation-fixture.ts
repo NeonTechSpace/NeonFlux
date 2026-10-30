@@ -70,6 +70,10 @@ export function boundary(overrides: Partial<ModerationStore> = {}) {
             calls.push({ method: "outcome", input })
             return Effect.succeed({ recorded: true })
         },
+        warningPenalty: (input) => {
+            calls.push({ method: "warningPenalty", input })
+            return Effect.succeed({})
+        },
         logOutcome: (input) => {
             calls.push({ method: "logOutcome", input })
             return Effect.succeed({ recorded: true })

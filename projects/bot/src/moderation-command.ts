@@ -161,6 +161,7 @@ export const safetyHelpAll = {
         "!mod erase <case>: Erase a case's text, for the server owner",
         "!mod private-role @role|none: Who may read private cases on the website, for the server owner",
         "!mod retention <1-3650>|keep: How many days cases are kept, or keep them until erased",
+        "!mod warn-limit <2-20> <1-365> <length>|on|off: Time out a member after this many warnings in this many days",
         "!mod status: Whether moderation is on and its staff roles",
     ],
     automod: [
@@ -413,6 +414,21 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
                     : commands.parseArgument(args[1], { type: "integer", min: 1, max: 3650 })
                 : undefined
         if (retentionDays !== undefined) return settings({ caseRetentionDays: retentionDays })
+        if (verb === "warn-limit") {
+            if (args.length === 2 && bool(args[1]) !== undefined)
+                return settings({ warningPenaltyEnabled: bool(args[1])! })
+            const warnings = wholeNumber(args[1], 2, 20),
+                days = wholeNumber(args[2], 1, 365),
+                seconds = durationSeconds(args[3], 1, 31536000)
+            return args.length === 4 && warnings && days && seconds
+                ? settings({
+                      warningPenaltyEnabled: true,
+                      warningPenaltyCount: warnings,
+                      warningPenaltyDays: days,
+                      warningPenaltySeconds: seconds,
+                  })
+                : error
+        }
         const staffRoleIds = verb === "staff" ? idList(args.slice(2), argument.role) : undefined
         if (staffRoleIds && ["moderation", "cases", "automod", "security", "appeals"].includes(args[1]!))
             return settings({ staffRoleIds: { [args[1]!]: staffRoleIds } })

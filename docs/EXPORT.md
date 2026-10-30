@@ -113,7 +113,7 @@ Each entry is a showcase that still exists, with the text as the member wrote it
 | --- | --- |
 | `caseNo` | The case number in this server |
 | `action` | The action, such as `warn`, `timeout`, `kick`, `ban` or `log` |
-| `origin` | What created the case: `manual`, `automod` or `security` |
+| `origin` | What created the case: `manual`, `automod`, `security`, or `penalty` for the warning limit |
 | `incident` | Present for security cases: `join-burst`, `honeypot` or `watchlist` |
 | `actorId` | The staff member who acted, when one did |
 | `targetId` | The member the case concerns, when there is one |

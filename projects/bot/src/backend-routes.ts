@@ -37,6 +37,7 @@ export const backendRoutes = {
     "/moderation/evaluate": "moderationEvaluate",
     "/moderation/join": "moderationJoin",
     "/moderation/outcome": "moderationOutcome",
+    "/moderation/warning-penalty": "moderationWarningPenalty",
     "/moderation/log-outcome": "moderationLogOutcome",
     "/moderation/notice-outcome": "moderationNoticeOutcome",
     "/moderation/reconcile": "moderationReconcile",

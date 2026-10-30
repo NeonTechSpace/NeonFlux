@@ -13,6 +13,8 @@ import {
     ModerationOutcomeRequest,
     ModerationQueryRequest,
     ModerationReconcileRequest,
+    ModerationWarningPenaltyRequest,
+    warningLimit,
     type AutomodRule,
     type ModerationGateResult,
     type ModerationLogOutcomeResult,
@@ -22,6 +24,7 @@ import {
     type ModerationQueryResult,
     type ModerationReconcileResult,
     type ModerationSettings,
+    type ModerationWarningPenaltyResult,
     type ModerationNoticeGrant,
     type StaffClass,
     type StaffLogGrant,
@@ -46,7 +49,7 @@ import {
     rulePatch,
     settingsPatch,
 } from "./moderationDomain.ts"
-import { ownedOverwriteEqual, reserveAction } from "./moderationActions.ts"
+import { ownedOverwriteEqual, reserveAction, warningPenaltyDue } from "./moderationActions.ts"
 import {
     caseByNo,
     config,
@@ -79,6 +82,7 @@ function criticalOperation(op: ModerationManageOperation) {
         "honeypotEnabled",
         "watchlistEnabled",
         "appealsEnabled",
+        "warningPenaltyEnabled",
     ]
     if (op.type === "settings")
         return Object.entries(op.patch).every(
@@ -488,7 +492,12 @@ export const outcome = serviceMutation({
             if (row.outcome !== input.outcome) fail(409, "Outcome already recorded")
             return { recorded: false }
         }
-        const result: { recorded: boolean; log?: StaffLogGrant; notice?: ModerationNoticeGrant } = { recorded: true }
+        const result: {
+            recorded: boolean
+            log?: StaffLogGrant
+            notice?: ModerationNoticeGrant
+            warningPenaltyDue?: true
+        } = { recorded: true }
         await ctx.db.patch(row._id, { outcome: input.outcome })
         if (row.recoveryId) {
             const recovery = await ctx.db.get(row.recoveryId)
@@ -564,6 +573,75 @@ export const outcome = serviceMutation({
             const notice = await memberNotice(ctx, row, input.timeoutUntil)
             if (notice) result.notice = notice
         }
+        // The bot learns of a due penalty only with the first report of a warning's success, since any repeat stops above
+        if (
+            row.action === "warn" &&
+            input.outcome === "succeeded" &&
+            row.targetId &&
+            (await warningPenaltyDue(
+                ctx,
+                row.serverId,
+                row.targetId,
+                config(await readSettings(ctx, row.serverId)),
+                Date.now(),
+            ))
+        )
+            result.warningPenaltyDue = true
+        return result
+    },
+})
+/**
+ * Opens the penalty case of a warning that reached the limit, in the transaction that counts again. The case stops the count, so a repeated
+ * request or another warning of the same moment finds nothing due. What NeonFlux may not do is logged instead, and the member still starts
+ * again from zero, so a further warning does not log it again. Like an automod action, it follows the automod mode and DEFCON does not stop it
+ */
+export const warningPenalty = serviceMutation({
+    args: { request: v.any() },
+    handler: async (ctx, { request }): Promise<ModerationWarningPenaltyResult> => {
+        const input = decode(ModerationWarningPenaltyRequest, request)
+        const { serverId, userId, context } = input
+        const now = Date.now()
+        const warning = await boundCase(ctx, input, input.actionId)
+        if (warning.action !== "warn" || warning.targetId !== userId) fail(409, "Action changed")
+        const settings = config(await state(ctx, serverId))
+        if (
+            warning.outcome !== "succeeded" ||
+            warning.voided ||
+            !(await warningPenaltyDue(ctx, serverId, userId, settings, now))
+        )
+            return {}
+        const limit = warningLimit(settings)
+        const seconds = limit.warningPenaltySeconds
+        const until = context.currentTimeoutUntil
+        const protectedMember =
+            context.targetProtected ||
+            userId === context.botId ||
+            Object.values(settings.staffRoleIds).some((list) => list.some((id) => input.roleIds.includes(id)))
+        const note =
+            settings.automodMode !== "enforce"
+                ? " (dry run)"
+                : protectedMember
+                  ? " (protected member)"
+                  : !context.botActionAuthorized || !context.botCanManageTarget || until === undefined
+                    ? " (NeonFlux could not act)"
+                    : until && Date.parse(until) >= now + seconds * 1000
+                      ? " (a longer timeout stays)"
+                      : ""
+        const result = await reserveAction(ctx, {
+            serverId,
+            sourceId: `warnings:${warning.caseNo}`,
+            settings,
+            input: {
+                type: note ? "log" : "timeout",
+                targetId: userId,
+                ...(note ? {} : { durationSeconds: seconds }),
+                reason: `Automatic: ${limit.warningPenaltyCount} warnings in ${limit.warningPenaltyDays} ${limit.warningPenaltyDays === 1 ? "day" : "days"}${note}`,
+                linkedCaseNo: warning.caseNo,
+            },
+            context,
+            origin: "penalty",
+            now,
+        })
         return result
     },
 })

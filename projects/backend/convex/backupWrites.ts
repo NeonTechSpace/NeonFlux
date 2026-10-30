@@ -1,4 +1,5 @@
 import type { BackupConfigObject, BackupXpObject } from "@neonflux/contracts/backup"
+import { warningLimit } from "@neonflux/contracts/moderation"
 import type { RolesRoleSnapshot } from "@neonflux/contracts/shared"
 import type { MutationCtx } from "./_generated/server.js"
 import type { ConfigurationIdentity } from "./validation.ts"
@@ -127,8 +128,13 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
     switch (item.family) {
         case "moderation": {
             const { privateDataRoleId, ...settings } = item.value
-            // An archive without a case period keeps cases until erased, as the server it came from did
-            const patch = { ...settings, caseRetentionDays: settings.caseRetentionDays ?? null }
+            // An archive without a case period keeps cases until erased, as the server it came from did, and one without a warning limit
+            // has it off
+            const patch = {
+                ...settings,
+                ...warningLimit(settings),
+                caseRetentionDays: settings.caseRetentionDays ?? null,
+            }
             await applyModerationConfiguration(ctx, serverId, { type: "settings", patch }, now)
             const row = await ctx.db
                 .query("moderationSettings")

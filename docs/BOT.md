@@ -280,6 +280,7 @@ A reason or appeal text is the rest of the command and needs no quotes, as in `!
 | Erase one case's narratives (owner) | `!mod erase <case>` |
 | Choose or clear the role whose members may view private cases on the website (owner) | `!mod private-role @role\|none` |
 | Keep cases for 1 to 3650 days, or until erased (owner or Administrator) | `!mod retention <days>\|keep` |
+| Time out a member after repeated warnings (owner or Administrator) | `!mod warn-limit <warnings> <days> <length>`, `!mod warn-limit on\|off` |
 | List or show cases | `!mod list [@user or user ID] [next]`, `!mod show <case>` |
 | A case's reason changes and voiding, ten to a page | `!mod history <case> [next]` |
 | Correct a reason or void a warning | `!mod reason <case> <new reason>`, `!mod void <case>`. Only a warning can be voided |
@@ -298,6 +299,27 @@ A warning, timeout, kick or ban sends the member a DM titled with the action, th
 The dashboard's [Private cases](WEB.md#private-cases) section shows cases, appeals and member history to the server owner and to members holding the private data role, which only the owner sets. Administrators also need the role, and staff roles do not grant it. Each view on the website waits for an access check that the bot answers with its own fresh read of the viewer's server membership, roles and the server's owner. A passed check serves views for two minutes. The website records every view in its audit log, and the chat rules above stay unchanged
 
 Cases and closed appeals are kept until erased, unless the owner or an Administrator chooses a period with `!mod retention <days>` or on the dashboard. A period counts from a case's creation and from an appeal's closing, and a change applies to stored cases and appeals too. Records still in recovery or with an appeal stay until resolved. `!mod erase` replaces a case's narratives with an audit marker
+
+### Warning limit
+
+The warning limit times a member out automatically after repeated warnings. It is off by default, also on servers that existed before it. `!mod warn-limit on` turns it on with the values set earlier, at first 3 warnings in 30 days and a timeout of 1 hour. `!mod warn-limit 5 14 2h` sets the values and turns it on, with 2 to 20 warnings, 1 to 365 days and a timeout of up to a year. `!mod warn-limit off` stays available at DEFCON 1. `!mod status` shows the limit, and the dashboard's **Warning limit** form changes the same settings
+
+Manual and automod warnings both count once they are recorded as succeeded. A voided warning does not count, and neither does one that failed or has an unknown outcome. An erased warning still counts, since erasing removes its text and not the warning. A case removed by [case retention](#moderation-and-cases) no longer counts, so a retention period shorter than the limit's days shortens the limit's reach
+
+Only a new warning is checked. Changing the limit or turning it on acts on nobody by itself, and warnings from before it was on count at the member's next warning
+
+Reaching the limit opens one case with its own number, a reason such as `Automatic: 3 warnings in 30 days` and a link to the warning that reached it. It posts to the staff log, sends the member the normal notice and shows in `!mod list`, where it reads as `Automatic`. `!mod show` names `Automatic, warning limit` as who opened it, and the staff log shows NeonFlux. It can be reversed with `!mod untimeout` and appealed like any timeout. Warnings before that case never count again, so the member starts again from zero. Voiding a warning later does not undo the case
+
+No timeout happens in these cases, and the case logs the reason instead:
+
+| Reason ends in | When |
+| --- | --- |
+| `(dry run)` | Automod mode is `dry-run`, also while the automod module is off, since the limit follows the mode that automod enforcement follows. `!automod mode enforce` lets it act |
+| `(protected member)` | The member is the owner, an Administrator or holds a staff role |
+| `(NeonFlux could not act)` | NeonFlux lacks the permission to time out members, ranks below the member or could not read the member's current timeout |
+| `(a longer timeout stays)` | The member's current timeout ends at or after the new one would, so it stays as it is |
+
+Such a log case also starts the member again from zero, so one member is not logged at every further warning. A timeout that fails or stays not confirmed is seen in the staff log and is never sent again. DEFCON does not stop the limit, as it does not stop automod. When NeonFlux cannot read the member or reach the backend at that moment, it opens no case, and the member's next warning checks again
 
 ### Automod
 

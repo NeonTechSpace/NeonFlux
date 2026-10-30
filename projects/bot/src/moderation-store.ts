@@ -16,6 +16,7 @@ import {
     ModerationOutcomeResult,
     ModerationQueryResult,
     ModerationReconcileResult,
+    ModerationWarningPenaltyResult,
     type ModerationActionGrant,
     type ModerationCase,
     type ModerationDispatchRequest,
@@ -29,6 +30,7 @@ import {
     type ModerationOutcomeRequest,
     type ModerationQueryRequest,
     type ModerationReconcileRequest,
+    type ModerationWarningPenaltyRequest,
 } from "@neonflux/contracts/moderation"
 import { Data, Effect, Schema } from "effect"
 import { createBackendRequest, failureFields, refusedReason } from "./backend-http.ts"
@@ -47,6 +49,9 @@ export interface ModerationStore {
     join(input: ModerationJoinRequest): Effect.Effect<ModerationJoinResult, ModerationStoreError>
     dispatch(input: ModerationDispatchRequest): Effect.Effect<ModerationDispatchResult, ModerationStoreError>
     outcome(input: ModerationOutcomeRequest): Effect.Effect<ModerationOutcomeResult, ModerationStoreError>
+    warningPenalty(
+        input: ModerationWarningPenaltyRequest,
+    ): Effect.Effect<ModerationWarningPenaltyResult, ModerationStoreError>
     logOutcome(input: ModerationLogOutcomeRequest): Effect.Effect<ModerationLogOutcomeResult, ModerationStoreError>
     noticeOutcome(
         input: ModerationNoticeOutcomeRequest,
@@ -224,6 +229,19 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
                     (!result.log || (result.log.logId === input.actionId && result.log.caseNo === input.caseNo)) &&
                     (!result.notice ||
                         (result.notice.noticeId === input.actionId && result.notice.caseNo === input.caseNo)),
+            ),
+        // A warning penalty may only time out or log the warned member, linked to that warning
+        warningPenalty: (input) =>
+            request(
+                "/moderation/warning-penalty",
+                input,
+                ModerationWarningPenaltyResult,
+                (result) =>
+                    !result.grant ||
+                    (boundGrant(result, `warnings:${input.caseNo}`) &&
+                        result.case?.linkedCaseNo === input.caseNo &&
+                        result.grant.targetId === input.userId &&
+                        ["log", "timeout"].includes(result.grant.action)),
             ),
         logOutcome: (input) => request("/moderation/log-outcome", input, ModerationLogOutcomeResult),
         noticeOutcome: (input) => request("/moderation/notice-outcome", input, ModerationNoticeOutcomeResult),

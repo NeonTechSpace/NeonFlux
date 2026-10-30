@@ -175,6 +175,56 @@ test("Security settings edit all join-burst fields with the shared configuration
     })
     assert.equal(calls[0]?.revision, 7)
 })
+test("The warning limit reads as off with its defaults, saves only what changed and says when dry run only logs", async () => {
+    const { ui, calls } = setup(SafetySettings, "moderation", moderation)
+    const form = section(ui, "Warning limit")
+    const on = form.getByLabelText("Warning limit enabled") as HTMLInputElement
+    assert.equal(on.checked, false)
+    assert.equal((form.getByLabelText("Warnings before a timeout") as HTMLInputElement).value, "3")
+    assert.equal((form.getByLabelText("Days warnings count") as HTMLInputElement).value, "30")
+    assert.equal((form.getByLabelText("Timeout (seconds)") as HTMLInputElement).value, "3600")
+    assert.ok(form.getByText(/Automod mode is dry run/))
+    fireEvent.click(on)
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, { type: "settings", patch: { warningPenaltyEnabled: true } })
+})
+test("The warning limit edits its count, days and length, and switching it off stays a disable-only request", async () => {
+    const saved = {
+        ...moderation,
+        settings: {
+            ...moderation.settings,
+            automodMode: "enforce" as const,
+            warningPenaltyEnabled: true,
+            warningPenaltyCount: 5,
+            warningPenaltyDays: 14,
+            warningPenaltySeconds: 7200,
+        },
+    }
+    const { ui, calls } = setup(SafetySettings, "moderation", saved)
+    const form = section(ui, "Warning limit")
+    assert.equal(form.queryByText(/Automod mode is dry run/), null)
+    fireEvent.click(form.getByLabelText("Warning limit enabled"))
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, { type: "settings", patch: { warningPenaltyEnabled: false } })
+})
+test("The warning limit sends its bounds through the form", async () => {
+    const { ui, calls } = setup(SafetySettings, "moderation", moderation)
+    const form = section(ui, "Warning limit")
+    fireEvent.click(form.getByLabelText("Warning limit enabled"))
+    fireEvent.change(form.getByLabelText("Warnings before a timeout"), { target: { value: "20" } })
+    fireEvent.change(form.getByLabelText("Days warnings count"), { target: { value: "365" } })
+    fireEvent.change(form.getByLabelText("Timeout (seconds)"), { target: { value: "31536000" } })
+    await submit(form)
+    assert.deepEqual(calls[0]?.operation, {
+        type: "settings",
+        patch: {
+            warningPenaltyEnabled: true,
+            warningPenaltyCount: 20,
+            warningPenaltyDays: 365,
+            warningPenaltySeconds: 31536000,
+        },
+    })
+})
 test("Automod policy turns on bot and webhook message checks, and rules offer the rolling and deceptive-link types", async () => {
     const { ui, calls } = setup(SafetySettings, "moderation", moderation)
     const policy = section(ui, "Automod policy")

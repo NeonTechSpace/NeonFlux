@@ -15,6 +15,8 @@ import type {
     ModerationQueryRequest,
     ModerationQueryResult,
     ModerationReconcileRequest,
+    ModerationWarningPenaltyRequest,
+    ModerationWarningPenaltyResult,
 } from "@neonflux/contracts/moderation"
 import { ModerationManageRequest as ManageRequestSchema } from "@neonflux/contracts/moderation"
 import { MessageType, Permissions } from "@neontechspace/fluxerly/effect"
@@ -4573,4 +4575,330 @@ test("automod patterns grow and shrink in place, a long list shows its first 20,
         ).fields!.at(-1)
     assert.deepEqual(status(), ["Cases kept", "Until erased"])
     assert.deepEqual(status(30), ["Cases kept", "For 30 days"])
+})
+
+test("the warning limit is set by chat, shows in the status and turning it off is a critical command", () => {
+    const parsed = (...args: string[]) => parseSafetyCommand("mod", args)
+    const settingsOf = (patch: object) => ({ kind: "manage", operation: { type: "settings", patch } })
+    assert.deepEqual(parsed("warn-limit", "on"), settingsOf({ warningPenaltyEnabled: true }))
+    assert.deepEqual(parsed("warn-limit", "off"), settingsOf({ warningPenaltyEnabled: false }))
+    assert.deepEqual(
+        parsed("warn-limit", "5", "14", "2h"),
+        settingsOf({
+            warningPenaltyEnabled: true,
+            warningPenaltyCount: 5,
+            warningPenaltyDays: 14,
+            warningPenaltySeconds: 7200,
+        }),
+    )
+    for (const args of [
+        ["1", "30", "1h"],
+        ["21", "30", "1h"],
+        ["3", "0", "1h"],
+        ["3", "366", "1h"],
+        ["3", "30", "0s"],
+        ["3", "30", "366d"],
+        ["3", "30"],
+        ["3", "30", "1h", "extra"],
+        ["maybe"],
+    ])
+        assert.ok("error" in parsed("warn-limit", ...args), args.join(" "))
+    assert.equal(safetyGateClass("mod", parsed("warn-limit", "off")), "critical")
+    assert.equal(safetyGateClass("mod", parsed("warn-limit", "on")), "staff")
+    const settings = boundary().current
+    const command = (feature: string, rest: string) => `!${feature} ${rest}`
+    const field = (patch: object) =>
+        queryCard({ type: "settings", settings: { ...settings, ...patch } }, "mod", command).fields!.find(
+            ([name]) => name === "Warning limit",
+        )?.[1]
+    assert.equal(field({}), "Off")
+    assert.equal(
+        field({ warningPenaltyEnabled: true }),
+        "A timeout of 1 hour after 3 warnings in 30 days. Automod is in test mode, so this only logs",
+    )
+    assert.equal(
+        field({ warningPenaltyEnabled: true, automodMode: "enforce", warningPenaltyDays: 1 }),
+        "A timeout of 1 hour after 3 warnings in 1 day",
+    )
+    const automatic: ModerationCase = {
+        caseNo: 2,
+        actionId: "synthetic_penalty_id",
+        sourceId: "warnings:1",
+        action: "timeout",
+        origin: "penalty",
+        reason: "Automatic: 3 warnings in 30 days",
+        linkedCaseNo: 1,
+        createdAt: 1700000000000,
+        expiresAt: 1700086400000,
+        outcome: "succeeded",
+        logOutcome: "sent",
+        notificationOutcome: "sent",
+        erased: false,
+        voided: false,
+        correctionCount: 0,
+    }
+    const opened = queryCard({ type: "case", case: automatic }, "mod", command)
+    assert.deepEqual(
+        opened.fields!.find(([name]) => name === "By"),
+        ["By", "Automatic, warning limit"],
+    )
+    assert.deepEqual(
+        opened.fields!.find(([name]) => name === "Linked case"),
+        ["Linked case", "Case #1"],
+    )
+    assert.match(queryCard({ type: "cases", cases: [automatic] }, "mod", command).description!, /by Automatic,/)
+    const patch = { warningPenaltyEnabled: true, warningPenaltyCount: 5, warningPenaltyDays: 14 }
+    assert.equal(
+        manageConfirmation(
+            {
+                duplicate: false,
+                type: "settings",
+                settings: { ...settings, ...patch, automodMode: "enforce" },
+            },
+            { type: "settings", patch },
+        ),
+        "Warning limit: A timeout of 1 hour after 5 warnings in 14 days",
+    )
+})
+
+const warningLimitRun = (
+    answer: (
+        targetId: string,
+        input: ModerationWarningPenaltyRequest,
+    ) => Effect.Effect<ModerationWarningPenaltyResult, ModerationStoreError>,
+    options: Parameters<typeof platform>[1] = {},
+    check: (result: {
+        p: ReturnType<typeof platform>
+        requests: ModerationWarningPenaltyRequest[]
+        outcomes: ModerationOutcomeRequest[]
+        writes: { requests: () => readonly { body: unknown }[] }
+        bot: Bot
+    }) => void = () => undefined,
+) => {
+    const f = createFixtures()
+    const requests: ModerationWarningPenaltyRequest[] = []
+    const outcomes: ModerationOutcomeRequest[] = []
+    let targetId = ""
+    const b = boundary({
+        manage: (input) => Effect.succeed(caseGrant(input)),
+        outcome: (input) => {
+            outcomes.push(input)
+            return Effect.succeed({
+                recorded: true,
+                ...(input.caseNo === 1 ? { warningPenaltyDue: true as const } : {}),
+            })
+        },
+        warningPenalty: (input) => {
+            requests.push(input)
+            return answer(targetId, input)
+        },
+    })
+    return Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                )
+                const p = platform(bot, options)
+                targetId = p.targetId
+                const writes = bot.rest.respond("PATCH /guilds/:id/members/:id", {
+                    body: bot.fixtures.member({
+                        user: bot.fixtures.user({ id: targetId }),
+                        communication_disabled_until: "2030-01-01T00:00:00.000Z",
+                    }),
+                })
+                yield* bot.ready()
+                yield* emit(bot, `!mod warn <@${targetId}> reason`)
+                check({ p, requests, outcomes, writes, bot })
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+}
+const penaltyCase = (
+    targetId: string,
+    input: ModerationWarningPenaltyRequest,
+    action: "log" | "timeout",
+    reason: string,
+): ModerationWarningPenaltyResult => {
+    const grant: ModerationActionGrant = {
+        actionId: "synthetic_penalty_id",
+        caseNo: 2,
+        sourceId: `warnings:${input.caseNo}`,
+        action,
+        targetId,
+        reason,
+        ...(action === "timeout" ? { durationSeconds: 3600, expectedTimeoutUntil: null } : {}),
+    }
+    const record: ModerationCase = {
+        caseNo: 2,
+        actionId: grant.actionId,
+        sourceId: grant.sourceId,
+        action,
+        origin: "penalty",
+        targetId,
+        reason,
+        linkedCaseNo: input.caseNo,
+        createdAt: 1700000000000,
+        expiresAt: 1700000000000 + 86400000,
+        outcome: "pending",
+        logOutcome: "none",
+        notificationOutcome: "none",
+        erased: false,
+        voided: false,
+        correctionCount: 0,
+    }
+    return { case: record, grant }
+}
+
+test("a warning that reaches the limit sends a fresh read of the member, performs the timeout and says so in the reply", async () => {
+    await warningLimitRun(
+        (targetId, input) =>
+            Effect.succeed(penaltyCase(targetId, input, "timeout", "Automatic: 3 warnings in 30 days")),
+        {},
+        ({ p, requests, outcomes, writes, bot }) => {
+            assert.equal(requests.length, 1)
+            const request = requests[0]!
+            assert.equal(request.caseNo, 1)
+            assert.equal(request.userId, p.targetId)
+            assert.deepEqual(request.roleIds, [p.targetRole.id])
+            assert.equal(request.context.botId, bot.fixtures.ids.bot)
+            assert.equal(request.context.botActionAuthorized, true)
+            assert.equal(request.context.botCanManageTarget, true)
+            assert.equal(request.context.targetProtected, false)
+            assert.equal(request.context.currentTimeoutUntil, null)
+            assert.equal(writes.requests().length, 1)
+            assert.deepEqual(
+                outcomes.map((row) => [row.caseNo, row.outcome]),
+                [
+                    [1, "succeeded"],
+                    [2, "succeeded"],
+                ],
+            )
+            assert.equal(
+                bodies(p).at(-1)!.content,
+                `Case #1: Warning of <@${p.targetId}> succeeded. Warning limit reached, see case #2`,
+            )
+        },
+    )
+})
+
+test("a warning that reaches the limit reports what the bot may not do and performs no timeout when the backend logs instead", async () => {
+    await warningLimitRun(
+        (targetId, input) =>
+            Effect.succeed(
+                penaltyCase(targetId, input, "log", "Automatic: 3 warnings in 30 days (NeonFlux could not act)"),
+            ),
+        { botPermissions: Permissions.SendMessages | Permissions.ViewChannel },
+        ({ requests, outcomes, writes }) => {
+            assert.equal(requests[0]!.context.botActionAuthorized, false)
+            assert.equal(writes.requests().length, 0)
+            assert.deepEqual(outcomes.at(-1)?.outcome, "succeeded")
+            assert.equal(outcomes.at(-1)?.caseNo, 2)
+        },
+    )
+})
+
+test("a warning that reaches the limit keeps its own result when nothing is due or the penalty request fails", async () => {
+    await warningLimitRun(
+        () => Effect.succeed({}),
+        {},
+        ({ p, writes, outcomes }) => {
+            assert.equal(writes.requests().length, 0)
+            assert.equal(outcomes.length, 1)
+            assert.equal(bodies(p).at(-1)!.content, `Case #1: Warning of <@${p.targetId}> succeeded`)
+        },
+    )
+    await warningLimitRun(
+        () => Effect.fail(new ModerationStoreError({ operation: "warning-penalty", status: null })),
+        {},
+        ({ p, writes, outcomes }) => {
+            assert.equal(writes.requests().length, 0)
+            assert.equal(outcomes.length, 1)
+            assert.equal(bodies(p).at(-1)!.content, `Case #1: Warning of <@${p.targetId}> succeeded`)
+        },
+    )
+})
+
+test("an automod warning that reaches the limit sends the same penalty request", async () => {
+    const f = createFixtures()
+    let targetId = ""
+    const requests: ModerationWarningPenaltyRequest[] = []
+    const warning: ModerationActionGrant = {
+        actionId: "synthetic_automod_warning",
+        caseNo: 1,
+        sourceId: f.nextId(),
+        action: "warn",
+        reason: "Automod words",
+    }
+    const b = boundary({
+        evaluate: (input) => {
+            const grant = { ...warning, targetId, sourceId: input.messageId }
+            return Effect.succeed({
+                duplicate: false,
+                blocked: true,
+                ...(input.gate ? { gate: b.gate(input.gate) } : {}),
+                grant,
+                case: {
+                    caseNo: 1,
+                    actionId: grant.actionId,
+                    sourceId: grant.sourceId,
+                    action: "warn",
+                    origin: "automod",
+                    targetId,
+                    reason: grant.reason,
+                    createdAt: 1700000000000,
+                    expiresAt: 1700086400000,
+                    outcome: "pending",
+                    logOutcome: "none",
+                    notificationOutcome: "none",
+                    erased: false,
+                    voided: false,
+                    correctionCount: 0,
+                },
+            })
+        },
+        outcome: () => Effect.succeed({ recorded: true, warningPenaltyDue: true }),
+        warningPenalty: (input) => {
+            requests.push(input)
+            return Effect.succeed({})
+        },
+    })
+    b.current.automodEnabled = true
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                )
+                const p = platform(bot)
+                targetId = p.targetId
+                yield* bot.ready()
+                yield* emit(bot, "a member's message")
+                assert.equal(requests.length, 1)
+                assert.equal(requests[0]!.actionId, warning.actionId)
+                assert.equal(requests[0]!.userId, p.targetId)
+                assert.equal(requests[0]!.context.botId, bot.fixtures.ids.bot)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("a warning below the limit sends no penalty request", async () => {
+    const f = createFixtures()
+    const b = boundary({ manage: (input) => Effect.succeed(caseGrant(input)) })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                )
+                const p = platform(bot)
+                yield* bot.ready()
+                yield* emit(bot, `!mod warn <@${p.targetId}> reason`)
+                assert.ok(!b.calls.some((call) => call.method === "warningPenalty"))
+            }),
+        ),
+    )
 })

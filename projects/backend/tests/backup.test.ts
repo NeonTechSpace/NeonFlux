@@ -1373,10 +1373,25 @@ async function samples(): Promise<Record<Family, Sample>> {
         moderation: pair(
             "moderation",
             "moderation",
+            // No warning limit has it off, so reverting to this archive turns it off again
             { ...moderation, automodEnabled: false, joinThreshold: 5, caseRetentionDays: 30 },
             // No case period keeps cases until erased
-            { ...moderation, automodEnabled: true, joinThreshold: 6, privateDataRoleId: "43" },
-            ["automodEnabled", "caseRetentionDays", "joinThreshold", "privateDataRoleId"],
+            {
+                ...moderation,
+                automodEnabled: true,
+                joinThreshold: 6,
+                privateDataRoleId: "43",
+                warningPenaltyEnabled: true,
+                warningPenaltyCount: 5,
+            },
+            [
+                "automodEnabled",
+                "caseRetentionDays",
+                "joinThreshold",
+                "privateDataRoleId",
+                "warningPenaltyCount",
+                "warningPenaltyEnabled",
+            ],
             true,
         ),
         responses: pair(

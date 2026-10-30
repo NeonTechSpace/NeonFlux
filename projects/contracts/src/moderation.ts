@@ -44,9 +44,12 @@ const UtcTime = Schema.String.check(
             /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value) && Number.isFinite(Date.parse(value)),
     ),
 )
-/** A case's source: the message that asked for it, or join:<member>:<joined at> for a join */
+/** A case's source: the message that asked for it, join:<member>:<joined at> for a join, or warnings:<case> for the warning that reached the warning limit */
 const SourceId = Schema.String.check(
-    Schema.makeFilter((value: string) => isId(value) || /^join:[1-9]\d{0,18}:\d{1,16}$/.test(value)),
+    Schema.makeFilter(
+        (value: string) =>
+            isId(value) || /^join:[1-9]\d{0,18}:\d{1,16}$/.test(value) || /^warnings:[1-9]\d{0,15}$/.test(value),
+    ),
 )
 const Slowmode = Int(0, 21600)
 /** The same fields, each optional */
@@ -210,19 +213,35 @@ const staff = <S extends Schema.Top>(ids: S) => ({
 })
 /** How many days cases are kept from their creation and closed appeals from their closing. Absent or null keeps them until erased */
 const CaseRetentionDays = Schema.optionalKey(Schema.NullOr(Int(1, 3650)))
+/** The warning limit: After Count warnings for one member within Days days, NeonFlux times the member out for Seconds. See warningLimit for what absent values read as */
+const warningLimitFields = {
+    warningPenaltyEnabled: Schema.optionalKey(Schema.Boolean),
+    warningPenaltyCount: Schema.optionalKey(Int(2, 20)),
+    warningPenaltyDays: Schema.optionalKey(Int(1, 365)),
+    warningPenaltySeconds: Schema.optionalKey(Int(1, 31536000)),
+}
 export const ModerationSettings = Schema.Struct({
     ...settingsFields,
     honeypotChannelIds: UniqueChannelIds,
     staffRoleIds: Schema.Struct(staff(UniqueRoleIds)),
     caseRetentionDays: CaseRetentionDays,
+    ...warningLimitFields,
 })
 export type ModerationSettings = typeof ModerationSettings.Type
+/** The warning limit as it applies: Off, 3 warnings, 30 days and 1 hour where a server stored no value, as every server that never set it */
+export const warningLimit = (settings: Pick<ModerationSettings, keyof typeof warningLimitFields>) => ({
+    warningPenaltyEnabled: settings.warningPenaltyEnabled ?? false,
+    warningPenaltyCount: settings.warningPenaltyCount ?? 3,
+    warningPenaltyDays: settings.warningPenaltyDays ?? 30,
+    warningPenaltySeconds: settings.warningPenaltySeconds ?? 3600,
+})
 /** A change to some settings. The backend removes repeated IDs */
 export const ModerationSettingsPatch = Schema.Struct({
     ...partial(settingsFields),
     honeypotChannelIds: Schema.optionalKey(ChannelIds),
     staffRoleIds: Schema.optionalKey(Schema.Struct(partial(staff(RoleIds)))),
     caseRetentionDays: CaseRetentionDays,
+    ...warningLimitFields,
 }).check(Schema.makeFilter((patch) => Object.keys(patch).length > 0))
 export const ModerationOutcome = Schema.Literals(["succeeded", "failed", "uncertain"])
 export type ModerationOutcome = typeof ModerationOutcome.Type
@@ -246,7 +265,8 @@ export const ModerationCase = Schema.Struct({
     actionId: Token,
     sourceId: SourceId,
     action: ModerationActionType,
-    origin: Schema.Literals(["manual", "automod", "security"]),
+    /** penalty is a case the warning limit opened by itself */
+    origin: Schema.Literals(["manual", "automod", "security", "penalty"]),
     incident: Schema.optionalKey(SecurityIncidentKind),
     actorId: Schema.optionalKey(Id),
     targetId: Schema.optionalKey(Id),
@@ -571,8 +591,26 @@ export const ModerationOutcomeResult = Schema.Struct({
     recorded: Schema.Boolean,
     log: Schema.optionalKey(StaffLogGrant),
     notice: Schema.optionalKey(ModerationNoticeGrant),
+    /** This warning reached the server's warning limit, so the bot reads the member fresh and sends a warning penalty request */
+    warningPenaltyDue: Schema.optionalKey(Schema.Literal(true)),
 })
 export type ModerationOutcomeResult = typeof ModerationOutcomeResult.Type
+/** The bot's fresh read of a member whose warning reached the limit. The backend counts again, so a repeated request or a later warning finds nothing due */
+export const ModerationWarningPenaltyRequest = Schema.Struct({
+    serverId: Id,
+    actionId: Token,
+    caseNo: Int(1),
+    userId: Id,
+    roleIds: Ids(1000),
+    context: ModerationActionContext,
+})
+export type ModerationWarningPenaltyRequest = typeof ModerationWarningPenaltyRequest.Type
+/** The timeout to perform, or a log case when NeonFlux may not act. Empty when no penalty is due */
+export const ModerationWarningPenaltyResult = Schema.Struct({
+    case: Schema.optionalKey(ModerationCase),
+    grant: Schema.optionalKey(ModerationActionGrant),
+})
+export type ModerationWarningPenaltyResult = typeof ModerationWarningPenaltyResult.Type
 const delivery = {
     caseNo: Int(1),
     outcome: Schema.Literals(["sent", "failed", "uncertain"]),

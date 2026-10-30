@@ -194,6 +194,7 @@ test("All moderation and appeals routes authenticate before input and preserve s
         "evaluate",
         "join",
         "outcome",
+        "warning-penalty",
         "log-outcome",
         "notice-outcome",
         "reconcile",
@@ -2027,4 +2028,309 @@ test("A closed appeal takes the server's case retention from its closing, and a 
     f.advance(11 * DAY)
     await f.t.run((ctx) => retentionPass(ctx, cleanupModeration))
     assert.ok(await appeal())
+})
+
+// The warning limit: A warning's report answers warningPenaltyDue, and the bot's fresh read then opens the penalty case
+const enforcing = { warningPenaltyEnabled: true, automodMode: "enforce" }
+const warned = async (f: ReturnType<typeof fixture>, result = "succeeded") => {
+    const { case: warning } = await f.action("warn")
+    return { warning, report: await read(await f.outcome(warning, result)) }
+}
+const penalty = (f: ReturnType<typeof fixture>, warning: ModerationCase, extra: Record<string, unknown> = {}) =>
+    f.post("/moderation/warning-penalty", {
+        serverId: "1",
+        actionId: warning.actionId,
+        caseNo: warning.caseNo,
+        userId: "20",
+        roleIds: [],
+        context,
+        ...extra,
+    })
+const memberCases = async (f: ReturnType<typeof fixture>) =>
+    (await read(await f.query({ type: "case-list", userId: "20" }))).cases as ModerationCase[]
+const warnTimes = async (f: ReturnType<typeof fixture>, times: number) => {
+    let last
+    for (let i = 0; i < times; i++) last = await warned(f)
+    return last!
+}
+
+test("The warning limit is off by default, also for settings stored before it existed, and keeps to its bounds", async (ctx) => {
+    const f = fixture(ctx)
+    const initial = await read(await f.query({ type: "settings" }))
+    assert.equal(initial.settings.warningPenaltyEnabled, undefined)
+    for (let i = 0; i < 3; i++) assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
+    const { warning } = await warned(f)
+    assert.deepEqual(await read(await penalty(f, warning)), {})
+    assert.equal((await memberCases(f)).length, 4)
+    for (const patch of [
+        { warningPenaltyCount: 1 },
+        { warningPenaltyCount: 21 },
+        { warningPenaltyDays: 0 },
+        { warningPenaltyDays: 366 },
+        { warningPenaltySeconds: 0 },
+        { warningPenaltySeconds: 31536001 },
+    ])
+        await status(await f.post("/moderation/manage", f.manageRequest({ type: "settings", patch })), 400)
+    for (const patch of [
+        { warningPenaltyCount: 2 },
+        { warningPenaltyCount: 20 },
+        { warningPenaltyDays: 1 },
+        { warningPenaltyDays: 365 },
+        { warningPenaltySeconds: 1 },
+        { warningPenaltySeconds: 31536000 },
+    ])
+        await f.settings(patch)
+    // Turning it off stays possible at DEFCON 1, and turning it on does not
+    await f.settings({ warningPenaltyEnabled: true, defcon: 1 })
+    await f.settings({ warningPenaltyEnabled: false })
+    await status(
+        await f.post(
+            "/moderation/manage",
+            f.manageRequest({ type: "settings", patch: { warningPenaltyEnabled: true } }),
+        ),
+        403,
+    )
+})
+
+test("The third warning opens one ordinary timeout case, linked to it, that reads as automatic and can be appealed and reversed", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings({ ...enforcing, logChannelId: "500" })
+    for (let i = 0; i < 2; i++) assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
+    const { warning, report } = await warned(f)
+    assert.equal(report.warningPenaltyDue, true)
+    assert.equal(report.notice.action, "warn")
+    assert.equal((await memberCases(f)).length, 3)
+    const { case: opened, grant } = await read(await penalty(f, warning))
+    assert.equal(grant.action, "timeout")
+    assert.equal(grant.durationSeconds, 3600)
+    assert.equal(grant.targetId, "20")
+    assert.equal(grant.sourceId, `warnings:${warning.caseNo}`)
+    assert.equal(grant.expectedTimeoutUntil, null)
+    assert.equal(opened.caseNo, warning.caseNo + 1)
+    assert.equal(opened.action, "timeout")
+    assert.equal(opened.origin, "penalty")
+    assert.equal(opened.actorId, undefined)
+    assert.equal(opened.reason, "Automatic: 3 warnings in 30 days")
+    assert.equal(opened.linkedCaseNo, warning.caseNo)
+    const until = new Date(f.now() + 3600000).toISOString()
+    const done = await read(await f.outcome(opened, "succeeded", { timeoutUntil: until }))
+    assert.equal(done.log.action, "timeout")
+    assert.equal(done.log.reason, "Automatic: 3 warnings in 30 days")
+    assert.equal(done.log.durationSeconds, 3600)
+    assert.equal(done.notice.action, "timeout")
+    assert.equal(done.notice.timeoutUntil, until)
+    assert.equal(done.warningPenaltyDue, undefined)
+    assert.equal((await memberCases(f))[0]?.caseNo, opened.caseNo)
+    const appeal = await read(await f.member({ type: "submit", caseNo: opened.caseNo, text: "Please review" }))
+    assert.equal(appeal.appeal.caseNo, opened.caseNo)
+    const reversed = await f.action(
+        "untimeout",
+        { linkedCaseNo: opened.caseNo },
+        { ...context, currentTimeoutUntil: until },
+    )
+    assert.equal(reversed.grant.expectedTimeoutUntil, until)
+    await read(await f.outcome(reversed.case, "succeeded", { timeoutUntil: null }))
+})
+
+test("The warning limit takes its own count, window and length", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings({
+        ...enforcing,
+        warningPenaltyCount: 2,
+        warningPenaltyDays: 1,
+        warningPenaltySeconds: 600,
+    })
+    await warned(f)
+    const { warning, report } = await warned(f)
+    assert.equal(report.warningPenaltyDue, true)
+    const { case: opened, grant } = await read(await penalty(f, warning))
+    assert.equal(opened.reason, "Automatic: 2 warnings in 1 day")
+    assert.equal(grant.durationSeconds, 600)
+})
+
+test("A warning counts for exactly the window's days", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings(enforcing)
+    await warned(f)
+    f.advance(DAY)
+    await warned(f)
+    f.advance(29 * DAY + 1)
+    // The first warning is now one millisecond too old, so this one is the second that counts
+    assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
+    f.advance(DAY - 1)
+    // The second warning is exactly 30 days old, and this one is the third that counts
+    assert.equal((await warned(f)).report.warningPenaltyDue, true)
+})
+
+test("Voiding before the limit lowers the count, and voiding after a penalty neither undoes it nor counts again", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings(enforcing)
+    const first = await warned(f)
+    await warned(f)
+    await f.manage({ type: "case-void", caseNo: first.warning.caseNo })
+    assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
+    const { warning, report } = await warned(f)
+    assert.equal(report.warningPenaltyDue, true)
+    const { case: opened } = await read(await penalty(f, warning))
+    await f.manage({ type: "case-void", caseNo: warning.caseNo })
+    const kept = (await memberCases(f)).find((row) => row.caseNo === opened.caseNo)
+    assert.equal(kept?.voided, false)
+    assert.equal(kept?.action, "timeout")
+    assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
+    // A trigger voided before the bot's request opens nothing
+    await warned(f)
+    const late = await warned(f)
+    assert.equal(late.report.warningPenaltyDue, true)
+    await f.manage({ type: "case-void", caseNo: late.warning.caseNo })
+    assert.deepEqual(await read(await penalty(f, late.warning)), {})
+})
+
+test("Warnings with a failed or unknown outcome do not count, nor do any still pending", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings(enforcing)
+    await warned(f)
+    await warned(f, "failed")
+    await warned(f, "uncertain")
+    await f.action("warn")
+    assert.equal((await warned(f, "failed")).report.warningPenaltyDue, undefined)
+    const { warning, report } = await warned(f, "uncertain")
+    assert.equal(report.warningPenaltyDue, undefined)
+    assert.deepEqual(await read(await penalty(f, warning)), {})
+    assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
+    assert.equal((await warned(f)).report.warningPenaltyDue, true)
+})
+
+test("A penalty never triggers again from warnings before it, and only a full new count triggers the next", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings(enforcing)
+    const { warning } = await warnTimes(f, 3)
+    const { case: opened } = await read(await penalty(f, warning))
+    await read(await f.outcome(opened, "succeeded", { timeoutUntil: new Date(f.now() + 3600000).toISOString() }))
+    f.advance(DAY)
+    assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
+    assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
+    const next = await warned(f)
+    assert.equal(next.report.warningPenaltyDue, true)
+    const again = await read(await penalty(f, next.warning))
+    assert.equal(again.case.linkedCaseNo, next.warning.caseNo)
+    assert.equal((await memberCases(f)).filter((row) => row.origin === "penalty").length, 2)
+    // A failed timeout also spends the count, so it is seen once and never retried
+    await read(await f.outcome(again.case, "failed"))
+    assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
+})
+
+test("A retried outcome report and a retried penalty request produce one penalty", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings(enforcing)
+    const { warning, report } = await warnTimes(f, 3)
+    assert.equal(report.warningPenaltyDue, true)
+    assert.deepEqual(await read(await f.outcome(warning)), { recorded: false })
+    const { grant } = await read(await penalty(f, warning))
+    assert.ok(grant)
+    assert.deepEqual(await read(await f.outcome(warning)), { recorded: false })
+    assert.deepEqual(await read(await penalty(f, warning)), {})
+    assert.equal((await memberCases(f)).filter((row) => row.origin === "penalty").length, 1)
+    // A warning's report answers before the bot's request runs, so two at once both ask and only the first opens a case
+    const [first, second] = [await warned(f), await warned(f)]
+    const third = await warned(f)
+    assert.equal(third.report.warningPenaltyDue, true)
+    await read(await penalty(f, third.warning))
+    assert.deepEqual(await read(await penalty(f, second.warning)), {})
+    assert.deepEqual(await read(await penalty(f, first.warning)), {})
+    await status(await penalty(f, third.warning, { userId: "21" }), 409)
+    await status(await penalty(f, third.warning, { caseNo: third.warning.caseNo + 1 }), 409)
+    const timeout = (await memberCases(f)).find((row) => row.origin === "penalty")!
+    await status(await penalty(f, timeout), 409)
+})
+
+test("Automod warnings count with manual ones, while its dry run warns nobody", async (ctx) => {
+    const f = fixture(ctx)
+    await f.manage({ type: "rule-create", rule: rule("words", { action: "warn", patterns: ["blocked"] }) })
+    await f.settings({ warningPenaltyEnabled: true, automodEnabled: true })
+    assert.equal((await read(await f.evaluate("blocked"))).case.action, "log")
+    await f.settings({ automodMode: "enforce" })
+    await warned(f)
+    const automated = async () => {
+        const result = await read<ModerationEvaluateResult>(await f.evaluate("blocked"))
+        assert.equal(result.grant?.action, "warn")
+        return { warning: result.case!, report: await read(await f.outcome(result.case!)) }
+    }
+    assert.equal((await automated()).report.warningPenaltyDue, undefined)
+    const { warning, report } = await automated()
+    assert.equal(report.warningPenaltyDue, true)
+    const opened = await read(await penalty(f, warning))
+    assert.equal(opened.grant.action, "timeout")
+    assert.equal(opened.case.origin, "penalty")
+    assert.equal(opened.case.linkedCaseNo, warning.caseNo)
+    // DEFCON does not hold automod, so its warnings and their penalty go on
+    await f.settings({ warningPenaltyCount: 2 })
+    await f.settings({ defcon: 1 })
+    await automated()
+    const held = await automated()
+    assert.equal(held.report.warningPenaltyDue, true)
+    assert.equal((await read(await penalty(f, held.warning))).grant.action, "timeout")
+})
+
+test("What NeonFlux may not time out is logged once, and the member starts again from zero", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings({ ...enforcing, warningPenaltyCount: 2, logChannelId: "500" })
+    await f.settings({ staffRoleIds: { moderation: ["700"] } })
+    const logged = async (extra: Record<string, unknown>, reason: string) => {
+        const { warning } = await warnTimes(f, 2)
+        const { case: opened, grant } = await read(await penalty(f, warning, extra))
+        assert.equal(grant.action, "log")
+        assert.equal(grant.durationSeconds, undefined)
+        assert.equal(opened.action, "log")
+        assert.equal(opened.origin, "penalty")
+        assert.equal(opened.reason, reason)
+        assert.equal(opened.linkedCaseNo, warning.caseNo)
+        const done = await read(await f.outcome(opened))
+        assert.equal(done.log.reason, reason)
+        assert.equal(done.notice, undefined)
+        assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
+        await f.manage({ type: "case-void", caseNo: (await memberCases(f))[0]!.caseNo })
+    }
+    const protectedReason = "Automatic: 2 warnings in 30 days (protected member)"
+    const unableReason = "Automatic: 2 warnings in 30 days (NeonFlux could not act)"
+    await logged({ context: { ...context, targetProtected: true, botCanManageTarget: false } }, protectedReason)
+    await logged({ roleIds: ["700"] }, protectedReason)
+    await logged({ context: { ...context, botActionAuthorized: false } }, unableReason)
+    await logged({ context: { ...context, botCanManageTarget: false } }, unableReason)
+    const { currentTimeoutUntil: _unread, ...unread } = context
+    await logged({ context: unread }, unableReason)
+})
+
+test("A longer timeout stays and a shorter one is extended", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings({ ...enforcing, warningPenaltyCount: 2 })
+    const reading = (ms: number) => ({
+        context: { ...context, currentTimeoutUntil: new Date(f.now() + ms).toISOString() },
+    })
+    const first = await warnTimes(f, 2)
+    const longer = await read(await penalty(f, first.warning, reading(3600000 + 1)))
+    assert.equal(longer.grant.action, "log")
+    assert.equal(longer.case.reason, "Automatic: 2 warnings in 30 days (a longer timeout stays)")
+    await read(await f.outcome(longer.case))
+    const second = await warnTimes(f, 2)
+    const equal = await read(await penalty(f, second.warning, reading(3600000)))
+    assert.equal(equal.grant.action, "log")
+    await read(await f.outcome(equal.case))
+    const third = await warnTimes(f, 2)
+    const shorter = await read(await penalty(f, third.warning, reading(3600000 - 1)))
+    assert.equal(shorter.grant.action, "timeout")
+    assert.equal(shorter.grant.durationSeconds, 3600)
+})
+
+test("In dry-run mode reaching the limit only logs, with the mode automod enforcement follows", async (ctx) => {
+    const f = fixture(ctx)
+    await f.settings({ warningPenaltyEnabled: true, logChannelId: "500" })
+    const { warning, report } = await warnTimes(f, 3)
+    assert.equal(report.warningPenaltyDue, true)
+    const { case: opened, grant } = await read(await penalty(f, warning))
+    assert.equal(grant.action, "log")
+    assert.equal(opened.reason, "Automatic: 3 warnings in 30 days (dry run)")
+    const done = await read(await f.outcome(opened))
+    assert.equal(done.log.action, "log")
+    assert.equal(done.notice, undefined)
+    assert.equal((await warned(f)).report.warningPenaltyDue, undefined)
 })

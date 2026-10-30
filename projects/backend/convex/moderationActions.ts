@@ -8,7 +8,8 @@ import type {
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
-import { LOCK_PERMISSIONS, lockMask, ownedPostingBits, retentionUntil, SEND_MESSAGES } from "./moderationDomain.ts"
+import { warningLimit } from "@neonflux/contracts/moderation"
+import { DAY, LOCK_PERMISSIONS, lockMask, ownedPostingBits, retentionUntil, SEND_MESSAGES } from "./moderationDomain.ts"
 import { publicCase, state } from "./moderationStore.ts"
 import { fail } from "./validation.ts"
 
@@ -22,6 +23,45 @@ export function ownedOverwriteEqual(
         (BigInt(a.allow) & mask) === (BigInt(b.allow) & mask) &&
         (BigInt(a.deny) & mask) === (BigInt(b.deny) & mask)
     )
+}
+/**
+ * Whether a member's warnings have reached the server's warning limit: Warnings whose delivery succeeded and that were not voided, created
+ * within the window and after the member's last penalty case. That case is what makes the limit trigger once, since a warning numbered before
+ * it never counts again. Reads the member's warnings newest first and stops at the limit or the window's start
+ */
+export async function warningPenaltyDue(
+    ctx: MutationCtx,
+    serverId: string,
+    targetId: string,
+    settings: ModerationSettings,
+    now: number,
+) {
+    const limit = warningLimit(settings)
+    if (!limit.warningPenaltyEnabled) return false
+    const last = await ctx.db
+        .query("moderationCases")
+        .withIndex("by_server_user_origin", (q) =>
+            q.eq("serverId", serverId).eq("targetId", targetId).eq("origin", "penalty"),
+        )
+        .order("desc")
+        .first()
+    const since = now - limit.warningPenaltyDays * DAY
+    const warnings = ctx.db
+        .query("moderationCases")
+        .withIndex("by_server_user_action", (q) =>
+            q
+                .eq("serverId", serverId)
+                .eq("targetId", targetId)
+                .eq("action", "warn")
+                .gt("caseNo", last?.caseNo ?? 0),
+        )
+        .order("desc")
+    let count = 0
+    for await (const warning of warnings) {
+        if (warning.createdAt < since) return false
+        if (warning.outcome === "succeeded" && !warning.voided && ++count >= limit.warningPenaltyCount) return true
+    }
+    return false
 }
 export async function reserveAction(
     ctx: MutationCtx,

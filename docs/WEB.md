@@ -100,6 +100,8 @@ Last result shows whether the bot is still working on the change, whether it was
 
 **Automod policy** also has **Check webhook and other bots' messages**, the same switch as `!automod bots on|off`. New automod rules offer the types **Mentions over time**, **Links over time** and **Deceptive links** beside the others. The rule form starts every type at 5 in 10 seconds, so the wanted threshold and window must be set. See [the bot guide](BOT.md#automod) for how each type counts. The bot learns a changed bot message switch from the server's next member message
 
+**Warning limit** has the switch and values of `!mod warn-limit`: How many warnings, from 2 to 20, within how many days, from 1 to 365, and the timeout in seconds, up to a year. It starts off, at 3 warnings in 30 days and 3600 seconds, and notes when automod's dry run means reaching the limit is only logged. [The bot guide](BOT.md#warning-limit) describes what counts and when no timeout happens
+
 **Moderation and staff** has **Keep cases**, the same setting as `!mod retention`: **Until erased**, the default, or **For a number of days** from 1 to 3650. A rule holds up to 1000 patterns. Besides one field per pattern, the rule form takes a pasted list with one pattern per line and either adds the new ones at once or replaces the whole list with them, leaving lines that are too long or past the limit in the box. **Remove all rule patterns** clears the list in one click. For **Words** rules the form notes that patterns match whole words and that a `*` at the start or end matches part of a word, as [the bot guide](BOT.md#automod) describes
 
 ### Role picker

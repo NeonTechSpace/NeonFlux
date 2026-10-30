@@ -201,6 +201,15 @@ test("Website and command setting changes record who changed what, newest first,
     await credentialFree(t)
 })
 
+test("Change summaries name the warning limit's switch and values", () => {
+    assert.equal(
+        describeChange(
+            { settings: { warningPenaltyEnabled: false, warningPenaltyCount: 3 } },
+            { settings: { warningPenaltyEnabled: true, warningPenaltyCount: 5 } },
+        ),
+        "warningPenaltyEnabled: off → on; warningPenaltyCount: 3 → 5",
+    )
+})
 test("Change summaries cover every custom command, which the website reads in one page", async () => {
     const { t, page } = await fixture()
     let messageId = 1000

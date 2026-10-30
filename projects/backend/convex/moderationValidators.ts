@@ -16,7 +16,12 @@ export const moderationAction = v.union(
     v.literal("quarantine"),
     v.literal("release"),
 )
-export const moderationOrigin = v.union(v.literal("manual"), v.literal("automod"), v.literal("security"))
+export const moderationOrigin = v.union(
+    v.literal("manual"),
+    v.literal("automod"),
+    v.literal("security"),
+    v.literal("penalty"),
+)
 export const moderationCaseOutcome = v.union(
     v.literal("pending"),
     v.literal("succeeded"),
@@ -76,6 +81,10 @@ export const moderationSettings = v.object({
     appealsEnabled: v.boolean(),
     defcon: v.union(v.literal(1), v.literal(2), v.literal(3)),
     caseRetentionDays: v.optional(v.union(v.number(), v.null())),
+    warningPenaltyEnabled: v.optional(v.boolean()),
+    warningPenaltyCount: v.optional(v.number()),
+    warningPenaltyDays: v.optional(v.number()),
+    warningPenaltySeconds: v.optional(v.number()),
 })
 
 export const automodRule = v.object({
