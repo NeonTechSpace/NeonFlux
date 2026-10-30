@@ -48,6 +48,7 @@ export const BUILT_IN_COMMANDS = [
     "auto",
     "sticky",
     "youtube",
+    "twitch",
     "cleanup",
     "ticket",
     "solved",

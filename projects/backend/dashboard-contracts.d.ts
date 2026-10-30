@@ -330,6 +330,7 @@ import type { TemporaryRoleGrant, TemporaryRoleSettings } from "@neonflux/contra
 import type { TicketCategory, TicketSettings } from "@neonflux/contracts/tickets"
 import type { VoiceGenerator } from "@neonflux/contracts/voice"
 import type { YoutubeView } from "@neonflux/contracts/youtube"
+import type { TwitchView } from "@neonflux/contracts/twitch"
 
 export interface DashboardConfigurationDataMap {
     responses: { settings: { customEnabled: boolean; autoEnabled: boolean }; definitions: ResponseDefinition[] }
@@ -370,6 +371,7 @@ export interface DashboardConfigurationDataMap {
     showcase: { settings: ShowcaseSettings; access: MemberAccessLists }
     profile: { settings: ProfileSettings; access: MemberAccessLists }
     youtube: YoutubeView
+    twitch: TwitchView
 }
 export type DashboardConfigurationCollection =
     "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"

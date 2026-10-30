@@ -206,6 +206,15 @@ export const PublishingYoutubeConsumer = Schema.Struct({
     videoId: Schema.String.check(Schema.makeFilter(isYoutubeVideoId)),
 })
 export type PublishingYoutubeConsumer = typeof PublishingYoutubeConsumer.Type
+/** Twitch logins and numeric broadcaster IDs, and the numeric stream ID used to deduplicate alerts */
+export const isTwitchChannelId = (value: string) => /^(?:[a-z0-9_]{1,25}|pending:[0-9]{1,25})$/.test(value),
+    isTwitchStreamId = (value: string) => /^[0-9]{1,30}$/.test(value)
+export const PublishingTwitchConsumer = Schema.Struct({
+    type: Schema.Literal("twitch"),
+    twitchChannelId: Schema.String.check(Schema.makeFilter(isTwitchChannelId)),
+    streamId: Schema.String.check(Schema.makeFilter(isTwitchStreamId)),
+})
+export type PublishingTwitchConsumer = typeof PublishingTwitchConsumer.Type
 export const PublishingSuggestionConsumer = Schema.Struct({
     type: Schema.Literal("suggestion-card"),
     ...SuggestionsCardBinding.fields,
@@ -260,11 +269,13 @@ export const PublishingConsumer = Schema.Union([
     PublishingMilestoneConsumer,
     PublishingSuggestionConsumer,
     PublishingYoutubeConsumer,
+    PublishingTwitchConsumer,
 ])
 export type PublishingConsumer = typeof PublishingConsumer.Type
 
 export const PublishingSource = Schema.Union([
     PublishingYoutubeConsumer,
+    PublishingTwitchConsumer,
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: Token, createdAt: Millis }),
     Schema.Struct({ type: Schema.Literal("showcase"), jobId: Token, createdAt: Millis }),
     Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: Token, createdAt: Millis }),
@@ -311,6 +322,7 @@ export const PublishingProvenance = Schema.Union([
         intentRevision: Int(1),
         template: MilestonesTemplateSource,
     }),
+    PublishingTwitchConsumer,
 ])
 export type PublishingProvenance = typeof PublishingProvenance.Type
 
@@ -353,6 +365,16 @@ function boundProvenance(v: GrantFields) {
             equalUnknown(v.source, v.provenance) &&
             equalUnknown(v.consumer, v.provenance) &&
             v.sourceId === `youtube_${v.provenance.youtubeChannelId}_${v.provenance.videoId}` &&
+            v.draftKind === undefined &&
+            v.draftName === undefined &&
+            v.draftRevision === undefined
+        )
+    if (v.provenance?.type === "twitch")
+        return (
+            v.action === "send" &&
+            equalUnknown(v.source, v.provenance) &&
+            equalUnknown(v.consumer, v.provenance) &&
+            v.sourceId === `twitch_${v.provenance.twitchChannelId}_${v.provenance.streamId}` &&
             v.draftKind === undefined &&
             v.draftName === undefined &&
             v.draftRevision === undefined

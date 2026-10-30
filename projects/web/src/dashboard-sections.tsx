@@ -46,6 +46,7 @@ export const navigation = [
             ["greetings", "Greetings"],
             ["schedules", "Schedules"],
             ["youtube", "YouTube alerts"],
+            ["twitch", "Twitch alerts"],
         ],
     ],
     [
@@ -104,6 +105,7 @@ export const sectionIcons: Record<SectionId, string> = {
     greetings: "M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1",
     schedules: "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18zM12 7v5l3 2",
     youtube: "M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3zM10 9l5 3-5 3z",
+    twitch: "M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3zM10 9l5 3-5 3z",
     tickets: "M3 7h18v3a2 2 0 0 0 0 4v3H3v-3a2 2 0 0 0 0-4zM14 7v10",
     leveling: "M3 17l6-6 4 4 8-8M15 7h6v6",
     milestones: "M5 21V4M5 4h11l-2 4 2 4H5",
@@ -182,6 +184,7 @@ const loaders: Record<SectionId, () => Promise<Section>> = {
     alerts: configuration,
     helpdesk: configuration,
     youtube: configuration,
+    twitch: configuration,
     logs: () => import("./log-settings").then((module) => module.LogsSection),
     reaction: roles,
     autorole: roles,

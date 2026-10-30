@@ -1334,6 +1334,28 @@ The commands work for the server owner and members with Administrator or Manage 
 - A test alert is sent directly and is not tracked. It needs the same permissions as an alert
 - YouTube alerts need the hub address in the backend deployment's settings, described in [the backend guide](BACKEND.md#youtube-upload-alerts). Without it `!youtube add` answers that YouTube alerts are not available
 
+## Twitch live alerts
+
+NeonFlux posts live alerts for up to 10 Twitch streamers per server, only from Twitch's `stream.online` version 1 webhook notifications. No stream polling runs, and adding a streamer who is already live posts nothing until the next live stream starts
+
+The commands have the same manager permissions and DEFCON staff rules as [YouTube upload alerts](#youtube-upload-alerts). The dashboard's [Twitch alerts](WEB.md#twitch-alerts) section changes the same settings
+
+| Command | Behavior |
+| --- | --- |
+| `!twitch add <login-or-link> #channel` | Follow a streamer in a text, announcement or forum channel, or move and restart existing alerts |
+| `!twitch remove <name>` | Stop following a streamer |
+| `!twitch status [name]` | Show all followed streamers, or one streamer's connection, latest stream, notification and post |
+| `!twitch test <name>` | Post a labelled test, using the last known stream or a placeholder |
+| `!twitch help` | Show syntax |
+
+A login or `twitch.tv/<login>` link names a streamer. Status, remove and test also accept a followed streamer's display name. The backend resolves a login to the stable numeric broadcaster ID and keeps following that ID after a rename. Notifications refresh the login and display name. An unknown login shows its error in status and the recovery inbox, and needs a current login added instead
+
+Each alert is one embed linking the streamer's Twitch channel, with the display name and Twitch in the footer. A best-effort read adds the title, game and thumbnail, with a two-second deadline and no retry. Mentions in titles are broken up. In a forum, each alert becomes its own post
+
+Delivery uses the same [publisher](#drafts-templates-and-posts) rules as YouTube: Fresh channel permissions, stopped alerts and a staff note for a missing channel or permission, a hold while publishing is off or DEFCON is below 3, at most one send per server and stream, no retry after an unknown outcome, a drop after two hours, since the stream may have ended by then, and 30-day retention. Unknown outcomes stay until resolved. Test alerts are direct and untracked
+
+All servers share one Twitch subscription per broadcaster. The last unfollow deletes it, including when a removed server is purged. Failed Twitch requests retry with backoff. A revoked subscription shows Twitch's reason in status and recovery, and only a recoverable delivery or maintenance failure retries automatically. Missing credentials make adds unavailable, as described in [the backend guide](BACKEND.md#twitch-live-alerts)
+
 ## Server structure editor
 
 The dashboard's [server structure](WEB.md#server-structure) section has no chat command. The bot answers its requests through the same dashboard worker as the permission check, with its own token and never the manager's sign-in:

@@ -31,6 +31,7 @@ const unpaged: Partial<Record<DashboardConfigurationFamily, List[]>> = {
     sticky: [top("stickies", (sticky) => `sticky:${sticky.channelId}`)],
     voice: [top("generators", (generator) => `generator:${generator.channelId}`)],
     youtube: [top("subscriptions", (row) => `youtube:${row.youtubeChannelId}`)],
+    twitch: [top("subscriptions", (row) => `twitch:${row.twitchChannelId}`)],
 }
 
 /** Adds the rows that left the snapshot back while keep says one of their forms holds an unsaved edit */

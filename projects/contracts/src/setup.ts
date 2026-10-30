@@ -39,6 +39,7 @@ const sections = [
     "showcase",
     "profile",
     "youtube",
+    "twitch",
 ] as const
 export const DashboardOverviewSection = Schema.Literals(sections)
 export type DashboardOverviewSection = typeof DashboardOverviewSection.Type
@@ -121,6 +122,7 @@ export const RecoverySource = Schema.Literals([
     "logs",
     "helpdesk",
     "youtube",
+    "twitch",
     "defcon",
     "removals",
 ])

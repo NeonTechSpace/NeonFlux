@@ -118,6 +118,7 @@ import {
     structureWork,
 } from "./structureValidators.ts"
 import { youtubeDeliveryState, youtubeMode, youtubePreview, youtubeProblem } from "./youtubeValidators.ts"
+import { twitchDeliveryState, twitchMode, twitchProblem } from "./twitchValidators.ts"
 
 export default defineSchema({
     // The single retention chain row. It holds the scheduled run's generation and lease, the last finished run and the passes isolated after failing
@@ -2092,6 +2093,75 @@ export default defineSchema({
         attemptId: v.optional(v.id("publishingAttempts")),
     })
         .index("by_video", ["serverId", "youtubeChannelId", "videoId"])
+        .index("by_server_due", ["serverId", "state", "nextCheckAt"])
+        .index("by_global_due", ["state", "nextCheckAt"])
+        .index("by_expiry", ["expiresAt"]),
+    // One EventSub source per broadcaster, resolved from a login in an action. Secrets stay here, outside configuration snapshots
+    twitchSources: defineTable({
+        twitchChannelId: v.string(),
+        mode: twitchMode,
+        secret: v.optional(v.string()),
+        login: v.optional(v.string()),
+        subscriptionId: v.optional(v.string()),
+        stopped: v.optional(v.boolean()),
+        title: v.optional(v.string()),
+
+        dueAt: v.number(),
+        failures: v.number(),
+        requestedAt: v.optional(v.number()),
+        verifiedAt: v.optional(v.number()),
+
+        lastError: v.optional(v.string()),
+        lastNotificationAt: v.optional(v.number()),
+        createdAt: v.number(),
+    })
+        .index("by_channel", ["twitchChannelId"])
+        .index("by_login", ["login"])
+        .index("by_due", ["dueAt"]),
+    // Streams seen in notifications, so a repeated or updated entry posts nothing. Kept 30 days after the last notification that named them
+    twitchStreams: defineTable({
+        streamId: v.string(),
+        twitchChannelId: v.string(),
+        title: v.string(),
+        game: v.optional(v.string()),
+        thumbnail: v.optional(v.string()),
+        publishedAt: v.number(),
+        seenAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_stream", ["streamId"])
+        .index("by_channel", ["twitchChannelId", "publishedAt"])
+        .index("by_expiry", ["expiresAt"]),
+    // At most 10 Twitch channels per server. NeonFlux turns one off with a problem when its destination is gone or it cannot post there
+    twitchSubscriptions: defineTable({
+        serverId: v.string(),
+        twitchChannelId: v.string(),
+        channelId: v.string(),
+        enabled: v.boolean(),
+        problem: v.optional(twitchProblem),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+        lastPostAt: v.optional(v.number()),
+    })
+        .index("by_server", ["serverId", "twitchChannelId"])
+        .index("by_source", ["twitchChannelId", "serverId"]),
+    // One alert per server, Twitch broadcaster and stream, created once when its notification arrives. Deleted 30 days later with its tracked post
+    twitchDeliveries: defineTable({
+        serverId: v.string(),
+        twitchChannelId: v.string(),
+        streamId: v.string(),
+        title: v.string(),
+        game: v.optional(v.string()),
+        thumbnail: v.optional(v.string()),
+        state: twitchDeliveryState,
+        nextCheckAt: v.number(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        postNo: v.optional(v.number()),
+        attemptId: v.optional(v.id("publishingAttempts")),
+    })
+        .index("by_stream", ["serverId", "twitchChannelId", "streamId"])
         .index("by_server_due", ["serverId", "state", "nextCheckAt"])
         .index("by_global_due", ["state", "nextCheckAt"])
         .index("by_expiry", ["expiresAt"]),

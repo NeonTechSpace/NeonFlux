@@ -19,6 +19,7 @@ import {
     PublishingKind,
     PublishingName,
     PublishingYoutubeConsumer,
+    PublishingTwitchConsumer,
     SchedulesContentSource,
 } from "./publishing-base.ts"
 import { MemberAccessLists } from "./shared.ts"
@@ -358,6 +359,11 @@ const values = {
         youtubeChannelId: PublishingYoutubeConsumer.fields.youtubeChannelId,
         channelId: Id,
     }),
+    /** A Twitch follow. EventSub secrets and tokens stay out, and a restore follows the stable broadcaster again */
+    twitch: Schema.Struct({
+        twitchChannelId: PublishingTwitchConsumer.fields.twitchChannelId,
+        channelId: Id,
+    }),
 }
 export type BackupConfigValues = { readonly [K in keyof typeof values]: (typeof values)[K]["Type"] }
 /** The configuration families, in the order a restore plan lists them */
@@ -404,6 +410,7 @@ const configObjects = Schema.Union([
     entry("showcase"),
     entry("profile"),
     entry("youtube"),
+    entry("twitch"),
 ])
 /**
  * What names a configuration object within its family: a response, draft or template by kind and name, a rule, panel, ticket category, event,
@@ -432,6 +439,8 @@ export function backupConfigIdentity(object: typeof configObjects.Type) {
             return object.value.feature
         case "youtube":
             return object.value.youtubeChannelId
+        case "twitch":
+            return object.value.twitchChannelId
         default:
             return object.family
     }
@@ -470,6 +479,7 @@ export const BACKUP_DASHBOARD_COVERAGE: Record<
     showcase: ["showcase", "access"],
     profile: ["profile", "access"],
     youtube: ["youtube"],
+    twitch: ["twitch"],
 }
 export const BackupConfigObject = configObjects.check(
     Schema.makeFilter((object) => object.sourceId === backupConfigIdentity(object)),

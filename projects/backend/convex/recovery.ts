@@ -18,6 +18,7 @@ import { TEMPORARY_ROLE_KEY } from "./temporaryRolesStore.ts"
 import { ONBOARDING_ROLE_KEY } from "./onboardingDomain.ts"
 import { decode } from "./validation.ts"
 import { youtubeSource, youtubeSubscriptions } from "./youtubeStore.ts"
+import { twitchSource, twitchSubscriptions } from "./twitchStore.ts"
 
 // The recovery inbox: failed, stuck or uncertain work that a feature already records, the features that are on but cannot act and the
 // problems of the latest permission check. It adds no tracking of its own. Each source reads at most RECOVERY_SCAN rows through its
@@ -123,6 +124,26 @@ async function publishingEntry(ctx: QueryCtx, attempt: Doc<"publishingAttempts">
             unknown
                 ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed. NeonFlux never posts an alert twice`
                 : "!youtube status shows the channel's alerts",
+            attempt.createdAt,
+        )
+    }
+    if (consumer.type === "twitch") {
+        // The alert names its stream by title, read once from the server's own delivery row
+        const delivery = await ctx.db
+            .query("twitchDeliveries")
+            .withIndex("by_stream", (q) =>
+                q
+                    .eq("serverId", attempt.serverId)
+                    .eq("twitchChannelId", consumer.twitchChannelId)
+                    .eq("streamId", consumer.streamId),
+            )
+            .first()
+        return work(
+            "twitch",
+            `Twitch alert for ${delivery ? `the stream ${delivery.title}` : "a new stream"}: ${outcome}`,
+            unknown
+                ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed. NeonFlux never posts an alert twice`
+                : "!twitch status shows the channel's alerts",
             attempt.createdAt,
         )
     }
@@ -479,6 +500,46 @@ async function readYoutube(ctx: QueryCtx, serverId: string) {
     }
     return entries
 }
+// Followed channels NeonFlux turned off, with the fix, and streamers whose EventSub subscription or login lookup failed
+async function readTwitch(ctx: QueryCtx, serverId: string) {
+    const entries: Work[] = []
+    for (const row of await twitchSubscriptions(ctx, serverId)) {
+        const source = await twitchSource(ctx, row.twitchChannelId),
+            name = source?.title ?? source?.login ?? row.twitchChannelId,
+            hubError = source?.lastError
+        // Twitch commands take a followed channel's name, so the steps name it as entries do
+        const again = `then turn the alerts back on with !twitch add ${name} #channel`
+        if (row.problem === "channel")
+            entries.push(
+                work(
+                    "twitch",
+                    `Twitch alerts for ${name} are off: Their channel ${channel(row.channelId)} is gone or cannot hold alerts`,
+                    `Choose a text, announcement or forum channel, ${again}`,
+                    row.updatedAt,
+                ),
+            )
+        else if (row.problem === "permission")
+            entries.push(
+                work(
+                    "twitch",
+                    `Twitch alerts for ${name} are off: NeonFlux cannot post in ${channel(row.channelId)}`,
+                    `Give NeonFlux View channel, Send messages and Embed links in that channel, ${again}`,
+                    row.updatedAt,
+                ),
+            )
+        else if (hubError)
+            entries.push(
+                work(
+                    "twitch",
+                    `Twitch alerts for ${name} may miss streams: ${hubError}`,
+                    source?.stopped
+                        ? `Check the Twitch login or revocation reason, then remove and add a working streamer. !twitch status ${name} shows the problem`
+                        : `NeonFlux asks Twitch again on its own, waiting longer after each failure. !twitch status ${name} shows the latest attempt`,
+                ),
+            )
+    }
+    return entries
+}
 
 async function readCurrent(ctx: QueryCtx, serverId: string, now: number) {
     // Custom commands and autoresponders start on, so having none yet is not a problem
@@ -553,6 +614,7 @@ export async function readRecoveryInbox(
         ...(await readGreetings(ctx, serverId, now)),
         ...(await readBlockedDeliveries(ctx, serverId)),
         ...(await readYoutube(ctx, serverId)),
+        ...(await readTwitch(ctx, serverId)),
     ]
     const at = (entry: RecoveryEntry) =>
         entry.kind === "feature" ? Number.MAX_SAFE_INTEGER : (entry.at ?? Number.MAX_SAFE_INTEGER)

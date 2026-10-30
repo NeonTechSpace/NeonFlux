@@ -304,6 +304,13 @@ export const commandTable = [
         description: "Post new uploads from YouTube channels",
     },
     {
+        name: "twitch",
+        feature: "twitch",
+        group: "messages",
+        audience: "manager",
+        description: "Post live alerts from Twitch streamers",
+    },
+    {
         name: "cleanup",
         feature: "cleanup",
         group: "messages",
@@ -508,7 +515,7 @@ export function helpCard(prefix: string, allowed: ReadonlySet<Audience>, topic?:
             list.map((entry) => `${code(`!${entry.name}`)}: ${entry.description}`).join("\n"),
             prefix,
         ),
-        ...(example
+        ...(example && list.length <= 8
             ? {
                   note: withPrefix(
                       `Add help to a command to see how to use it, such as ${code(`!${example.name} help`)}`,

@@ -1707,6 +1707,11 @@ async function authoredConfig(): Promise<BackupConfigObject[]> {
             sourceId: youtubeChannel,
             value: { youtubeChannelId: youtubeChannel, channelId: "31" },
         },
+        {
+            family: "twitch",
+            sourceId: "synthetic",
+            value: { twitchChannelId: "synthetic", channelId: "31" },
+        },
     ]
 }
 /** A YouTube channel ID of the right shape, which the tests never contact */
@@ -1717,6 +1722,18 @@ const youtubeChannel = "UCsyntheticBackupChannel"
  */
 const ahead = "2023-11-17T12:00:00.000Z"
 async function followed(f: Awaited<ReturnType<typeof adapterFixture>>, t: TestContext) {
+    process.env.NEONFLUX_TWITCH_CLIENT_ID = "synthetic-client"
+    process.env.NEONFLUX_TWITCH_CLIENT_SECRET = "synthetic-secret"
+    await f.backend.run((ctx) =>
+        ctx.db.insert("twitchSources", {
+            twitchChannelId: "synthetic",
+            mode: "subscribe",
+            title: "Synthetic",
+            dueAt: f.now() + 86400000,
+            failures: 0,
+            createdAt: f.now(),
+        }),
+    )
     const env = { hub: process.env.NEONFLUX_WEBSUB_HUB_URL, base: process.env.NEONFLUX_WEBSUB_CALLBACK_BASE }
     process.env.NEONFLUX_WEBSUB_HUB_URL = "https://hub.synthetic.invalid/subscribe"
     process.env.NEONFLUX_WEBSUB_CALLBACK_BASE = "https://alerts.synthetic.invalid"

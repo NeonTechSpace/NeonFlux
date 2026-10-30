@@ -10,12 +10,14 @@ import { permissionNames } from "@neonflux/contracts/permission-names"
 import { autoroleIds, safeRole } from "./rolesDomain.ts"
 import { rolePolicy } from "./roleClaims.ts"
 import { readRolePicker } from "./rolePickerStore.ts"
+import { twitchConfig } from "./twitchDomain.ts"
 import { websubConfig } from "./youtubeDomain.ts"
 import { HELPDESK_ANSWER_LIMIT } from "@neonflux/contracts/helpdesk"
 import { STICKY_LIMIT } from "@neonflux/contracts/sticky"
 import { CLEANUP_POLICY_LIMIT } from "@neonflux/contracts/cleanup"
 import { VOICE_GENERATOR_LIMIT } from "@neonflux/contracts/voice"
 import { YOUTUBE_LIMIT } from "@neonflux/contracts/youtube"
+import { TWITCH_LIMIT } from "@neonflux/contracts/twitch"
 import { object } from "./validation.ts"
 import { SERVER_PATTERNS } from "./moderationDomain.ts"
 import { cleanupExclusionsRefusal } from "./cleanupDomain.ts"
@@ -121,6 +123,7 @@ async function backupConfigurationCapacity(
         sticky: [STICKY_LIMIT, "sticky messages"],
         helpdeskAnswer: [HELPDESK_ANSWER_LIMIT, "saved answers"],
         youtube: [YOUTUBE_LIMIT, "followed YouTube channels"],
+        twitch: [TWITCH_LIMIT, "followed Twitch channels"],
     }
     const limit = limits[item.family]
     if (limit && rows.length + same.length >= limit[0])
@@ -272,6 +275,7 @@ function backupConfigReferences(
         case "schedule":
         case "sticky":
         case "youtube":
+        case "twitch":
             channel(item.value.channelId)
             break
         case "showcase":
@@ -440,6 +444,8 @@ function backupFamilyRefusal(
         return "An event with this name is published, cancelled or being forgotten, so a restore leaves it alone. Forget it or rename the archived one first"
     if (item.family === "schedule" && row?.cancelled === true)
         return "A schedule with this name was cancelled, and a cancelled schedule stays cancelled. Forget it first"
+    if (item.family === "twitch" && !twitchConfig())
+        return "Twitch alerts are not set up for this NeonFlux, so it cannot follow Twitch streamers"
     if (item.family === "youtube" && !websubConfig())
         return "YouTube alerts are not set up for this NeonFlux, so it cannot follow YouTube channels"
     return null

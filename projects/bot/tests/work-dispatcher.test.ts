@@ -331,6 +331,7 @@ const workerPaths: Record<ServiceWorkKind, string> = {
     tickets: "/tickets/work",
     lfg: "/lfg/work",
     youtube: "/youtube/work",
+    twitch: "/twitch/work",
 }
 type Seen = { path: string; server: string | undefined; body: unknown }
 function multiBackend(firstPass: Promise<ServiceWork>, setupHold?: Promise<void>) {

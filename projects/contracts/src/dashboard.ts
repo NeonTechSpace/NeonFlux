@@ -38,6 +38,7 @@ import { TemporaryRoleOperation } from "./temporary-roles.ts"
 import { TicketConfigurationOperation, TicketContext, TicketPanel } from "./tickets.ts"
 import { VoiceDashboardContext, VoiceManageOperation } from "./voice.ts"
 import { YoutubeOperation } from "./youtube.ts"
+import { TwitchOperation } from "./twitch.ts"
 
 // Website jobs the bot carries out with fresh native evidence: configuration changes, messages, role panels and logging settings,
 // see docs/BACKEND.md#dashboard-and-web-verification. Configuration jobs reuse each family's chat operations wherever the website makes the same change
@@ -90,6 +91,7 @@ export const DashboardConfigurationFamily = Schema.Literals([
     "showcase",
     "profile",
     "youtube",
+    "twitch",
 ])
 export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.Type
 /** A calendar as the website asks for it. The bot resolves its dates when it carries out the job */
@@ -233,6 +235,7 @@ export const DashboardConfigurationOperationMap = {
     showcase: Schema.Union([ShowcaseOperation.members[0], accessSet]),
     profile: Schema.Union([ProfileOperation.members[0], accessSet]),
     youtube: YoutubeOperation,
+    twitch: TwitchOperation,
 } satisfies Record<DashboardConfigurationFamily, Schema.Top>
 export type DashboardConfigurationOperationMap = {
     [K in DashboardConfigurationFamily]: (typeof DashboardConfigurationOperationMap)[K]["Type"]

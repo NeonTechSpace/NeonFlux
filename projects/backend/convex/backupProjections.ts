@@ -20,6 +20,7 @@ import { STICKY_LIMIT } from "@neonflux/contracts/sticky"
 import { CLEANUP_POLICY_LIMIT } from "@neonflux/contracts/cleanup"
 import { VOICE_GENERATOR_LIMIT } from "@neonflux/contracts/voice"
 import { YOUTUBE_LIMIT } from "@neonflux/contracts/youtube"
+import { TWITCH_LIMIT } from "@neonflux/contracts/twitch"
 
 // Each query is indexed by the configured server. Caps are the features' own limits, so a larger family is corrupt. Drafts, templates and
 // ticket categories have no limit of their own, and events and schedules keep their cancelled and finished definitions beside the live
@@ -72,6 +73,7 @@ const BACKUP_CONFIG_PROJECTIONS = {
     showcase: { table: "showcaseSettings", index: "by_server", cap: 1, path: "" },
     profile: { table: "profileSettings", index: "by_server", cap: 1, path: "" },
     youtube: { table: "youtubeSubscriptions", index: "by_server", cap: YOUTUBE_LIMIT, path: "" },
+    twitch: { table: "twitchSubscriptions", index: "by_server", cap: TWITCH_LIMIT, path: "" },
 } as const satisfies Record<BackupConfigFamily, { table: TableNames; index: string; cap: number; path: string }>
 type Read = QueryCtx | MutationCtx
 type JsonSchema = { type: string; value?: unknown }

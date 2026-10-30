@@ -12,12 +12,12 @@ NeonFlux uses a Convex cloud development deployment. Use a [deployment-specific 
 2. Open its deployment settings and copy its deployment URL, which normally ends in `.convex.cloud`
 3. Create a development deploy key with permission to deploy functions and configure environment variables
 4. Copy [the backend environment example](../projects/backend/.env.example), a template for the Convex CLI only, to `projects/backend/.env.local` and fill `CONVEX_DEPLOY_KEY`
-5. Set the deployment's variables from [the table below](#environment-variables) through the dashboard: the server scope, `NEONFLUX_BOT_API_SECRET`, the website origin, the OAuth application ID, the Turnstile secret for web verification and the WebSub values for YouTube alerts. Local `.env.local` values do not reach the deployed functions
+5. Set the deployment's variables from [the table below](#environment-variables) through the dashboard: the server scope, `NEONFLUX_BOT_API_SECRET`, the website origin, the OAuth application ID, the Turnstile secret for web verification and the WebSub values for YouTube alerts and Twitch credentials. Local `.env.local` values do not reach the deployed functions
 6. Set the same secret in `projects/bot/.env`, with `CONVEX_URL` set to the copied deployment URL. The bot adopts the scope and the website origin from the deployment. See [the bot guide](BOT.md) for the bot token and the remaining bot settings
 
 Keep the bot API secret separate from the Fluxer bot token, OAuth credentials and the Convex deploy key. The deploy key belongs only in the backend's local configuration. Never provision the whole backend `.env.local` with `convex env set --from-file`, because that would upload the deploy key into the application environment. Environment files are ignored, and only the examples belong in version control
 
-The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.site`. The backend's only HTTP action is the callback that YouTube's hub calls for [YouTube upload alerts](#youtube-upload-alerts), and the bot never uses it. Copy the exact URL when using a custom domain. The backend uses standard Convex functions and environment variables with no cloud-only identity dependency, but a self-hosted deployment procedure is not documented or verified
+The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.site`. The backend's HTTP actions are the callbacks for [YouTube upload alerts](#youtube-upload-alerts) and [Twitch live alerts](#twitch-live-alerts), and the bot never uses them. Copy the exact URL when using a custom domain. The backend uses standard Convex functions and environment variables with no cloud-only identity dependency, but a self-hosted deployment procedure is not documented or verified
 
 ### Environment variables
 
@@ -35,6 +35,8 @@ The bot needs the deployment URL, not the HTTP Actions URL ending in `.convex.si
 | `NEONFLUX_MONTHLY_CALL_BUDGET` | Convex | Optional monthly budget in billed function calls for the [bill guard](#bill-guard). Leave it absent to turn the guard off |
 | `NEONFLUX_BUDGET_WARNING_SHARE` | Convex | Optional share of the budget at which the bill guard warns, above 0 and below 0.9. Defaults to 0.65 |
 | `NEONFLUX_WEBSUB_HUB_URL` | Convex | Optional address of the WebSub hub that [YouTube upload alerts](#youtube-upload-alerts) subscribe at, such as `https://pubsubhubbub.appspot.com/subscribe` |
+| `NEONFLUX_TWITCH_CLIENT_ID` | Convex | Twitch application's client ID, required with the client secret for [Twitch live alerts](#twitch-live-alerts) |
+| `NEONFLUX_TWITCH_CLIENT_SECRET` | Convex | Twitch application's client secret, used only inside actions to obtain a temporary app access token |
 | `NEONFLUX_WEBSUB_CALLBACK_BASE` | Convex | Optional origin that the hub calls back instead of the deployment's own `CONVEX_SITE_URL`, such as a custom domain for its HTTP actions. It cannot have a path |
 
 Invalid or ambiguous scope configuration, an invalid `NEONFLUX_WEBSITE_URL` or a short or padded bot secret fails closed with `503 Backend not configured` and logs the variable to fix, never its value. Generate the bot API secret randomly and rotate it in Convex and the bot together
@@ -470,6 +472,34 @@ Alerts reach Fluxer through the [publisher](#publishing). `list` returns up to 1
 
 Dashboard changes use the configuration family `youtube`, with `add`, which also moves a followed channel's alerts and turns them back on, and `remove`. Chat and dashboard changes share its revision, and audit log entries name the YouTube channel ID. The overview reports YouTube alerts as on while the server follows a channel, as needing setup when NeonFlux turned every followed channel off, and as off otherwise. `youtubeSubscriptions` and `youtubeDeliveries` join the [purge of removed servers](#server-data-after-removal), while sources and videos stay. A source whose last follower was purged unsubscribes at its next sweep
 
+## Twitch live alerts
+
+Twitch alerts use EventSub webhooks of type `stream.online`, version `1`, only for events with `type: "live"`. The backend needs both Twitch variables from the [variables table](#environment-variables), and the same HTTPS callback origin as YouTube, `CONVEX_SITE_URL` or `NEONFLUX_WEBSUB_CALLBACK_BASE`. No Twitch credential reaches the bot or browser. Each action obtains an app access token with the client credentials flow and never stores it
+
+`twitchSources` holds one shared source per broadcaster. An unresolved login first occupies its own source, and a scheduled action resolves it through `GET /helix/users?login=`, migrating followers in pages of 100 to the stable numeric ID. A missing login records a terminal error visible in status and recovery. Sources retain their first random 32-byte secret as 64 ASCII hex characters, their subscription ID, current login and display name, latest notification, connection error and retry state. Notifications update renamed logins without changing broadcaster identity
+
+`twitchSubscriptions` holds at most 10 follows per server. `twitchStreams` holds seen stream IDs and optional metadata for 30 days. `twitchDeliveries` holds one alert per server and stream. Configuration snapshots, backup, export and audit history include follows but exclude source secrets and tokens. Restoring a follow runs the same add operation, resolving the numeric ID through `GET /helix/users?id=` if needed
+
+### EventSub callback
+
+[http.ts](../projects/backend/convex/http.ts) serves `POST /eventsub/twitch?channel=<broadcaster-ID>` at the callback origin. The query identifies the source before parsing the body
+
+- Bodies are limited to 64 KiB, ample for a single stream event and bounded before authentication, even without a length header
+- `Twitch-Eventsub-Message-Signature` must be a SHA-256 HMAC over message ID, timestamp and raw body bytes. Web Crypto verifies it in constant time before UTF-8 or JSON decoding. Missing or wrong signatures, tampered bodies, timestamps older than ten minutes and timestamps more than one minute ahead are refused
+- Signed verification challenges answer `200` with the challenge as `text/plain`. Signed notifications and revocations answer `204` after a bounded recording transaction, without waiting for Twitch metadata or server fan-out
+- Notifications must match the source's broadcaster, subscription ID, type and version. Duplicate stream IDs schedule no second read or alert. Only live streams started after a server followed the broadcaster and within the last day produce alerts
+- Revocations record Twitch's status. Notification delivery failures, failed callback verification and beta maintenance retry with backoff. Removed users, removed versions, revoked authorization and unknown reasons require operator or manager intervention, with the reason visible in status and recovery
+
+An action makes one best-effort `GET /helix/streams?user_id=` read with two seconds for token acquisition and metadata together. Only the matching live stream supplies its title, game and thumbnail. A failure or an empty response uses the event's display name and Twitch link instead. Fan-out runs in pages of 100, with each delivery's uniqueness check and insert in one transaction. A new delivery raises the work signal
+
+### Subscription and delivery work
+
+The hourly maintenance sweep checks 25 sources per pass, repeating full pages. Enabled subscriptions need no renewal and make no Twitch request during a normal pass. Twitch disables a subscription whose callback keeps failing, and its revocation message can be lost in the same outage, so the hourly cron `Check Twitch subscriptions` reads Twitch's list of enabled subscriptions, page by page, and subscribes again for any verified source missing from it. A failed read changes nothing, and a deployment with no verified source makes no request. The sweep deletes a remote subscription when no follower remains, including after a purge. Failed requests use YouTube's equal-jitter backoff from one minute to six hours, and accepted requests wait an hour for a lost confirmation before retrying. A retry recovers a lost create by listing that broadcaster's EventSub subscriptions, deleting the matching callback and creating it again with the same secret
+
+The `twitch` worker, configuration family, publisher consumer and `twitchContext` follow the [YouTube delivery rules](#youtube-upload-alerts). Publisher source IDs are `twitch_<broadcaster-ID>_<stream-ID>`. Fresh destination permission reads, blocked-channel notes, DEFCON and publishing holds, at-most-once dispatch, unknown-outcome recovery and 30-day retention apply, and an alert not posted within two hours is dropped. Purge removes server follows and deliveries, while shared sources and streams have their own lifecycle
+
+[Twitch's subscription limits](https://dev.twitch.tv/docs/eventsub/manage-subscriptions/#subscription-limits) charge a `stream.online` subscription one unit when the broadcaster has not authorized the application, and zero when authorization qualifies. The returned `max_total_cost` is the application's limit, not a per-server allowance. Webhook secrets must contain 10 to 100 ASCII characters, callbacks require HTTPS on port 443, and there can be at most three subscriptions with the same type and condition. The [Get Users](https://dev.twitch.tv/docs/api/reference/#get-users) and [Get Streams](https://dev.twitch.tv/docs/api/reference/#get-streams) endpoints accept app tokens and up to 100 user filters. App tokens read public user and stream fields, not email, which needs a user token and `user:read:email`. Stream notifications contain neither title nor game, and stream thumbnails may show a frame from the last five minutes
+
 ## Forum help desk
 
 Chat and dashboard changes use the configuration family `helpdesk`, so they share one family revision and reach the settings history. `/helpdesk/manage` carries the actor's fresh native evidence and `authorized`, which the bot sets to `manager` for the owner, Administrator or Manage community rule or to `staff` for help desk staff, who also include Manage threads. Settings changes need `manager`, and saved answer changes accept either
@@ -617,7 +647,7 @@ channel writes an audit entry under `structure`
 A restore step writes a configuration item through the feature's own save, such as the moderation, response, role,
 ticket, leveling, milestone, cleanup, greeting, metadata, publishing, general settings, analytics, voice generator,
 looking for group, role picker, member access, temporary role, newcomer checklist, sticky message, security alert, help
-desk, showcase, profile and YouTube operations, so revisions, role ledgers, pending deliveries, activation times and
+desk, showcase, profile, YouTube and Twitch operations, so revisions, role ledgers, pending deliveries, activation times and
 worker wakes happen as they do for a change from chat or the dashboard. An event is written by `restoreEventDraft` in
 [events.ts](../projects/backend/convex/events.ts) as a draft made or changed by name, with its occurrences replaced as
 drafts, and a schedule by `restoreSchedule` in [schedules.ts](../projects/backend/convex/schedules.ts) with deliveries
@@ -628,7 +658,7 @@ value, so the preview's hash binds what is written. A
 general item records the nickname as pending under its own revision, and the bot applies it after the step and reports
 the result. The moderation item also carries `privateDataRoleId`, which sits beside the moderation settings in its row,
 and setting it is a warning. A YouTube item follows the channel again through the feature, which makes a new secret, and
-it is blocked while the deployment has no WebSub hub. Looking for group and the newcomer checklist are blocked when the
+it is blocked while the deployment has no WebSub hub. A Twitch item follows the broadcaster again and is blocked without Twitch credentials. Looking for group and the newcomer checklist are blocked when the
 voice generator, role panel or role picker menu they name is neither on the server nor earlier in the same plan Every on/off
 switch is written as archived, and a role setting the archive leaves out is written as what absent means. A cleanup
 policy that turns on, a log route that turns on or moves, and the module switch that resumes policies or routes that
@@ -742,7 +772,7 @@ All servers share one service secret and so one key. Scope checks prevent accide
 
 ### Server data after removal
 
-In multi mode the backend deletes a removed server's data 30 days after `removedAt`. An hourly cron purges one server at a time, the oldest removal first. Each run deletes at most 256 rows per table, ends early after 2,048 rows or about 4 MiB, and schedules the next run until every per-server table is empty. The installation row goes last. Moderation corrections are deleted through their case, whether or not they carry its server ID. Dashboard sessions are shared by all servers and expire on their own, and the one-row work signal is shared by the whole bot. YouTube sources and seen videos are shared by every server that follows a channel, see [YouTube upload alerts](#youtube-upload-alerts). The purge makes no Fluxer requests, and single mode never purges
+In multi mode the backend deletes a removed server's data 30 days after `removedAt`. An hourly cron purges one server at a time, the oldest removal first. Each run deletes at most 256 rows per table, ends early after 2,048 rows or about 4 MiB, and schedules the next run until every per-server table is empty. The installation row goes last. Moderation corrections are deleted through their case, whether or not they carry its server ID. Dashboard sessions are shared by all servers and expire on their own, and the one-row work signal is shared by the whole bot. YouTube sources and seen videos are shared by every server that follows a channel, see [YouTube upload alerts](#youtube-upload-alerts). Twitch sources and streams are shared too, see [Twitch live alerts](#twitch-live-alerts). The purge makes no Fluxer requests, and single mode never purges
 
 Every run first rechecks the installation, so a server that joins again stops its purge. Joining again after the purge finished starts with no data, and joining while it runs keeps the rows not yet deleted. Leaving again starts a new 30 days for what is left. Only one purge runs at a time, and a stopped purge resumes on a later cron run once its 10-minute lease ends
 
@@ -770,6 +800,7 @@ Each worker's rows are read from global indexes in due order, at most 100 rows p
 | `tickets` | A ticket's transcript save is due | `tickets.by_transcript_due` |
 | `lfg` | An open group's close time has passed | `lfgGroups.by_global_expiry` |
 | `youtube` | A queued YouTube alert is due while publishing is on at DEFCON 3 | `youtubeDeliveries.by_global_due` |
+| `twitch` | A queued Twitch alert is due while publishing is on at DEFCON 3 | `twitchDeliveries.by_global_due` |
 
 The bot learns about new work in three ways, so it needs no short poll. `workSignal` holds one row with a counter. Website writes that create bot work raise it in their own transaction: queued dashboard configuration, message, metadata and role jobs, role picker member requests, permission check requests, private case access checks, backup preview refreshes, structure editor reads, closed thread requests and saves, a solved web verification and a saved dashboard prefix, which leaves a settings log record. Scheduled wake batches raise it too when they make held work due: metadata log deliveries, scheduled posts, birthday and anniversary posts and level rewards. So does returning to DEFCON 3, for the suggestion cards and event reminders it held, and turning events or publishing on, for the event reminders that came due while they were off. So does a new YouTube video that creates alerts. The bot subscribes to `/service/work-signal`, a key-checked query that returns only `{ version }`, and dispatches when it changes. A bot mutation reports `dueIn` for the rows it wrote to these tables that its sources would read, by the same prefix and due order, so the bot's own writes do not touch the shared row. Each dispatch reports `nextDueIn` for later work. The bot still dispatches every two minutes, which also picks up work that becomes actionable without a write, such as an expired lease or a reopened setting
 

@@ -54,6 +54,7 @@ import { dashboardPublishingFence } from "./dashboardRoles.ts"
 import { dashboardMessagePublishingFence } from "./dashboardMessages.ts"
 import { protectedShowcasePost, showcasePublishingFence } from "./showcases.ts"
 import { syncYoutubePublishing, youtubePublishingFence } from "./youtubeStore.ts"
+import { syncTwitchPublishing, twitchPublishingFence } from "./twitchStore.ts"
 import { ringWork } from "./workSignal.ts"
 
 // Retained posts and attempts protect exact native IDs even for disabled consumers
@@ -388,6 +389,7 @@ async function syncPublishing(
     else if (attempt.consumer?.type === "milestone") await syncMilestonePublishing(ctx, attempt, outcome)
     else if (attempt.consumer?.type === "suggestion-card") await syncSuggestionPublishing(ctx, attempt, outcome)
     else if (attempt.consumer?.type === "youtube") await syncYoutubePublishing(ctx, attempt, outcome)
+    else if (attempt.consumer?.type === "twitch") await syncTwitchPublishing(ctx, attempt, outcome)
     if (outcome === "sent") await syncPanelPost(ctx, attempt)
 }
 // A confirmed edit of a reaction panel's posted message becomes the panel's posted text
@@ -638,6 +640,8 @@ export const dispatch = serviceMutation({
         if (attempt.source?.type === "showcase") await showcasePublishingFence(ctx, attempt)
         if ((attempt.consumer?.type === "youtube") !== (input.youtubeContext !== undefined))
             fail(400, "Unexpected YouTube context")
+        if ((attempt.consumer?.type === "twitch") !== (input.twitchContext !== undefined))
+            fail(400, "Unexpected Twitch context")
         if (attempt.consumer?.type === "youtube") {
             if (
                 input.eventContext !== undefined ||
@@ -647,6 +651,16 @@ export const dispatch = serviceMutation({
             )
                 fail(400, "Unexpected publishing context")
             if (attempt.outcome !== "pending" || !(await youtubePublishingFence(ctx, attempt, input.youtubeContext)))
+                return { claimed: false, ...response }
+        } else if (attempt.consumer?.type === "twitch") {
+            if (
+                input.eventContext !== undefined ||
+                input.scheduleContext !== undefined ||
+                input.milestoneContext !== undefined ||
+                input.suggestionContext !== undefined
+            )
+                fail(400, "Unexpected publishing context")
+            if (attempt.outcome !== "pending" || !(await twitchPublishingFence(ctx, attempt, input.twitchContext)))
                 return { claimed: false, ...response }
         } else if (attempt.consumer?.type === "suggestion-card") {
             if (

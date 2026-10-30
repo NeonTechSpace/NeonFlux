@@ -50,6 +50,7 @@ import { applyHelpDeskManagement, publicHelpDesk, readHelpDesk } from "./helpDes
 import { applyShowcaseConfiguration } from "./showcases.ts"
 import { applyProfileConfiguration } from "./profiles.ts"
 import { applyYoutubeManagement } from "./youtube.ts"
+import { applyTwitchManagement } from "./twitch.ts"
 
 /** Who writes, when, and the roles the bot read, which a restored setting that names roles is checked against */
 type BackupWriter = {
@@ -103,6 +104,7 @@ const feature: Record<BackupConfigObject["family"], DashboardConfigurationFamily
     showcase: "showcase",
     profile: "profile",
     youtube: "youtube",
+    twitch: "twitch",
 }
 /** The audit log's feature for a setting that no dashboard family owns */
 const auditFeature: Partial<Record<BackupConfigObject["family"], DashboardAuditFeature>> = {
@@ -607,6 +609,10 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
         // Following again makes the YouTube subscription NeonFlux needs, with a new secret
         case "youtube":
             await applyYoutubeManagement(ctx, identity("youtube"), { type: "add", ...item.value })
+            break
+        // Following again makes the Twitch subscription NeonFlux needs, with a new secret
+        case "twitch":
+            await applyTwitchManagement(ctx, identity("twitch"), { type: "add", ...item.value })
             break
     }
     const family = item.family === "access" ? item.value.feature : (feature[item.family] ?? undefined)

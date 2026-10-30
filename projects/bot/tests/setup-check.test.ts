@@ -107,6 +107,7 @@ const allSections = [
     "showcase",
     "profile",
     "youtube",
+    "twitch",
 ] as const satisfies readonly DashboardOverviewSection[]
 const sectionsStore = (sections: SetupStatus["sections"]): SetupStore => ({
     status: () =>
@@ -417,11 +418,11 @@ const mixed = allSections.map((id) => ({
 }))
 const mixedOff =
     "Message cleanup, Metadata logs, Reaction roles, Rules verification, Role picker, Temporary roles, Newcomer checklist, Welcome and goodbye, Scheduled posts, " +
-    "Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts"
+    "Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts, Twitch alerts"
 const allNames =
     "Custom commands, Autoresponders, Moderation, Message cleanup, Metadata logs, Reaction roles, Autorole, Rules verification, Role picker, Temporary roles, Newcomer checklist, " +
     "Publishing, Welcome and goodbye, Scheduled posts, Tickets, Leveling, Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, " +
-    "Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts"
+    "Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts, Twitch alerts"
 
 test("setup sums up the features by state in one short card, in both reply styles, with no step per feature", async () => {
     await Effect.runPromise(
@@ -431,7 +432,7 @@ test("setup sums up the features by state in one short card, in both reply style
                 const [summary, ...more] = yield* say("!setup")
                 assert.deepEqual(summary!.split("\n"), [
                     "Setup",
-                    "7 of 29 features are on",
+                    "7 of 30 features are on",
                     "Send `!setup <feature>` to see how to set one up, for example `!setup tickets`. `!health` checks NeonFlux's permissions",
                     "On: Custom commands, Autoresponders, Moderation, Publishing, Leveling",
                     "Needs a step: Autorole, Tickets",
@@ -450,7 +451,7 @@ test("setup sums up the features by state in one short card, in both reply style
                 assert.deepEqual(yield* say("?setup"), [
                     [
                         "**Setup**",
-                        "7 of 29 features are on",
+                        "7 of 30 features are on",
                         "Send `?setup <feature>` to see how to set one up, for example `?setup tickets`. `?health` checks NeonFlux's permissions",
                         "**On:** Custom commands, Autoresponders, Moderation, Publishing, Leveling",
                         "**Needs a step:** Autorole, Tickets",
@@ -471,7 +472,7 @@ test("setup with every feature off stays four lines, leaving out the empty group
                 assert.deepEqual(yield* say("!setup"), [
                     [
                         "Setup",
-                        "0 of 29 features are on",
+                        "0 of 30 features are on",
                         "Send `!setup <feature>` to see how to set one up, for example `!setup tickets`. `!health` checks NeonFlux's permissions",
                         `Off: ${allNames}`,
                     ].join("\n"),
@@ -568,6 +569,7 @@ test("a feature is found by its ID, its name with or without spaces, in singular
         level: "leveling",
         schedule: "schedules",
         "YouTube alert": "youtube",
+        "Twitch alert": "twitch",
         // Scheduled posts share the publish command, and the earlier feature wins it
         publish: "publishing",
     }

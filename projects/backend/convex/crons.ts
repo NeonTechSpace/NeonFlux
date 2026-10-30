@@ -9,4 +9,6 @@ crons.interval("Clean expired analytics counts", { hours: 1 }, internal.analytic
 crons.interval("Purge servers removed 30 days ago", { hours: 1 }, internal.installationsPurge.purge, {})
 // Renews YouTube subscriptions at the hub before their leases end. Failed requests also schedule their own retry
 crons.interval("Renew YouTube subscriptions", { hours: 1 }, internal.youtubeHub.leases, {})
+crons.interval("Maintain Twitch subscriptions", { hours: 1 }, internal.twitchHub.leases, {})
+crons.interval("Check Twitch subscriptions", { hours: 1 }, internal.twitchHub.audit, {})
 export default crons

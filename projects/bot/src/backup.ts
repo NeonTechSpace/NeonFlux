@@ -1241,6 +1241,7 @@ const familyNames: Partial<Record<string, string>> = {
     showcase: "Showcases",
     profile: "Profiles",
     youtube: "YouTube alerts for",
+    twitch: "Twitch alerts for",
 }
 const accessNames: Partial<Record<string, string>> = {
     rolepicker: "Role picker access",

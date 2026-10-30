@@ -189,6 +189,7 @@ export const backupConfigValues = {
     }),
     profile: v.object({ enabled: v.boolean(), cooldownSeconds: nullNumber }),
     youtube: v.object({ youtubeChannelId: v.string(), channelId: v.string() }),
+    twitch: v.object({ twitchChannelId: v.string(), channelId: v.string() }),
 }
 const entry = <K extends keyof typeof backupConfigValues>(family: K) =>
     v.object({ family: v.literal(family), sourceId: v.string(), value: backupConfigValues[family] })
@@ -230,6 +231,7 @@ const backupConfigObject = v.union(
     entry("showcase"),
     entry("profile"),
     entry("youtube"),
+    entry("twitch"),
 )
 // One XP item of a plan, see BackupXpPage in the contracts
 const backupXpPage = v.object({

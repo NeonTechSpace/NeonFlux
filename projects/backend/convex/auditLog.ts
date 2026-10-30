@@ -118,6 +118,7 @@ const BOOKKEEPING = new Set([
 // autoresponders, may share a name, so their kind is part of it
 const IDENTITY = [
     "youtubeChannelId",
+    "twitchChannelId",
     "kind:name",
     "name",
     "kind",
@@ -222,6 +223,7 @@ export function operationLabel(operation: unknown): string {
     const named = { ...record(op.definition), ...record(op.rule), ...op }
     const target = [
         "youtubeChannelId",
+        "twitchChannelId",
         "name",
         "categoryName",
         "route",

@@ -62,6 +62,7 @@ import { applyLfgSettings } from "./lfg.ts"
 import { applyShowcaseConfiguration } from "./showcases.ts"
 import { applyProfileConfiguration } from "./profiles.ts"
 import { applyYoutubeManagement } from "./youtube.ts"
+import { applyTwitchManagement } from "./twitch.ts"
 import type { ConfigurationChange } from "./configurationChange.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
@@ -354,6 +355,8 @@ async function apply(
             )
         case "youtube":
             return applyYoutubeManagement(ctx, identity, operation as DashboardConfigurationOperationMap["youtube"])
+        case "twitch":
+            return applyTwitchManagement(ctx, identity, operation as DashboardConfigurationOperationMap["twitch"])
     }
 }
 /** A queued job's session while its permission grant holds. Otherwise the job fails and there is none */

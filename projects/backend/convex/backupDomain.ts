@@ -157,6 +157,7 @@ export function backupConfigRule(item: BackupConfigObject) {
         case "suggestions":
         case "tickets":
         case "youtube":
+        case "twitch":
             break
     }
 }

@@ -192,6 +192,13 @@ const features: Record<DashboardOverviewSection, { name: string; permissions: bi
         on: "Follow a channel with `!youtube add <channel-ID> #channel`",
         setup: "Fix what `!youtube status` names, then turn each channel back on with `!youtube add <channel-ID> #channel`",
     },
+    // Alerts need permissions only in their channels, which NeonFlux checks before each alert
+    twitch: {
+        name: "Twitch alerts",
+        permissions: 0n,
+        on: "Follow a streamer with `!twitch add <login> #channel`",
+        setup: "Fix what `!twitch status` names, then turn each streamer back on with `!twitch add <login> #channel`",
+    },
 }
 const featureName = (feature: DashboardOverviewSection | "general") =>
     feature === "general" ? "Replies" : features[feature].name
@@ -625,6 +632,7 @@ const areas: Record<Area, string> = {
     logs: "Metadata logs",
     helpdesk: "Help desk",
     youtube: "YouTube alerts",
+    twitch: "Twitch alerts",
     removals: "Role removals",
 }
 const areaOf = (entry: RecoveryEntry): Area =>

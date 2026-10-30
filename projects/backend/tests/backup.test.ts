@@ -1637,6 +1637,14 @@ async function samples(): Promise<Record<Family, Sample>> {
             ["channelId"],
             false,
         ),
+        twitch: pair(
+            "twitch",
+            "synthetic",
+            { twitchChannelId: "synthetic", channelId: "30" },
+            { twitchChannelId: "synthetic", channelId: "31" },
+            ["channelId"],
+            false,
+        ),
     }
 }
 /** A YouTube channel ID of the right shape, which the tests never contact */
@@ -1644,6 +1652,18 @@ const youtubeChannel = "UCsyntheticBackupChannel"
 
 async function restoration(t: TestContext) {
     const f = await fixture(t)
+    process.env.NEONFLUX_TWITCH_CLIENT_ID = "synthetic-client"
+    process.env.NEONFLUX_TWITCH_CLIENT_SECRET = "synthetic-secret"
+    await f.db.run((ctx) =>
+        ctx.db.insert("twitchSources", {
+            twitchChannelId: "synthetic",
+            mode: "subscribe",
+            title: "Synthetic",
+            dueAt: f.now() + 86400000,
+            failures: 0,
+            createdAt: f.now(),
+        }),
+    )
     // YouTube alerts need a hub, and a channel NeonFlux follows already with its title known needs no request to it
     const env = { hub: process.env.NEONFLUX_WEBSUB_HUB_URL, base: process.env.NEONFLUX_WEBSUB_CALLBACK_BASE }
     process.env.NEONFLUX_WEBSUB_HUB_URL = "https://hub.synthetic.invalid/subscribe"

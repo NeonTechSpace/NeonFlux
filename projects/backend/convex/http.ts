@@ -1,10 +1,11 @@
+import { TWITCH_CALLBACK_PATH, TWITCH_NOTIFICATION_BYTES } from "./twitchDomain.ts"
 import { httpRouter } from "convex/server"
 import { isYoutubeChannelId } from "@neonflux/contracts/youtube"
 import { httpAction } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
 import { readBody, YOUTUBE_CALLBACK_PATH, YOUTUBE_NOTIFICATION_BYTES } from "./youtubeDomain.ts"
 
-// The deployment's only HTTP route. YouTube's WebSub hub confirms subscription requests with GET and delivers notifications with POST,
+// YouTube's HTTP route. YouTube's WebSub hub confirms subscription requests with GET and delivers notifications with POST,
 // see youtubeHub.ts. Each callback names its channel, so the per-channel secret is known before the body is read, and carries the source's token
 const http = httpRouter()
 const channelOf = (request: Request) => {
@@ -62,4 +63,27 @@ http.route({
     }),
 })
 
+http.route({
+    path: TWITCH_CALLBACK_PATH,
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+        const twitchChannelId = new URL(request.url).searchParams.get("channel")
+        if (!twitchChannelId || !/^\d{1,25}$/.test(twitchChannelId)) return status(404)
+        if (Number(request.headers.get("content-length") ?? 0) > TWITCH_NOTIFICATION_BYTES) return status(413)
+        const body = await readBody(request.body, TWITCH_NOTIFICATION_BYTES)
+        if (!body) return status(413)
+        const result = await ctx.runMutation(internal.twitchHub.notify, {
+            twitchChannelId,
+            body,
+            signature: request.headers.get("Twitch-Eventsub-Message-Signature"),
+            messageId: request.headers.get("Twitch-Eventsub-Message-Id") ?? "",
+            timestamp: request.headers.get("Twitch-Eventsub-Message-Timestamp") ?? "",
+            messageType: request.headers.get("Twitch-Eventsub-Message-Type") ?? "",
+        })
+        return new Response(result.challenge ?? null, {
+            status: result.status,
+            ...(result.challenge ? { headers: { "Content-Type": "text/plain" } } : {}),
+        })
+    }),
+})
 export default http

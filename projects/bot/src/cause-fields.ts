@@ -213,7 +213,9 @@ export const errorTags: ReadonlySet<string> = new Set([
         "VoiceStoreError",
         "WelcomePermissionError",
         "YoutubeHandlingError",
+        "TwitchHandlingError",
         "YoutubeStoreError",
+        "TwitchStoreError",
     ],
     ...sdkErrorTags,
     // SDK errors the Effect entry point does not export by name

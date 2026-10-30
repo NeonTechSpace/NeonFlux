@@ -28,6 +28,7 @@ import { readLfgSettings } from "./lfg.ts"
 import { readShowcaseSettings } from "./showcases.ts"
 import { readProfileSettings } from "./profiles.ts"
 import { youtubeSubscriptions } from "./youtubeStore.ts"
+import { twitchSubscriptions } from "./twitchStore.ts"
 import { decode } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 import { publicAlerts, readAlerts } from "./alerts.ts"
@@ -140,7 +141,8 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
     const lfg = await readLfgSettings(ctx, serverId)
     const showcases = await readShowcaseSettings(ctx, serverId),
         profiles = await readProfileSettings(ctx, serverId),
-        youtube = await youtubeSubscriptions(ctx, serverId)
+        youtube = await youtubeSubscriptions(ctx, serverId),
+        twitch = await twitchSubscriptions(ctx, serverId)
     const routed = (routes: Array<{ enabled: boolean; channelId?: string }>) =>
         routes.some((route) => route.enabled && route.channelId)
     return [
@@ -285,6 +287,14 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
             state: state(
                 youtube.length > 0,
                 youtube.some((row) => row.enabled),
+            ),
+        },
+        // Twitch alerts are on while a server follows a channel, and need setup when NeonFlux turned every followed channel off
+        {
+            id: "twitch",
+            state: state(
+                twitch.length > 0,
+                twitch.some((row) => row.enabled),
             ),
         },
     ]

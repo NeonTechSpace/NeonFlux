@@ -19,6 +19,7 @@ import { SchedulesAutomationContext, SchedulesNameInput } from "./schedules.ts"
 import { MilestonesDeliveryContext } from "./milestones.ts"
 import { SuggestionsCardContext } from "./suggestions.ts"
 import { YoutubeDeliveryContext } from "./youtube.ts"
+import { TwitchDeliveryContext } from "./twitch.ts"
 
 // Drafts, templates and the posts NeonFlux tracks, see docs/BOT.md#publishing-and-scheduled-publishing
 
@@ -72,6 +73,7 @@ export const PublishingDispatchRequest = Schema.Struct({
     milestoneContext: optional(MilestonesDeliveryContext),
     suggestionContext: optional(SuggestionsCardContext),
     youtubeContext: optional(YoutubeDeliveryContext),
+    twitchContext: optional(TwitchDeliveryContext),
     dashboardContext: optional(DashboardPublishingContext),
 })
 export type PublishingDispatchRequest = typeof PublishingDispatchRequest.Type

@@ -296,6 +296,12 @@ The YouTube alerts section under Messaging follows up to 10 YouTube channels, li
 
 Each followed channel shows whether its alerts are on, why NeonFlux turned them off, its subscription with YouTube or the latest error, its last notification, its last post and its newest video. Saving another alert channel moves the alerts and turns them back on. While alerts are off, saving the same channel turns them back on too. The chat command `!youtube` changes the same settings. When the deployment is not set up for YouTube alerts, the section says so and offers no add form. The section links [YouTube's Terms of Service](https://www.youtube.com/t/terms) and [Google's Privacy Policy](https://policies.google.com/privacy). See [YouTube upload alerts](BOT.md#youtube-upload-alerts)
 
+### Twitch alerts
+
+The Twitch alerts section under Messaging follows up to 10 streamers by Twitch login or `twitch.tv/<login>` link, in a text, announcement or forum channel. It has the same alert channel, restart and removal settings as `!twitch`. Each streamer shows its display name and current login, connection or lookup error, revocation reason, latest notification, latest post and last known stream. Unknown logins stay visible with their error
+
+Saving an alert channel moves and restarts alerts. An already live stream posts nothing on add. Without deployment credentials the section offers no add form. Chat and dashboard share revisions and settings history. See [Twitch live alerts](BOT.md#twitch-live-alerts)
+
 ### Dashboard link
 
 The Dashboard link section under Basics creates, renames or removes the one link channel that opens this server's dashboard page from the server sidebar, like `!sidebar`. A new link can have another name or a category. The bot creates the channel and needs Manage channels, and its `NEONFLUX_WEBSITE_URL` must be set, or the request fails. If the backend rejects an add, the bot deletes the channel it just created. See [the dashboard link](BOT.md#dashboard-link-in-the-server-sidebar)

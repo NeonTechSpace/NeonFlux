@@ -154,7 +154,9 @@ export const PURGE_INDEXES = {
     auditLogEntries: "by_server",
     auditLogChanges: "by_server",
     youtubeSubscriptions: "by_server",
+    twitchSubscriptions: "by_server",
     youtubeDeliveries: "by_video",
+    twitchDeliveries: "by_stream",
 } as const satisfies { [T in ServerTable]: ServerIndex<T> }
 // Tables without serverId. A child belongs to a server through its parent and is deleted before the parent that finds it.
 // Dashboard sessions are shared by every server and expire on their own, and the work signal, the retention chain row and monthly usage serve the whole bot.
@@ -168,7 +170,9 @@ export const PURGE_SHARED: readonly TableNames[] = [
     "retentionState",
     "usageMonths",
     "youtubeSources",
+    "twitchSources",
     "youtubeVideos",
+    "twitchStreams",
 ]
 
 type Row = { _id: string } & Record<string, unknown>

@@ -4,6 +4,7 @@ import { publishingScheduleConsumer, scheduleSource } from "./schedulesValidator
 import { milestoneKind, milestoneTemplate, publishingMilestoneConsumer } from "./milestonesValidators.ts"
 import { publishingSuggestionConsumer } from "./suggestionsValidators.ts"
 import { publishingYoutubeConsumer } from "./youtubeValidators.ts"
+import { publishingTwitchConsumer } from "./twitchValidators.ts"
 import { publishingKind } from "./publishingValidators.ts"
 
 // Every feature that sends through the publisher records its source, consumer binding and provenance here
@@ -23,6 +24,7 @@ export const publishingSource = v.union(
     v.object({ type: v.literal("milestone-timer"), deliveryId: v.string(), dueAt: v.number() }),
     publishingSuggestionConsumer,
     publishingYoutubeConsumer,
+    publishingTwitchConsumer,
 )
 export const publishingConsumer = v.union(
     publishingEventConsumer,
@@ -30,6 +32,7 @@ export const publishingConsumer = v.union(
     publishingMilestoneConsumer,
     publishingSuggestionConsumer,
     publishingYoutubeConsumer,
+    publishingTwitchConsumer,
 )
 export const publishingProvenance = v.union(
     v.object({ type: v.literal("showcase"), showcaseNo: v.number() }),
@@ -56,4 +59,5 @@ export const publishingProvenance = v.union(
     }),
     publishingSuggestionConsumer,
     publishingYoutubeConsumer,
+    publishingTwitchConsumer,
 )

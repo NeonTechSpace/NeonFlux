@@ -36,6 +36,7 @@ import { ticketHelp, ticketHelpAll } from "../src/ticket-command.ts"
 import { voiceHelp, voiceHelpAll } from "../src/voice-command.ts"
 import { greetingsHelp, greetingsHelpAll } from "../src/welcome-command.ts"
 import { youtubeHelp } from "../src/youtube-command.ts"
+import { twitchHelp } from "../src/twitch-command.ts"
 import { withPrefix, type GeneralSettingsStore } from "../src/general-settings.ts"
 import type { ResponseStore } from "../src/responses-store.ts"
 import { platform } from "./moderation-fixture.ts"
@@ -137,6 +138,7 @@ const commandHelps: Record<string, string> = {
     sidebar: sidebarHelp,
     sticky: stickyHelp,
     youtube: youtubeHelp,
+    twitch: twitchHelp,
     alerts: alertsHelp,
     invites: invitesHelp,
     stats: statsHelp,
