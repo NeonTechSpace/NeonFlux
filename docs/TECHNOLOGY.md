@@ -8,7 +8,7 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md), [the 
 
 | Area | Selection |
 | --- | --- |
-| Bot SDK | [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js) as `@neontechspace/fluxerly` 1000.0.0-nightly.20261024.31, through its `@neontechspace/fluxerly/effect` entry point |
+| Bot SDK | [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js) as `@neontechspace/fluxerly` 1000.0.0-nightly.20261030.37, through its `@neontechspace/fluxerly/effect` entry point |
 | Runtime composition | Effect 4 |
 | Language and modules | TypeScript 7 with ECMAScript modules in all four packages |
 | Runtime | Node.js 24 |
@@ -91,7 +91,7 @@ See [the dashboard guide](WEB.md) for setup
 
 - Node: The exact development version lives in [projects/.node-version](../projects/.node-version). The workspace manifest's `engines.node` keeps the supported major range, not a second exact pin
 - pnpm: The exact version lives in `packageManager` in [projects/package.json](../projects/package.json). Use pnpm 12 without Corepack. Update the pin deliberately, regenerate the lockfile with that version and verify a frozen install
-- Shared versions: The `catalog` in the [workspace configuration](../projects/pnpm-workspace.yaml) pins Convex, Effect and TypeScript once, and every package that uses them names `catalog:`. Convex must match because both sides of the bot's function calls and the website's come from it, Effect because each side decodes with the schema values the contracts build, and TypeScript because the Effect typecheck needs an `@effect/tsgo` release that supports the version every package checks with. Keep Effect within the SDK's `effect` peer range, currently `^4.0.0`, and recheck it on every SDK upgrade
+- Shared versions: The `catalog` in the [workspace configuration](../projects/pnpm-workspace.yaml) pins Convex, Effect and TypeScript once, and every package that uses them names `catalog:`. Convex must match because both sides of the bot's function calls and the website's come from it, Effect because each side decodes with the schema values the contracts build, and TypeScript because the Effect typecheck needs an `@effect/tsgo` release that supports the version every package checks with. Keep Effect within the SDK's `effect` peer range, currently `^4.1.0`, and recheck it on every SDK upgrade
 - Bot: The [bot manifest](../projects/bot/package.json) pins the SDK and Node type declarations, and takes Effect, TypeScript and the Convex client from the catalog
 - Backend: The [backend manifest](../projects/backend/package.json) pins `convex-test` and Node type declarations, and takes Convex, Effect and TypeScript from the catalog
 - Contracts: The [contracts manifest](../projects/contracts/package.json) takes Effect and TypeScript from the catalog
@@ -114,9 +114,9 @@ Web source checking is strict, with `skipLibCheck` in the web package only, for 
 
 Typechecks of the bot, backend and contracts also report the Effect language service's diagnostics, which each package turns on as a plugin in its `tsconfig.json`. `@effect/tsgo` ships a TypeScript 7 build with those rules, and their typecheck scripts run it through [effect-tsc.mjs](../projects/scripts/effect-tsc.mjs) instead of `tsc`. Nothing in `node_modules` is changed, so `tsc` stays the plain TypeScript the bot's build and the website use. Effect errors and warnings fail a typecheck, and the `schemaNumber` rule is raised to a warning, so schemas keep to finite numbers. Editors show the Effect diagnostics, suggestions included, only after `pnpm --filter @neonflux/contracts exec effect-tsgo patch --typescript` in `projects/` puts the Effect build in place of the workspace's TypeScript binary. The same command with `unpatch` restores the original
 
-Effect 4.0.0's declarations reference the browser-only global `TextDecoderOptions` type.
-The bot's [compatibility declaration](../projects/bot/src/effect-compat.d.ts) derives that type from Node's `TextDecoder`, which keeps strict checking without adding browser libraries.
-Remove it once an Effect release no longer needs it
+Effect 4.1's declarations reference the browser-only global `CryptoKey` and `JsonWebKey` types.
+The bot's [compatibility declaration](../projects/bot/src/effect-compat.d.ts) takes both from Node's `node:crypto` declarations, which keeps strict checking without adding browser libraries.
+Remove an entry once an Effect release no longer needs it
 
 ## Planned
 

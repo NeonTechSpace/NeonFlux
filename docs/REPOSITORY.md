@@ -121,7 +121,7 @@ The requests and answers between them live in the feature's module of the [contr
 | Help, setup, health, recovery inbox and permission fixes | `help`, `setup-check`, `permission-fix` | `setupCheck`, `recovery` | `setup` |
 | YouTube upload alerts and the WebSub callback | `youtube` | `youtube`, `http` | `youtube` |
 | Sticky messages, dashboard link and member list order | `sticky`, `sidebar`, `memberlist` | `sticky`, `sidebar`, `memberList` | `sticky`, `sidebar`, `member-list` |
-| Multi-server scope and installations | `server-scope`, `server-runtime`, `install-note`, `event-receipts` | `serverScope`, `serviceGuard`, `installations` | `service` |
+| Multi-server scope and installations | `server-scope`, `server-runtime`, `install-note` | `serverScope`, `serviceGuard`, `installations` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |
 | Optional work limits and the bill guard | `optional-work`, `usage` | `usage` | `service` |
 | Dashboard | `dashboard`, `general-settings` | `dashboard`, `configuration`, `generalSettings` | `dashboard`, `general` |

@@ -57,52 +57,59 @@ export function readNativeMembers(client: Client, serverId: string, userIds: Ite
         const left = Effect.map(Clock.currentTimeMillis, (now) =>
             oldest === undefined ? Infinity : oldest + budgetMs - now,
         )
-        batches: for (let start = 0; start < ids.length; start += 100) {
-            const batch = ids.slice(start, start + 100),
-                wanted = new Set(batch)
-            const stream = (timeoutMs: number) =>
-                client.members.iterateChunks(serverId, { userIds: batch }, { timeoutMs }).pipe(
-                    Stream.runForEach((chunk) =>
-                        Effect.gen(function* () {
-                            const observedAt = yield* Clock.currentTimeMillis
-                            for (const member of chunk.members) {
-                                if (
-                                    chunk.guildId !== serverId ||
-                                    member.guildId !== serverId ||
-                                    !wanted.has(member.userId)
-                                )
-                                    return yield* Effect.fail(new MemberEvidenceError({ stage: "identity" }))
-                                found.set(member.userId, { member, observedAt })
-                                oldest ??= observedAt
-                            }
-                        }),
-                    ),
-                )
-            // The SDK refuses a request over Fluxer's limit before sending it and says when the next one may go. Members a stream
-            // delivered before it stopped stay read, and the rest of its IDs are read one by one
-            for (;;) {
-                // A request waits for its slot under the lock, so its timeout counts from when it may go
-                const exit = yield* Effect.exit(
-                    lock.withPermit(
-                        Effect.flatMap(left, (rest) =>
-                            rest <= 0 ? Effect.succeed(false) : stream(Math.min(30000, rest)).pipe(Effect.as(true)),
-                        ),
-                    ),
-                )
-                if (Exit.isSuccess(exit)) {
-                    if (!exit.value) break batches
-                    break
+        // One read keeps the lock for all its requests and their waits for Fluxer's limit, since two reads that took turns would each
+        // get half of it and run out of budget. The budget starts with the first answer, so the wait for the lock does not count
+        yield* lock.withPermit(
+            Effect.gen(function* () {
+                batches: for (let start = 0; start < ids.length; start += 100) {
+                    const batch = ids.slice(start, start + 100),
+                        wanted = new Set(batch)
+                    const stream = (timeoutMs: number) =>
+                        client.members.iterateChunks(serverId, { userIds: batch }, { timeoutMs }).pipe(
+                            Stream.runForEach((chunk) =>
+                                Effect.gen(function* () {
+                                    const observedAt = yield* Clock.currentTimeMillis
+                                    for (const member of chunk.members) {
+                                        if (
+                                            chunk.guildId !== serverId ||
+                                            member.guildId !== serverId ||
+                                            !wanted.has(member.userId)
+                                        )
+                                            return yield* Effect.fail(new MemberEvidenceError({ stage: "identity" }))
+                                        found.set(member.userId, { member, observedAt })
+                                        oldest ??= observedAt
+                                    }
+                                }),
+                            ),
+                        )
+                    // The SDK refuses a request over Fluxer's limit before sending it and says when the next one may go. Members a stream
+                    // delivered before it stopped stay read, and the rest of its IDs are read one by one
+                    for (;;) {
+                        const exit = yield* Effect.exit(
+                            Effect.flatMap(left, (rest) =>
+                                rest <= 0 ? Effect.succeed(false) : stream(Math.min(30000, rest)).pipe(Effect.as(true)),
+                            ),
+                        )
+                        if (Exit.isSuccess(exit)) {
+                            if (!exit.value) break batches
+                            break
+                        }
+                        const error = Cause.squash(exit.cause)
+                        if (Cause.hasInterrupts(exit.cause) || error instanceof MemberEvidenceError)
+                            return yield* Effect.failCause(exit.cause)
+                        if (
+                            !(error instanceof MemberChunkError) ||
+                            error.reason !== "rateLimit" ||
+                            error.retryAfterMs === null
+                        )
+                            break
+                        if (error.retryAfterMs >= (yield* left)) break batches
+                        yield* Effect.sleep(`${error.retryAfterMs} millis`)
+                    }
+                    for (const id of batch) if (!found.has(id)) unread.push(id)
                 }
-                const error = Cause.squash(exit.cause)
-                if (Cause.hasInterrupts(exit.cause) || error instanceof MemberEvidenceError)
-                    return yield* Effect.failCause(exit.cause)
-                if (!(error instanceof MemberChunkError) || error.reason !== "rateLimit" || error.retryAfterMs === null)
-                    break
-                if (error.retryAfterMs >= (yield* left)) break batches
-                yield* Effect.sleep(`${error.retryAfterMs} millis`)
-            }
-            for (const id of batch) if (!found.has(id)) unread.push(id)
-        }
+            }),
+        )
         for (const id of unread) {
             const rest = yield* left
             if (rest <= 0) break

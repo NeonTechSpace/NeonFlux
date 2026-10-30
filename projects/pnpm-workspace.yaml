@@ -9,7 +9,7 @@ packages:
 # stays at one version because the Effect typecheck needs an @effect/tsgo release that supports the version every package uses
 catalog:
     convex: 1.46.0
-    effect: 4.0.0
+    effect: 4.1.0
     typescript: 7.0.2
 
 allowBuilds:
@@ -17,4 +17,4 @@ allowBuilds:
     esbuild@0.28.2: true
 
 minimumReleaseAgeExclude:
-    - "@neontechspace/fluxerly@1000.0.0-nightly.20261024.31"
+    - "@neontechspace/fluxerly@1000.0.0-nightly.20261030.37"

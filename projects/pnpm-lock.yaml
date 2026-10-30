@@ -168,8 +168,8 @@ catalogs:
       specifier: 1.46.0
       version: 1.46.0
     effect:
-      specifier: 4.0.0
-      version: 4.0.0
+      specifier: 4.1.0
+      version: 4.1.0
     typescript:
       specifier: 7.0.2
       version: 7.0.2
@@ -195,7 +195,7 @@ importers:
         version: 1.46.0(react@19.3.0)
       effect:
         specifier: 'catalog:'
-        version: 4.0.0
+        version: 4.1.0
     devDependencies:
       '@types/node':
         specifier: 24.19.1
@@ -213,14 +213,14 @@ importers:
         specifier: workspace:*
         version: link:../contracts
       '@neontechspace/fluxerly':
-        specifier: 1000.0.0-nightly.20261024.31
-        version: 1000.0.0-nightly.20261024.31(effect@4.0.0)
+        specifier: 1000.0.0-nightly.20261030.37
+        version: 1000.0.0-nightly.20261030.37(effect@4.1.0)
       convex:
         specifier: 'catalog:'
         version: 1.46.0(react@19.3.0)
       effect:
         specifier: 'catalog:'
-        version: 4.0.0
+        version: 4.1.0
     devDependencies:
       '@types/node':
         specifier: 24.19.1
@@ -233,7 +233,7 @@ importers:
     dependencies:
       effect:
         specifier: 'catalog:'
-        version: 4.0.0
+        version: 4.1.0
     devDependencies:
       typescript:
         specifier: 'catalog:'
@@ -803,12 +803,12 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@neontechspace/fluxerly@1000.0.0-nightly.20261024.31':
-    resolution: {integrity: sha512-4I9hLsy/stSWF9HlzAgaj4hp1br8MEYQDaMUHAtNXi+fvk80ikks5twdpDInR0TmGtYQRnnWks42QqALE4vKxQ==}
+  '@neontechspace/fluxerly@1000.0.0-nightly.20261030.37':
+    resolution: {integrity: sha512-9ivrT8JMJzXMTbv9pCME3mHjcvU4kyJYuxmtdfPNkrgknIl6uh2CQ23Mpi3rqqWiQPBO/nX/YhlwPTsPc15xDw==}
     engines: {node: '>=24.15.0'}
     hasBin: true
     peerDependencies:
-      effect: ^4.0.0
+      effect: ^4.1.0
 
   '@oozcitak/dom@2.0.2':
     resolution: {integrity: sha512-GjpKhkSYC3Mj4+lfwEyI1dqnsKTgwGy48ytZEhm4A/xnH/8z9M3ZVXKr/YGQi3uCLs1AEBS+x5T2JPiueEDW8w==}
@@ -1468,8 +1468,8 @@ packages:
   dom-accessibility-api@0.5.16:
     resolution: {integrity: sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg==}
 
-  effect@4.0.0:
-    resolution: {integrity: sha512-ooc1TG5t+FfzgYnFz2ff6BBKyZ7EwBRVXC7c4RhQUAD6/TZ2gTXXMeb4WX7a19ozQo4J73/QW+S00YAIresoMQ==}
+  effect@4.1.0:
+    resolution: {integrity: sha512-lGx2MJJyrXA8RZb2UpQ/0Nkb5Utaimby7oD92+18noBxLPE85IFOvptdzau8dvcxAOwfwHo9iqapbKeFzqQM/Q==}
 
   electron-to-chromium@1.5.444:
     resolution: {integrity: sha512-5ss/uJfoDYDHT0lfJzT6FbcskIzROIOPf0BbbFkGcvDzoJU7i//9GDrwwIHQVmIsrAGiF3ihpADBRIsrEFt1rQ==}
@@ -2461,9 +2461,9 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@neontechspace/fluxerly@1000.0.0-nightly.20261024.31(effect@4.0.0)':
+  '@neontechspace/fluxerly@1000.0.0-nightly.20261030.37(effect@4.1.0)':
     dependencies:
-      effect: 4.0.0
+      effect: 4.1.0
       neverthrow: 8.2.0
       ws: 8.22.0
     transitivePeerDependencies:
@@ -3035,7 +3035,7 @@ snapshots:
 
   dom-accessibility-api@0.5.16: {}
 
-  effect@4.0.0: {}
+  effect@4.1.0: {}
 
   electron-to-chromium@1.5.444: {}
 

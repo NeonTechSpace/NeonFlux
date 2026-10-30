@@ -1229,21 +1229,24 @@ test("a notice received before a server's join does not wait for it, and one rec
                 const bot = yield* createTestBot(options)
                 bot.rest.respond("GET /users/@me/guilds", () => ({ body: [] }))
                 yield* bot.ready()
-                const outage = (event: object) =>
+                // An outage of another server is received first, so the receipts below start above zero
+                yield* bot.emit("GUILD_DELETE", { id: "1300000000000000099", unavailable: true })
+                yield* bot.idle({ timeoutMs: 30000 })
+                assert.equal(bot.client.lastReceipt > 0, true)
+                const outage = (event: object, receipt: number) =>
                     events
-                        .guildDelete!.handler({ event, client: bot.client } as never)
+                        .guildDelete!.handler({ event, client: bot.client, context: { receipt } } as never)
                         .pipe(Effect.forkChild({ startImmediately: true }))
-                // The notice is received first, then the join, then another notice, in the order the SDK would number
-                // them
+                // The notice is received first, then the join, then another notice. The join's partition function
+                // records the client's last receipt as its own, as when the SDK has just numbered it, so the notices
+                // are numbered half a step before and after it
                 const before = { id: target, unavailable: true },
-                    join = { id: target },
                     after = { id: target, unavailable: true }
-                events.guildDelete!.partition(before)
-                events.guildCreate!.partition(join)
-                events.guildDelete!.partition(after)
-                const older = yield* outage(before)
+                const joined = bot.client.lastReceipt
+                events.guildCreate!.partition({ id: target })
+                const older = yield* outage(before, joined - 0.5)
                 assert.notEqual(older.pollUnsafe(), undefined)
-                const newer = yield* outage(after)
+                const newer = yield* outage(after, joined + 0.5)
                 assert.equal(newer.pollUnsafe(), undefined)
                 yield* Fiber.join(newer)
             }),
@@ -1286,7 +1289,7 @@ test(
                         }
                     >
                     const event = { id: "9002", channelId: "7001" }
-                    events.messageDelete!.partition(event)
+                    const context = { receipt: bot.client.lastReceipt + 0.5 }
                     const client = Object.create(bot.client, {
                         rest: {
                             value: {
@@ -1296,7 +1299,7 @@ test(
                         },
                     })
                     const waiting = yield* events
-                        .messageDelete!.handler({ event, client } as never)
+                        .messageDelete!.handler({ event, client, context } as never)
                         .pipe(Effect.forkChild({ startImmediately: true }))
                     assert.equal(waiting.pollUnsafe(), undefined)
                     assert.equal(admits, 0)

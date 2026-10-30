@@ -76,7 +76,8 @@ export const waitingClock = TestClock.testClockWith((testClock) =>
             currentTimeNanos: testClock.currentTimeNanos,
             sleep: (duration) => wait(Duration.toMillis(duration)),
         }
-        const run = <A, E>(works: readonly Effect.Effect<A, E>[]) =>
+        /** With queued, the works take turns behind one lock, so the clock moves as soon as the one holding it waits */
+        const run = <A, E>(works: readonly Effect.Effect<A, E>[], options?: { readonly queued: boolean }) =>
             Effect.gen(function* () {
                 let active = works.length
                 const fibers: Fiber.Fiber<A, E>[] = []
@@ -90,7 +91,7 @@ export const waitingClock = TestClock.testClockWith((testClock) =>
                     )
                 while (active > 0) {
                     yield* Effect.yieldNow
-                    if (!waits.length || waits.length < active) continue
+                    if (!waits.length || (!options?.queued && waits.length < active)) continue
                     const at = Math.min(...waits.map((entry) => entry.at)),
                         now = testClock.currentTimeMillisUnsafe()
                     if (at > now) yield* testClock.adjust(at - now)

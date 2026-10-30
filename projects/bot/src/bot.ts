@@ -218,7 +218,6 @@ import { processPrivateAccessPass, type PrivateDataStore } from "./private-data.
 import { processStructurePass } from "./structure.ts"
 import type { StructureStore } from "./structure-store.ts"
 import { postInstallNote } from "./install-note.ts"
-import { carryReceipt, nextReceipt, receiptOf, receiveEvent } from "./event-receipts.ts"
 import { isMemberDataCommand } from "./member-data-command.ts"
 import { handleMemberDataCommand } from "./member-data.ts"
 import { createMemberDataStore, type MemberDataStore } from "./member-data-store.ts"
@@ -301,53 +300,6 @@ const routedEvents = [
     "inviteCreate",
     "inviteDelete",
 ] as const satisfies readonly EventName[]
-// Events whose own ID is the server or the channel they describe, as the SDK's "guild" partition reads them
-const guildSelfEvents: ReadonlySet<string> = new Set(["guildCreate", "guildUpdate", "guildDelete"])
-const channelSelfEvents: ReadonlySet<string> = new Set([
-    "guildChannelCreate",
-    "guildChannelUpdate",
-    "guildChannelDelete",
-    "threadCreate",
-    "threadUpdate",
-    "threadDelete",
-])
-/**
- * The key the SDK's "guild" partition gives an event, which also numbers the event by its receipt. A function replaces
- * the built-in partition so the router can tell which events were received before a server's join, and the keys stay
- * the same
- */
-function guildPartition(name: EventName) {
-    return (event: object) => {
-        const value = event as {
-            id?: unknown
-            guildId?: unknown
-            channelId?: unknown
-            threadId?: unknown
-            guild?: { id?: unknown }
-            channel?: { id?: unknown }
-        }
-        const guild =
-            name === "inviteCreate"
-                ? value.guild?.id
-                : typeof value.guildId === "string"
-                  ? value.guildId
-                  : guildSelfEvents.has(name)
-                    ? value.id
-                    : undefined
-        const channel =
-            name === "inviteCreate"
-                ? value.channel?.id
-                : typeof value.channelId === "string"
-                  ? value.channelId
-                  : typeof value.threadId === "string"
-                    ? value.threadId
-                    : channelSelfEvents.has(name)
-                      ? value.id
-                      : undefined
-        const key = guild ?? channel
-        return receiveEvent(event, typeof key === "string" ? key : undefined)
-    }
-}
 type ScopedBotOptions = ReturnType<typeof createScopedBotOptions>
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 // Compilation fails when a runtime handler is added without routing it, or the reverse
@@ -454,7 +406,7 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                           : undefined)
                 // An event waits for the joins of its server that were received before it, whether or not the server is
                 // served yet, so it never reaches a runtime that a pending join is about to replace or retire
-                const receipt = receiptOf(context.event)
+                const receipt = context.context.receipt
                 if (guildId !== undefined) {
                     yield* runtimes.joinedBefore(guildId, receipt)
                     if (!served(guildId)) return
@@ -581,7 +533,6 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                 const runtime = runtimes.get(serverId, guildId === undefined ? undefined : receipt)
                 if (!runtime) return
                 const event = guildId && payload.guildId === undefined ? { ...context.event, guildId } : context.event
-                carryReceipt(context.event, event)
                 if (edit) carryEarlierMessage(event, edit.previous)
                 let routed = { ...context, event }
                 if (name === "messageCreate") {
@@ -635,10 +586,12 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
         Object.assign(events, {
             [name]: {
                 ...serverEvent,
-                ...(multi ? { partitionReady: runtimes.ready, maxPendingMessages: MULTI_EVENT_QUEUE } : {}),
-                // The voice tracker orders by receipt in single mode too, so these events keep their receipt there
-                ...(multi || name === "voiceStateSnapshot" || name === "voiceStateUpdate"
-                    ? { partition: guildPartition(name) }
+                ...(multi
+                    ? {
+                          partition: "guild" as const,
+                          partitionReady: runtimes.ready,
+                          maxPendingMessages: MULTI_EVENT_QUEUE,
+                      }
                     : {}),
                 ...(name === "voiceStateSnapshot" ? { maxPendingBytes: GUILD_FRAME_BYTES } : {}),
                 handler,
@@ -662,9 +615,8 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
             ...(multi
                 ? {
                       partition: (event: { readonly id: string }) => {
-                          const key = guildPartition("guildCreate")(event)
                           runtimes.joining(event)
-                          return key
+                          return event.id
                       },
                       maxPendingMessages: MULTI_EVENT_QUEUE,
                   }
@@ -681,16 +633,18 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
         guildDelete: {
             ...serverEvent,
             // A removal is started when received, like a join, so the registry applies it in receipt order with the
-            // joins of its server
-            partition: (event: { readonly id: string; readonly unavailable?: boolean }) => {
-                const key = guildPartition("guildDelete")(event)
-                if (multi && !event.unavailable) runtimes.leaving(event)
-                return key
-            },
-            // A server still joining holds its outage notices, without a handler slot, until its join is decided. A
-            // notice then reaches the runtime that is starting, whose voice tracker orders it against the snapshots
-            // by receipt
-            ...(multi ? { partitionReady: runtimes.joined } : {}),
+            // joins of its server. A server still joining holds its outage notices, without a handler slot, until its
+            // join is decided. A notice then reaches the runtime that is starting, whose voice tracker orders it
+            // against the snapshots by receipt
+            ...(multi
+                ? {
+                      partition: (event: { readonly id: string; readonly unavailable?: boolean }) => {
+                          if (!event.unavailable) runtimes.leaving(event)
+                          return event.id
+                      },
+                      partitionReady: runtimes.joined,
+                  }
+                : {}),
             handler: (context: BotEventContext<"guildDelete">) =>
                 Effect.suspend(() => {
                     forgetServerThreads(context.client, context.event.id)
@@ -774,7 +728,8 @@ interface RuntimeEntry {
 function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stores: BotStores, guard: UsageGuard) {
     const entries = new Map<string, RuntimeEntry>()
     // Every backend join and leave passes through this one queue, so a registration and a removal never race. Its
-    // waiters are not served in arrival order, so the order within one server comes from the pending changes
+    // waiters are served in the order they reached it, which is not receipt order, so the order within one server comes
+    // from the pending changes
     const queue = Semaphore.makeUnsafe(1)
     const startPermits = Semaphore.makeUnsafe(RUNTIME_START_CONCURRENCY)
     // The joins and removals of each server that were received and are not yet decided
@@ -818,6 +773,9 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
     const created = new Map<string, number>()
     let lifetime:
         { readonly client: Client; readonly scope: Scope.Scope; readonly context: Context.Context<never> } | undefined
+    // The receipt of the event being received. The SDK numbers an event before it calls the partition functions that
+    // report joins and removals, and nothing is received before start sets the lifetime
+    const received = () => lifetime?.client.lastReceipt ?? 0
 
     function register(serverId: string, since = 0) {
         const existing = entries.get(serverId)
@@ -1038,11 +996,12 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
     // A server removed while a shard was disconnected sends no guildDelete when the shard returns with a new session,
     // so each new session checks the installed servers against Fluxer's list once. Each missing server is removed as of
     // the receipt at which the check began, unless a guildCreate of it was received after that, which the list may not
-    // show yet
+    // show yet. The check is numbered half a step after the last event received before it, so no event shares its number
+    // and every comparison counts the events received before it as earlier and those received later as later
     const sweep = (client: Client) =>
         Effect.gen(function* () {
             if (!installations) return
-            const started = nextReceipt()
+            const started = client.lastReceipt + 0.5
             const { stale } = yield* survey(client)
             for (const serverId of stale)
                 launch(serverId, "leave", started, (change) =>
@@ -1103,14 +1062,14 @@ function createRuntimeRegistry(root: BotRootConfig, scope: DeploymentScope, stor
         joining: (event: { readonly id: string }) => {
             const serverId = event.id
             if (!validServerId(serverId)) return
-            created.set(serverId, receiptOf(event))
-            if (changes.has(serverId) || !entries.has(serverId))
-                launch(serverId, "join", receiptOf(event), join(serverId))
+            const receipt = received()
+            created.set(serverId, receipt)
+            if (changes.has(serverId) || !entries.has(serverId)) launch(serverId, "join", receipt, join(serverId))
         },
         // Called when a server's permanent removal is received, so the joins received after it run after it
         leaving: (event: { readonly id: string }) => {
             if (validServerId(event.id))
-                launch(event.id, "leave", receiptOf(event), (change) => apply(event.id, change, remove(event.id)))
+                launch(event.id, "leave", received(), (change) => apply(event.id, change, remove(event.id)))
         },
         start: (client: Client, rootScope: Scope.Scope) =>
             Effect.gen(function* () {
@@ -1533,7 +1492,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         // A command in a DM about this server also refreshes the server's reply style
                         const here = message.guildId === config.serverId,
                             configured = (
-                                here ? /^[!$%&*+,.?~^|:/\-]/.test(content) || helpMention : content.startsWith("!")
+                                here ? /^[!$%&*+,.?~^|:/-]/.test(content) || helpMention : content.startsWith("!")
                             )
                                 ? yield* readPrefix
                                 : "!"
@@ -2809,15 +2768,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     }),
             },
             voiceStateUpdate: {
-                handler: ({ event }) => voiceRooms?.voiceState(event, receiptOf(event)) ?? Effect.void,
+                handler: ({ event, context }) => voiceRooms?.voiceState(event, context.receipt) ?? Effect.void,
             },
             voiceStateSnapshot: {
                 handler: ({ event, context }) =>
-                    voiceRooms?.snapshot(event, context.sessionEpoch, receiptOf(event)) ?? Effect.void,
+                    voiceRooms?.snapshot(event, context.sessionEpoch, context.receipt) ?? Effect.void,
             },
             guildDelete: {
-                handler: ({ event }) =>
-                    voiceRooms && event.id === config.serverId ? voiceRooms.unavailable(receiptOf(event)) : Effect.void,
+                handler: ({ event, context }) =>
+                    voiceRooms && event.id === config.serverId ? voiceRooms.unavailable(context.receipt) : Effect.void,
             },
             guildChannelUpdateBulk: {
                 handler: ({ event, client }) =>

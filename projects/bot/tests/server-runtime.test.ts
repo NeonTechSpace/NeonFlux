@@ -670,6 +670,9 @@ test(
 type RoutedHandler = (context: never) => Effect.Effect<unknown, unknown>
 const routed = (options: ReturnType<typeof createBotOptions>, name: "messageCreate") =>
     (options.events![name] as unknown as { handler: RoutedHandler }).handler
+// The context of an event received now, which a test passes when it calls a handler itself. Half a step after the last
+// receipt the SDK gave, it compares as later than every event received so far and earlier than every later one
+const receivedNow = (bot: TestBot) => ({ receipt: bot.client.lastReceipt + 0.5 })
 const decoded = (id: string, channelId: string, extra: Record<string, unknown>) => ({
     id,
     channelId,
@@ -712,7 +715,13 @@ test(
                                 Effect.succeed({ status: 200, body: { id: channelId, type: 0, guild_id: server } }),
                         },
                     }
-                    const context = { event: message, message, client, reply: () => Effect.die("unexpected reply") }
+                    const context = {
+                        event: message,
+                        message,
+                        client,
+                        context: receivedNow(bot),
+                        reply: () => Effect.die("unexpected reply"),
+                    }
                     // The handler runs on until the readiness wait, so the removal below finds it parked there
                     const waiting = yield* routed(
                         options,
@@ -764,7 +773,7 @@ test("a bot's message is not checked for a server before its setup has finished"
                     guildId: target,
                     webhookId: "1300000000000000098",
                 })
-                const context = { event: message, message, client: bot.client }
+                const context = { event: message, message, client: bot.client, context: receivedNow(bot) }
                 const checked = () =>
                     evaluations + bot.requests().filter((request) => request.path.includes(target!)).length
                 // The handler runs on until the target's readiness wait, before the setting that bot messages are checked is loaded
@@ -842,7 +851,7 @@ for (const retry of [false, true]) {
                         // A command in the server's channel, received after the joins, is placed by a synchronous
                         // channel read
                         const message = decoded(bot.fixtures.nextId(), channelOf(target), {})
-                        events.messageCreate!.partition(message)
+                        const context = receivedNow(bot)
                         const client = Object.create(bot.client, {
                             rest: {
                                 value: {
@@ -860,6 +869,7 @@ for (const retry of [false, true]) {
                                 event: message,
                                 message,
                                 client,
+                                context,
                                 reply: (body: unknown) => Effect.sync(() => replies.push(body)),
                             } as never)
                             .pipe(Effect.forkChild({ startImmediately: true }))
@@ -920,13 +930,14 @@ test("a DM that names a server whose join is still pending gets an answer at onc
                 const message = decoded(bot.fixtures.nextId(), "1400000000000000099", {
                     content: `!ping --server ${target}`,
                 })
-                events.messageCreate!.partition(message)
+                const context = receivedNow(bot)
                 const replies: { content?: string }[] = []
                 const handler = yield* events
                     .messageCreate!.handler({
                         event: message,
                         message,
                         client: bot.client,
+                        context,
                         reply: (body: { content?: string }) => Effect.sync(() => replies.push(body)),
                     } as never)
                     .pipe(Effect.forkChild({ startImmediately: true }))
@@ -988,13 +999,14 @@ test(
                     const message = decoded(bot.fixtures.nextId(), "1400000000000000099", {
                         content: `!ping --server ${target}`,
                     })
-                    events.messageCreate!.partition(message)
+                    const context = receivedNow(bot)
                     const replies: { content?: string }[] = []
                     const handler = yield* events
                         .messageCreate!.handler({
                             event: message,
                             message,
                             client: bot.client,
+                            context,
                             reply: (body: { content?: string }) => Effect.sync(() => replies.push(body)),
                         } as never)
                         .pipe(Effect.forkChild({ startImmediately: true }))
@@ -1012,7 +1024,6 @@ test(
 type Lifecycle = Record<
     string,
     {
-        partition: (event: object) => string
         partitionReady?: (key: string) => Effect.Effect<unknown>
         handler: (context: never) => Effect.Effect<unknown, unknown>
     }
@@ -1429,7 +1440,7 @@ test(
                         content: `!ticket --server ${target} help`,
                         author: { id: bot.fixtures.ids.user, username: "synthetic", isBot: false, isSystem: false },
                     })
-                    events.messageCreate!.partition(message)
+                    const context = receivedNow(bot)
                     yield* createServer(bot, target)
                     yield* events.messageCreate!.partitionReady!(target)
                     const replies: { content?: string }[] = []
@@ -1437,6 +1448,7 @@ test(
                         event: message,
                         message,
                         client: bot.client,
+                        context,
                         reply: (body: { content?: string }) => Effect.sync(() => replies.push(body)),
                     } as never)
                     assert.equal(replies.length, 1)
@@ -1480,8 +1492,7 @@ test(
                             guildId: target,
                             webhookId: "1300000000000000098",
                         })
-                        events.messageCreate!.partition(message)
-                        return { event: message, message, client: bot.client } as never
+                        return { event: message, message, client: bot.client, context: receivedNow(bot) } as never
                     }
                     const held = received()
                     yield* bot.emit("GUILD_DELETE", { id: target })
@@ -1519,6 +1530,9 @@ test(
             Effect.scoped(
                 Effect.gen(function* () {
                     const { bot, sent } = yield* multiBot([serverA, serverB])
+                    // The first server was announced before the check began, which does not keep it
+                    yield* createServer(bot, serverA)
+                    yield* bot.idle()
                     // The bot was removed from the first server while the shard was down, and nothing says so
                     bot.rest.respond("GET /users/@me/guilds", (request) => ({
                         body: request.query.after ? [] : [bot.fixtures.guild({ id: serverB })],
