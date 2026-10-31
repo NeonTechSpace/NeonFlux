@@ -209,7 +209,8 @@ import {
 } from "./thread-memory.ts"
 import { createOptionalWork, rememberAfk } from "./optional-work.ts"
 import { createUsageGuard, startUsageReporter, type UsageGuard } from "./usage.ts"
-import { handleHelpAll, handleHelpCommand, helpAllRequest, serverOnlyReply, suggestCommand } from "./help.ts"
+import { anyOf } from "./closest-name.ts"
+import { commandHint, handleHelpAll, handleHelpCommand, helpAllRequest, serverOnlyReply } from "./help.ts"
 import {
     handleHealthCommand,
     handleRecoveryCommand,
@@ -2491,18 +2492,24 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             : invocationPrefix
                                               ? name !== undefined && (yield* optional("custom"))
                                               : yield* optional("responses")
-                                        const known =
+                                        const response =
                                             responses && evaluated
                                                 ? yield* handleResponse(responses, config.serverId, context)
-                                                : false
-                                        // An unknown command close to a built-in one gets one hint. Other text after the prefix stays unanswered, so chat stays quiet
-                                        const suggestion =
-                                            evaluated && !known && name && !privateInvocation
-                                                ? suggestCommand(name)
                                                 : undefined
-                                        if (suggestion)
+                                        // An unknown command close to ones the member can use gets one hint. Other text after the prefix stays unanswered, so chat stays quiet
+                                        const suggestion =
+                                            evaluated && !response?.known && name && !privateInvocation
+                                                ? yield* commandHint(
+                                                      config.serverId,
+                                                      name,
+                                                      response?.customNames ?? [],
+                                                      commandBody!.trim().split(/\s+/).length - 1,
+                                                      context,
+                                                  )
+                                                : []
+                                        if (suggestion.length)
                                             yield* reply({
-                                                content: `Did you mean ${invocationPrefix}${suggestion}? Send ${invocationPrefix}help to list the commands you can use`,
+                                                content: `Did you mean ${anyOf(suggestion.map((known) => `${invocationPrefix}${known}`))}? Send ${invocationPrefix}help to list the commands you can use`,
                                             })
                                     }),
                                 ),

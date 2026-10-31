@@ -277,6 +277,8 @@ export const ResponseEvaluateResult = Schema.Union([
     Schema.Struct({ send: Schema.Literal(false), memberRequired: Schema.Literal(true) }),
     /** A custom command of that name exists but did not reply, for example during its cooldown */
     Schema.Struct({ send: Schema.Literal(false), defined: Schema.Literal(true) }),
+    /** No custom command has that name. These are the ones the member could use here, for a typo hint */
+    Schema.Struct({ send: Schema.Literal(false), customNames: Schema.Array(name) }),
     Schema.Struct({ send: Schema.Literal(false) }),
     Schema.Struct({ send: Schema.Literal(true), messageId: Id, ruleName: name, reply: ResponseReply }),
 ])

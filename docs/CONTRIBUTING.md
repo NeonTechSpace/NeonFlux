@@ -43,7 +43,7 @@ Commit generated files together with the change that needs them
 
 ## Detector evals
 
-`pnpm run evals` scores the deceptive link judge and the lookalike name check against the labeled cases in [projects/evals/](../projects/evals/) and prints what each catches and wrongly flags, per family. The cases are synthesized from common phishing and impersonation patterns, not taken from real servers. `evals/baseline.json` lists the cases each detector fails today, and `pnpm run check` fails when a case outside that list starts to fail. After an improvement, `node scripts/evals.mjs --update` tightens the baseline
+`pnpm run evals` scores the deceptive link judge, the lookalike name check and the typo hints against the labeled cases in [projects/evals/](../projects/evals/) and prints what each catches and wrongly flags, per family. The cases are synthesized from common phishing, impersonation and typing mistakes, not taken from real servers. `evals/baseline.json` lists the cases each detector fails today, and `pnpm run check` fails when a case outside that list starts to fail. After an improvement, `node scripts/evals.mjs --update` tightens the baseline
 
 To tune a detector, work only from `train.json`. A false positive costs more than a miss, since a flagged link is usually deleted, so never trade a new false positive for a catch. The `holdout.json` sets scored the last tuning round and now only guard against regressions, so a new round needs new held-out cases, written by someone other than the person tuning and scored once at the end
 

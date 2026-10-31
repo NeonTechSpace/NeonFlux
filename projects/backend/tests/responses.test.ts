@@ -366,7 +366,7 @@ test("Custom commands match a whole first token and render only supported templa
     await f.create("greet", "custom", {
         reply: { type: "text", text: "{user.name}|{user.id}|{user.mention}|{channel.id}|{server.id}|{args}" },
     })
-    assert.deepEqual(await f.evaluate("!greeting"), { send: false })
+    assert.deepEqual(await f.evaluate("!greeting"), { send: false, customNames: ["greet"] })
     const reply = await f.evaluate("  !GREET   arbitrary {user.id} <@999>  ", { userName: "Name {server.id}" })
     assert.ok(reply.send)
     assert.equal(reply.ruleName, "greet")
@@ -411,6 +411,28 @@ test("Channel and any-role scopes apply together in the backend", async (ctx) =>
     await f.manage({ type: "update", name: "scoped", field: "channels", channelIds: [] })
     await f.manage({ type: "update", name: "scoped", field: "roles", roleIds: [] })
     assert.equal((await f.evaluate("!scoped", { channelId: "99", userId: "22" })).send, true)
+})
+
+test("An unknown command lists the custom commands the member could use here, for a typo hint", async (ctx) => {
+    const f = fixture(ctx)
+    await f.create("open")
+    await f.create("elsewhere")
+    await f.manage({ type: "update", name: "elsewhere", field: "channels", channelIds: ["30"] })
+    await f.create("rolelimited")
+    await f.manage({ type: "update", name: "rolelimited", field: "roles", roleIds: ["40"] })
+    await f.create("paused")
+    await f.manage({ type: "disable", name: "paused" })
+    await f.create("automatic", "auto")
+    assert.deepEqual(await f.evaluate("!opne", { channelId: "31" }), { send: false, customNames: ["open"] })
+    assert.deepEqual(await f.evaluate("!opne", { channelId: "30" }), {
+        send: false,
+        customNames: ["elsewhere", "open"],
+    })
+    await f.manage({ type: "disable", name: "open" })
+    await f.manage({ type: "disable", name: "elsewhere" })
+    assert.deepEqual(await f.evaluate("!opne"), { send: false })
+    await f.manage({ type: "enable", name: "open" })
+    assert.deepEqual(await f.evaluate("plain chat"), { send: false })
 })
 
 test("Channel restrictions treat a message in a thread as in its parent channel", async (ctx) => {

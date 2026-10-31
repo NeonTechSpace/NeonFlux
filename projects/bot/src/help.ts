@@ -1,7 +1,8 @@
 import type { ServerCommand } from "@neonflux/contracts/responses"
-import { permissionBits, commands, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
+import { permissionBits, Permissions, type BotEventContext } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import { cleanupHelpAll } from "./cleanup-command.ts"
+import { anyOf, closestNames, isCloseToAny } from "./closest-name.ts"
 import { eventHelpAll } from "./event-command.ts"
 import { withPrefix } from "./general-settings.ts"
 import { levelHelpAll } from "./level-command.ts"
@@ -498,10 +499,10 @@ export function helpCard(prefix: string, allowed: ReadonlySet<Audience>, topic?:
                 .filter((entry) => allowed.has(entry.audience))
                 .flatMap((entry) => [entry.name, entry.feature]),
         ]
-        const closest = commands.suggest(topic, new Set(known))
+        const closest = closestNames({ word: topic, builtIn: known })
         return withPrefix(
-            closest
-                ? `No help matches that. Did you mean ${code(`!help ${closest}`)}?`
+            closest.length
+                ? `No help matches that. Did you mean ${anyOf(closest.map((name) => code(`!help ${name}`)))}?`
                 : `No help matches that. Send ${code("!help")} to see the groups`,
             prefix,
         )
@@ -531,8 +532,44 @@ export const serverOnlyReply = (name: string | undefined) =>
     name && entries.has(name)
         ? `Send ${code(`!${name}`)} in the server. It does not work in a DM`
         : `No command matches that. Send ${code("!help")} in the server to see the commands you can use`
-/** The built-in command closest to an unknown name */
-export const suggestCommand = (name: string) => commands.suggest(name, entries.keys())
+const namesFor = (allowed: ReadonlySet<Audience>) =>
+    commandTable.filter((entry) => allowed.has(entry.audience)).map((entry) => entry.name)
+/** The commands to name for an unknown one: built-in ones this audience can use and the server's custom commands */
+export const suggestCommand = (
+    word: string,
+    allowed: ReadonlySet<Audience>,
+    custom: readonly string[] = [],
+    following = 0,
+) => closestNames({ word, builtIn: namesFor(allowed), custom, following })
+/** The audiences of the message's author. Help and hints only choose what to show, so this reads the copies that member, role and message events keep current */
+function authorAudiences(serverId: string, context: BotEventContext<"messageCreate">) {
+    return readSafetyAuthority(context.client, serverId, context.message.author.id, { cached: true }).pipe(
+        Effect.flatMap((authority) =>
+            Effect.try(() =>
+                context.client.permissions.calculate({
+                    guild: authority.guild,
+                    member: authority.actor,
+                    roles: authority.roles,
+                }),
+            ),
+        ),
+        Effect.catch(() => Effect.succeed(0n)),
+        Effect.map(audiences),
+    )
+}
+/** The hint for the message's author. Their permissions are read only for a word close to some command */
+export function commandHint(
+    serverId: string,
+    name: string,
+    customNames: readonly string[],
+    following: number,
+    context: BotEventContext<"messageCreate">,
+) {
+    return Effect.gen(function* () {
+        if (!isCloseToAny({ word: name, builtIn: entries.keys(), custom: customNames, following })) return []
+        return suggestCommand(name, yield* authorAudiences(serverId, context), customNames, following)
+    })
+}
 /** !help and a mention of the bot followed by help. The member's server permissions decide which commands are listed */
 export function handleHelpCommand(
     serverId: string,
@@ -541,25 +578,11 @@ export function handleHelpCommand(
     context: BotEventContext<"messageCreate">,
 ) {
     return Effect.gen(function* () {
-        // Help only chooses which commands to show, so it reads the copies that member, role and message events keep current
-        const bits = yield* readSafetyAuthority(context.client, serverId, context.message.author.id, {
-            cached: true,
-        }).pipe(
-            Effect.flatMap((authority) =>
-                Effect.try(() =>
-                    context.client.permissions.calculate({
-                        guild: authority.guild,
-                        member: authority.actor,
-                        roles: authority.roles,
-                    }),
-                ),
-            ),
-            Effect.catch(() => Effect.succeed(0n)),
-        )
+        const allowed = yield* authorAudiences(serverId, context)
         const result =
             args.length > 1
                 ? withPrefix(`No help matches that. Send ${code("!help")} to see the groups`, prefix)
-                : helpCard(prefix, audiences(bits), args[0]?.toLowerCase())
+                : helpCard(prefix, allowed, args[0]?.toLowerCase())
         if (typeof result === "object") yield* replyCard(context, serverId, result)
         else yield* replyText(context, result)
     })

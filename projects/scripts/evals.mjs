@@ -1,4 +1,4 @@
-// Scores the two detectors that have labeled eval cases: deceptive links in automod and lookalike names in security alerts.
+// Scores what has labeled eval cases: deceptive links in automod, lookalike names in security alerts and the bot's typo hints.
 // Each set lists cases with the answer a careful moderator wants. The score is how many deceptive cases are caught and how
 // many harmless ones are flagged, per family. The held-out sets are only for scoring and are never used to tune a detector.
 // evals/baseline.json records which cases fail today, and evals.test.mjs fails when a case that passed starts to fail.
@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { deceptiveLink, protectedDomains } from "../backend/convex/moderationLinks.ts"
 import { namesLookAlike } from "../bot/src/alerts-names.ts"
+import { suggestCommand } from "../bot/src/help.ts"
 
 const folder = new URL("../evals/", import.meta.url)
 const read = (name) => JSON.parse(readFileSync(new URL(name, folder), "utf8"))
@@ -21,6 +22,23 @@ export const detectors = {
         expected: (item) => item.lookalike,
         actual: (item) => namesLookAlike(item.staff, item.name),
     },
+    "command-hints": {
+        key: (item) => `${item.audience} ${item.custom.join(",")} | ${item.message}`,
+        expected: (item) => item.hint,
+        actual: (item) => commandHint(item),
+    },
+}
+const hintAudiences = {
+    member: new Set(["everyone"]),
+    staff: new Set(["everyone", "staff", "manager", "admin"]),
+}
+// The first word after the prefix, read as the bot reads it
+// A case counts as right when its command is among the suggestions
+function commandHint({ message, audience, custom, hint }) {
+    const name = /^!([a-z0-9][a-z0-9_-]*)(?:\s|$)/i.exec(message)?.[1]?.toLowerCase()
+    const following = message.trim().split(/\s+/).length - 1
+    const suggested = name ? suggestCommand(name, hintAudiences[audience], custom, following) : []
+    return suggested.includes(hint) ? hint : (suggested[0] ?? null)
 }
 /** The sets present for a detector. The held-out set joins the repository only after a tuning round ends */
 export const sets = (detector) =>
@@ -43,7 +61,8 @@ export function score(detector, set) {
 export function summary(results) {
     const count = (list) => ({
         positives: list.filter((r) => r.expected).length,
-        caught: list.filter((r) => r.expected && r.actual).length,
+        caught: list.filter((r) => r.expected && r.actual === r.expected).length,
+        wrong: list.filter((r) => r.expected && r.actual && r.actual !== r.expected).length,
         negatives: list.filter((r) => !r.expected).length,
         flagged: list.filter((r) => !r.expected && r.actual).length,
     })
@@ -76,7 +95,7 @@ if (import.meta.main) {
     else
         for (const [name, s] of Object.entries(report)) {
             console.log(
-                `${name}: caught ${s.caught}/${s.positives} deceptive, flagged ${s.flagged}/${s.negatives} harmless`,
+                `${name}: caught ${s.caught}/${s.positives}${s.wrong ? ` with ${s.wrong} wrong` : ""}, flagged ${s.flagged}/${s.negatives} harmless`,
             )
             for (const [family, f] of Object.entries(s.families))
                 console.log(

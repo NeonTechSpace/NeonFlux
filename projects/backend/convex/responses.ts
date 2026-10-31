@@ -186,7 +186,18 @@ export const evaluate = serviceMutation({
             return { send: true, messageId: input.messageId, ruleName: row.name, reply: rendered }
         }
         // A custom command that exists but cannot reply now still counts as known, so the bot suggests no built-in command for it
-        return parsed && rows.length ? { send: false, defined: true } : { send: false }
+        if (!parsed) return { send: false }
+        if (rows.length) return { send: false, defined: true }
+        // A role-limited command is left out, since this check has not read the member's roles
+        const customNames = (
+            await ctx.db
+                .query("responseDefinitions")
+                .withIndex("by_server_kind_name", (q) => q.eq("serverId", input.serverId).eq("kind", "custom"))
+                .take(MAX_DEFINITIONS)
+        )
+            .filter((custom) => eligible(definition(custom), input))
+            .map((custom) => custom.name)
+        return customNames.length ? { send: false, customNames } : { send: false }
     },
 })
 

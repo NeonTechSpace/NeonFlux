@@ -1,0 +1,6810 @@
+[
+    {
+        "message": "!pign",
+        "audience": "member",
+        "custom": [],
+        "hint": "ping",
+        "family": "swapped-letters",
+        "why": "p-i-g-n is ping with two letters swapped"
+    },
+    {
+        "message": "!hlep",
+        "audience": "member",
+        "custom": [],
+        "hint": "help",
+        "family": "swapped-letters",
+        "why": "l and e swapped"
+    },
+    {
+        "message": "!akf",
+        "audience": "member",
+        "custom": [],
+        "hint": "afk",
+        "family": "swapped-letters",
+        "why": "f and k swapped"
+    },
+    {
+        "message": "!perfix",
+        "audience": "member",
+        "custom": [],
+        "hint": "prefix",
+        "family": "swapped-letters",
+        "why": "e and r swapped"
+    },
+    {
+        "message": "!tikcet",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "swapped-letters",
+        "why": "c and k swapped"
+    },
+    {
+        "message": "!sovled",
+        "audience": "member",
+        "custom": [],
+        "hint": "solved",
+        "family": "swapped-letters",
+        "why": "l and v swapped"
+    },
+    {
+        "message": "!vocie",
+        "audience": "member",
+        "custom": [],
+        "hint": "voice",
+        "family": "swapped-letters",
+        "why": "c and i swapped"
+    },
+    {
+        "message": "!lgf",
+        "audience": "member",
+        "custom": [],
+        "hint": "lfg",
+        "family": "swapped-letters",
+        "why": "f and g swapped"
+    },
+    {
+        "message": "!setpu",
+        "audience": "staff",
+        "custom": [],
+        "hint": "setup",
+        "family": "swapped-letters",
+        "why": "u and p swapped"
+    },
+    {
+        "message": "!helath",
+        "audience": "staff",
+        "custom": [],
+        "hint": "health",
+        "family": "swapped-letters",
+        "why": "a and l swapped"
+    },
+    {
+        "message": "!stast",
+        "audience": "staff",
+        "custom": [],
+        "hint": "stats",
+        "family": "swapped-letters",
+        "why": "t and s swapped"
+    },
+    {
+        "message": "!bakcup",
+        "audience": "staff",
+        "custom": [],
+        "hint": "backup",
+        "family": "swapped-letters",
+        "why": "c and k swapped"
+    },
+    {
+        "message": "!secuirty",
+        "audience": "staff",
+        "custom": [],
+        "hint": "security",
+        "family": "swapped-letters",
+        "why": "r and i swapped"
+    },
+    {
+        "message": "!inivtes",
+        "audience": "staff",
+        "custom": [],
+        "hint": "invites",
+        "family": "swapped-letters",
+        "why": "n and i swapped"
+    },
+    {
+        "message": "!defocn",
+        "audience": "staff",
+        "custom": [],
+        "hint": "defcon",
+        "family": "swapped-letters",
+        "why": "c and o swapped"
+    },
+    {
+        "message": "!atuo",
+        "audience": "staff",
+        "custom": [],
+        "hint": "auto",
+        "family": "swapped-letters",
+        "why": "u and t swapped"
+    },
+    {
+        "message": "!levle",
+        "audience": "staff",
+        "custom": [],
+        "hint": "level",
+        "family": "swapped-letters",
+        "why": "e and l swapped"
+    },
+    {
+        "message": "!memebrlist",
+        "audience": "staff",
+        "custom": [],
+        "hint": "memberlist",
+        "family": "swapped-letters",
+        "why": "b and e swapped"
+    },
+    {
+        "message": "!prefx",
+        "audience": "member",
+        "custom": [],
+        "hint": "prefix",
+        "family": "missing-letter",
+        "why": "i missing"
+    },
+    {
+        "message": "!apeal",
+        "audience": "member",
+        "custom": [],
+        "hint": "appeal",
+        "family": "missing-letter",
+        "why": "one p missing"
+    },
+    {
+        "message": "!verfy",
+        "audience": "member",
+        "custom": [],
+        "hint": "verify",
+        "family": "missing-letter",
+        "why": "i missing"
+    },
+    {
+        "message": "!onboardng",
+        "audience": "member",
+        "custom": [],
+        "hint": "onboarding",
+        "family": "missing-letter",
+        "why": "i missing"
+    },
+    {
+        "message": "!rnk",
+        "audience": "member",
+        "custom": [],
+        "hint": "rank",
+        "family": "missing-letter",
+        "why": "a missing"
+    },
+    {
+        "message": "!leaderbord",
+        "audience": "member",
+        "custom": [],
+        "hint": "leaderboard",
+        "family": "missing-letter",
+        "why": "a missing"
+    },
+    {
+        "message": "!showcas",
+        "audience": "member",
+        "custom": [],
+        "hint": "showcase",
+        "family": "missing-letter",
+        "why": "last e missing"
+    },
+    {
+        "message": "!rols",
+        "audience": "member",
+        "custom": [],
+        "hint": "roles",
+        "family": "missing-letter",
+        "why": "e missing"
+    },
+    {
+        "message": "!recovry",
+        "audience": "staff",
+        "custom": [],
+        "hint": "recovery",
+        "family": "missing-letter",
+        "why": "e missing"
+    },
+    {
+        "message": "!sidbar",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sidebar",
+        "family": "missing-letter",
+        "why": "e missing"
+    },
+    {
+        "message": "!exprt",
+        "audience": "staff",
+        "custom": [],
+        "hint": "export",
+        "family": "missing-letter",
+        "why": "o missing"
+    },
+    {
+        "message": "!alrts",
+        "audience": "staff",
+        "custom": [],
+        "hint": "alerts",
+        "family": "missing-letter",
+        "why": "e missing"
+    },
+    {
+        "message": "!invtes",
+        "audience": "staff",
+        "custom": [],
+        "hint": "invites",
+        "family": "missing-letter",
+        "why": "i missing"
+    },
+    {
+        "message": "!autorol",
+        "audience": "staff",
+        "custom": [],
+        "hint": "autorole",
+        "family": "missing-letter",
+        "why": "last e missing"
+    },
+    {
+        "message": "!pubish",
+        "audience": "staff",
+        "custom": [],
+        "hint": "publish",
+        "family": "missing-letter",
+        "why": "l missing"
+    },
+    {
+        "message": "!stcky",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sticky",
+        "family": "missing-letter",
+        "why": "i missing"
+    },
+    {
+        "message": "!helpdek",
+        "audience": "staff",
+        "custom": [],
+        "hint": "helpdesk",
+        "family": "missing-letter",
+        "why": "s missing"
+    },
+    {
+        "message": "!esclate",
+        "audience": "staff",
+        "custom": [],
+        "hint": "escalate",
+        "family": "missing-letter",
+        "why": "a missing"
+    },
+    {
+        "message": "!afkk",
+        "audience": "member",
+        "custom": [],
+        "hint": "afk",
+        "family": "extra-letter",
+        "why": "doubled k"
+    },
+    {
+        "message": "!repliess",
+        "audience": "member",
+        "custom": [],
+        "hint": "replies",
+        "family": "extra-letter",
+        "why": "doubled s"
+    },
+    {
+        "message": "!nicckname",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "extra-letter",
+        "why": "doubled c"
+    },
+    {
+        "message": "!rankk",
+        "audience": "member",
+        "custom": [],
+        "hint": "rank",
+        "family": "extra-letter",
+        "why": "doubled k"
+    },
+    {
+        "message": "!eveent",
+        "audience": "member",
+        "custom": [],
+        "hint": "event",
+        "family": "extra-letter",
+        "why": "doubled e"
+    },
+    {
+        "message": "!settup",
+        "audience": "staff",
+        "custom": [],
+        "hint": "setup",
+        "family": "extra-letter",
+        "why": "doubled t"
+    },
+    {
+        "message": "!modd",
+        "audience": "staff",
+        "custom": [],
+        "hint": "mod",
+        "family": "extra-letter",
+        "why": "doubled d"
+    },
+    {
+        "message": "!loggs",
+        "audience": "staff",
+        "custom": [],
+        "hint": "logs",
+        "family": "extra-letter",
+        "why": "doubled g"
+    },
+    {
+        "message": "!wellcome",
+        "audience": "staff",
+        "custom": [],
+        "hint": "welcome",
+        "family": "extra-letter",
+        "why": "doubled l, common misspelling"
+    },
+    {
+        "message": "!youttube",
+        "audience": "staff",
+        "custom": [],
+        "hint": "youtube",
+        "family": "extra-letter",
+        "why": "doubled t"
+    },
+    {
+        "message": "!cleannup",
+        "audience": "staff",
+        "custom": [],
+        "hint": "cleanup",
+        "family": "extra-letter",
+        "why": "doubled n"
+    },
+    {
+        "message": "!twittch",
+        "audience": "staff",
+        "custom": [],
+        "hint": "twitch",
+        "family": "extra-letter",
+        "why": "doubled t"
+    },
+    {
+        "message": "!prefiz",
+        "audience": "member",
+        "custom": [],
+        "hint": "prefix",
+        "family": "nearby-key",
+        "why": "z is next to x"
+    },
+    {
+        "message": "!appwal",
+        "audience": "member",
+        "custom": [],
+        "hint": "appeal",
+        "family": "nearby-key",
+        "why": "w is next to e"
+    },
+    {
+        "message": "!rokes",
+        "audience": "member",
+        "custom": [],
+        "hint": "roles",
+        "family": "nearby-key",
+        "why": "k is next to l"
+    },
+    {
+        "message": "!solvrd",
+        "audience": "member",
+        "custom": [],
+        "hint": "solved",
+        "family": "nearby-key",
+        "why": "r is next to e"
+    },
+    {
+        "message": "!profike",
+        "audience": "member",
+        "custom": [],
+        "hint": "profile",
+        "family": "nearby-key",
+        "why": "k is next to l"
+    },
+    {
+        "message": "!evenr",
+        "audience": "member",
+        "custom": [],
+        "hint": "event",
+        "family": "nearby-key",
+        "why": "r is next to t"
+    },
+    {
+        "message": "!sdtup",
+        "audience": "staff",
+        "custom": [],
+        "hint": "setup",
+        "family": "nearby-key",
+        "why": "d is next to e"
+    },
+    {
+        "message": "!healrh",
+        "audience": "staff",
+        "custom": [],
+        "hint": "health",
+        "family": "nearby-key",
+        "why": "r is next to t"
+    },
+    {
+        "message": "!presrt",
+        "audience": "staff",
+        "custom": [],
+        "hint": "preset",
+        "family": "nearby-key",
+        "why": "r is next to e"
+    },
+    {
+        "message": "!sidevar",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sidebar",
+        "family": "nearby-key",
+        "why": "v is next to b"
+    },
+    {
+        "message": "!mof",
+        "audience": "staff",
+        "custom": [],
+        "hint": "mod",
+        "family": "nearby-key",
+        "why": "f is next to d"
+    },
+    {
+        "message": "!defcom",
+        "audience": "staff",
+        "custom": [],
+        "hint": "defcon",
+        "family": "nearby-key",
+        "why": "m is next to n"
+    },
+    {
+        "message": "!autp",
+        "audience": "staff",
+        "custom": [],
+        "hint": "auto",
+        "family": "nearby-key",
+        "why": "p is next to o"
+    },
+    {
+        "message": "!stucky",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sticky",
+        "family": "nearby-key",
+        "why": "u is next to i"
+    },
+    {
+        "message": "!helpdeak",
+        "audience": "staff",
+        "custom": [],
+        "hint": "helpdesk",
+        "family": "nearby-key",
+        "why": "a is next to s"
+    },
+    {
+        "message": "!oing",
+        "audience": "member",
+        "custom": [],
+        "hint": "ping",
+        "family": "wrong-first-letter",
+        "why": "o is next to p"
+    },
+    {
+        "message": "!gelp",
+        "audience": "member",
+        "custom": [],
+        "hint": "help",
+        "family": "wrong-first-letter",
+        "why": "g is next to h"
+    },
+    {
+        "message": "!sfk",
+        "audience": "member",
+        "custom": [],
+        "hint": "afk",
+        "family": "wrong-first-letter",
+        "why": "s is next to a"
+    },
+    {
+        "message": "!bickname",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "wrong-first-letter",
+        "why": "b is next to n"
+    },
+    {
+        "message": "!cerify",
+        "audience": "member",
+        "custom": [],
+        "hint": "verify",
+        "family": "wrong-first-letter",
+        "why": "c is next to v"
+    },
+    {
+        "message": "!keaderboard",
+        "audience": "member",
+        "custom": [],
+        "hint": "leaderboard",
+        "family": "wrong-first-letter",
+        "why": "k is next to l"
+    },
+    {
+        "message": "!orofile",
+        "audience": "member",
+        "custom": [],
+        "hint": "profile",
+        "family": "wrong-first-letter",
+        "why": "o is next to p"
+    },
+    {
+        "message": "!boice",
+        "audience": "member",
+        "custom": [],
+        "hint": "voice",
+        "family": "wrong-first-letter",
+        "why": "b is next to v"
+    },
+    {
+        "message": "!kfg",
+        "audience": "member",
+        "custom": [],
+        "hint": "lfg",
+        "family": "wrong-first-letter",
+        "why": "k is next to l"
+    },
+    {
+        "message": "!dtats",
+        "audience": "staff",
+        "custom": [],
+        "hint": "stats",
+        "family": "wrong-first-letter",
+        "why": "d is next to s"
+    },
+    {
+        "message": "!vackup",
+        "audience": "staff",
+        "custom": [],
+        "hint": "backup",
+        "family": "wrong-first-letter",
+        "why": "v is next to b"
+    },
+    {
+        "message": "!wxport",
+        "audience": "staff",
+        "custom": [],
+        "hint": "export",
+        "family": "wrong-first-letter",
+        "why": "w is next to e"
+    },
+    {
+        "message": "!qelcome",
+        "audience": "staff",
+        "custom": [],
+        "hint": "welcome",
+        "family": "wrong-first-letter",
+        "why": "q is next to w"
+    },
+    {
+        "message": "!vustom",
+        "audience": "staff",
+        "custom": [],
+        "hint": "custom",
+        "family": "wrong-first-letter",
+        "why": "v is next to c"
+    },
+    {
+        "message": "!nemberlist",
+        "audience": "staff",
+        "custom": [],
+        "hint": "memberlist",
+        "family": "wrong-first-letter",
+        "why": "n is next to m"
+    },
+    {
+        "message": "!ledaerbord",
+        "audience": "member",
+        "custom": [],
+        "hint": "leaderboard",
+        "family": "two-mistakes",
+        "why": "swap and a missing a"
+    },
+    {
+        "message": "!milesotn",
+        "audience": "member",
+        "custom": [],
+        "hint": "milestone",
+        "family": "two-mistakes",
+        "why": "swap and last e missing"
+    },
+    {
+        "message": "!shwocas",
+        "audience": "member",
+        "custom": [],
+        "hint": "showcase",
+        "family": "two-mistakes",
+        "why": "swap and last e missing"
+    },
+    {
+        "message": "!sugegts",
+        "audience": "member",
+        "custom": [],
+        "hint": "suggest",
+        "family": "two-mistakes",
+        "why": "two swaps"
+    },
+    {
+        "message": "!onbaordng",
+        "audience": "member",
+        "custom": [],
+        "hint": "onboarding",
+        "family": "two-mistakes",
+        "why": "swap and i missing"
+    },
+    {
+        "message": "!rolepikcr",
+        "audience": "staff",
+        "custom": [],
+        "hint": "rolepicker",
+        "family": "two-mistakes",
+        "why": "swap and e missing"
+    },
+    {
+        "message": "!recoevyr",
+        "audience": "staff",
+        "custom": [],
+        "hint": "recovery",
+        "family": "two-mistakes",
+        "why": "two swaps"
+    },
+    {
+        "message": "!hlepdsk",
+        "audience": "staff",
+        "custom": [],
+        "hint": "helpdesk",
+        "family": "two-mistakes",
+        "why": "swap and e missing"
+    },
+    {
+        "message": "!atuorle",
+        "audience": "staff",
+        "custom": [],
+        "hint": "autorole",
+        "family": "two-mistakes",
+        "why": "swap and o missing"
+    },
+    {
+        "message": "!esclaet",
+        "audience": "staff",
+        "custom": [],
+        "hint": "escalate",
+        "family": "two-mistakes",
+        "why": "two swaps and a missing"
+    },
+    {
+        "message": "!tmeprloe",
+        "audience": "staff",
+        "custom": [],
+        "hint": "temprole",
+        "family": "two-mistakes",
+        "why": "two swaps"
+    },
+    {
+        "message": "!wlecmoe",
+        "audience": "staff",
+        "custom": [],
+        "hint": "welcome",
+        "family": "two-mistakes",
+        "why": "two swaps"
+    },
+    {
+        "message": "!godbey",
+        "audience": "staff",
+        "custom": [],
+        "hint": "goodbye",
+        "family": "two-mistakes",
+        "why": "o missing and a swap"
+    },
+    {
+        "message": "!pulbsih",
+        "audience": "staff",
+        "custom": [],
+        "hint": "publish",
+        "family": "two-mistakes",
+        "why": "two swaps"
+    },
+    {
+        "message": "!tikit",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "phonetic",
+        "why": "spelled as it sounds"
+    },
+    {
+        "message": "!voyce",
+        "audience": "member",
+        "custom": [],
+        "hint": "voice",
+        "family": "phonetic",
+        "why": "spelled as it sounds"
+    },
+    {
+        "message": "!leederboard",
+        "audience": "member",
+        "custom": [],
+        "hint": "leaderboard",
+        "family": "phonetic",
+        "why": "ee for ea"
+    },
+    {
+        "message": "!ivent",
+        "audience": "member",
+        "custom": [],
+        "hint": "event",
+        "family": "phonetic",
+        "why": "i for the e sound"
+    },
+    {
+        "message": "!sugjest",
+        "audience": "member",
+        "custom": [],
+        "hint": "suggest",
+        "family": "phonetic",
+        "why": "j for the g sound"
+    },
+    {
+        "message": "!halp",
+        "audience": "member",
+        "custom": [],
+        "hint": "help",
+        "family": "phonetic",
+        "why": "common joking spelling of help"
+    },
+    {
+        "message": "!pyng",
+        "audience": "member",
+        "custom": [],
+        "hint": "ping",
+        "family": "phonetic",
+        "why": "y for i"
+    },
+    {
+        "message": "!kustom",
+        "audience": "staff",
+        "custom": [],
+        "hint": "custom",
+        "family": "phonetic",
+        "why": "k for c"
+    },
+    {
+        "message": "!utube",
+        "audience": "staff",
+        "custom": [],
+        "hint": "youtube",
+        "family": "phonetic",
+        "why": "u for you"
+    },
+    {
+        "message": "!sekurity",
+        "audience": "staff",
+        "custom": [],
+        "hint": "security",
+        "family": "phonetic",
+        "why": "k for c"
+    },
+    {
+        "message": "!eskalate",
+        "audience": "staff",
+        "custom": [],
+        "hint": "escalate",
+        "family": "phonetic",
+        "why": "k for c"
+    },
+    {
+        "message": "!ansur",
+        "audience": "staff",
+        "custom": [],
+        "hint": "answer",
+        "family": "phonetic",
+        "why": "spelled as it sounds"
+    },
+    {
+        "message": "!cleenup",
+        "audience": "staff",
+        "custom": [],
+        "hint": "cleanup",
+        "family": "phonetic",
+        "why": "ee for ea"
+    },
+    {
+        "message": "!prefixes",
+        "audience": "member",
+        "custom": [],
+        "hint": "prefix",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!reply",
+        "audience": "member",
+        "custom": [],
+        "hint": "replies",
+        "family": "wrong-form",
+        "why": "singular of replies"
+    },
+    {
+        "message": "!nicknames",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!appeals",
+        "audience": "member",
+        "custom": [],
+        "hint": "appeal",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!role",
+        "audience": "member",
+        "custom": [],
+        "hint": "roles",
+        "family": "wrong-form",
+        "why": "singular of roles"
+    },
+    {
+        "message": "!verification",
+        "audience": "member",
+        "custom": [],
+        "hint": "verify",
+        "family": "wrong-form",
+        "why": "noun form of verify"
+    },
+    {
+        "message": "!tickets",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!solve",
+        "audience": "member",
+        "custom": [],
+        "hint": "solved",
+        "family": "wrong-form",
+        "why": "base verb of solved"
+    },
+    {
+        "message": "!suggestion",
+        "audience": "member",
+        "custom": [],
+        "hint": "suggest",
+        "family": "wrong-form",
+        "why": "noun form of suggest"
+    },
+    {
+        "message": "!milestones",
+        "audience": "member",
+        "custom": [],
+        "hint": "milestone",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!showcases",
+        "audience": "member",
+        "custom": [],
+        "hint": "showcase",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!profiles",
+        "audience": "member",
+        "custom": [],
+        "hint": "profile",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!recover",
+        "audience": "staff",
+        "custom": [],
+        "hint": "recovery",
+        "family": "wrong-form",
+        "why": "verb form of recovery"
+    },
+    {
+        "message": "!presets",
+        "audience": "staff",
+        "custom": [],
+        "hint": "preset",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!stat",
+        "audience": "staff",
+        "custom": [],
+        "hint": "stats",
+        "family": "wrong-form",
+        "why": "singular of stats"
+    },
+    {
+        "message": "!log",
+        "audience": "staff",
+        "custom": [],
+        "hint": "logs",
+        "family": "wrong-form",
+        "why": "singular of logs"
+    },
+    {
+        "message": "!alert",
+        "audience": "staff",
+        "custom": [],
+        "hint": "alerts",
+        "family": "wrong-form",
+        "why": "singular of alerts"
+    },
+    {
+        "message": "!temproles",
+        "audience": "staff",
+        "custom": [],
+        "hint": "temprole",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!levels",
+        "audience": "staff",
+        "custom": [],
+        "hint": "level",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!answers",
+        "audience": "staff",
+        "custom": [],
+        "hint": "answer",
+        "family": "wrong-form",
+        "why": "plural"
+    },
+    {
+        "message": "!auto-mod",
+        "audience": "staff",
+        "custom": [],
+        "hint": "automod",
+        "family": "wrong-form",
+        "why": "split with a hyphen"
+    },
+    {
+        "message": "!role-picker",
+        "audience": "staff",
+        "custom": [],
+        "hint": "rolepicker",
+        "family": "wrong-form",
+        "why": "split with a hyphen"
+    },
+    {
+        "message": "!member-list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "memberlist",
+        "family": "wrong-form",
+        "why": "split with a hyphen"
+    },
+    {
+        "message": "!good-bye",
+        "audience": "staff",
+        "custom": [],
+        "hint": "goodbye",
+        "family": "wrong-form",
+        "why": "split with a hyphen"
+    },
+    {
+        "message": "!PNIG",
+        "audience": "member",
+        "custom": [],
+        "hint": "ping",
+        "family": "stray-capitals",
+        "why": "caps lock and a swap"
+    },
+    {
+        "message": "!HEPL",
+        "audience": "member",
+        "custom": [],
+        "hint": "help",
+        "family": "stray-capitals",
+        "why": "caps lock and a swap"
+    },
+    {
+        "message": "!TIckte",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "stray-capitals",
+        "why": "two capitals and a swap"
+    },
+    {
+        "message": "!RANl",
+        "audience": "member",
+        "custom": [],
+        "hint": "rank",
+        "family": "stray-capitals",
+        "why": "caps slip and a nearby key"
+    },
+    {
+        "message": "!PROFIEL",
+        "audience": "member",
+        "custom": [],
+        "hint": "profile",
+        "family": "stray-capitals",
+        "why": "caps lock and a swap"
+    },
+    {
+        "message": "!Voiec",
+        "audience": "member",
+        "custom": [],
+        "hint": "voice",
+        "family": "stray-capitals",
+        "why": "phone capital and a swap"
+    },
+    {
+        "message": "!VERFIY",
+        "audience": "member",
+        "custom": [],
+        "hint": "verify",
+        "family": "stray-capitals",
+        "why": "caps lock and a swap"
+    },
+    {
+        "message": "!SETUPP",
+        "audience": "staff",
+        "custom": [],
+        "hint": "setup",
+        "family": "stray-capitals",
+        "why": "caps lock and a doubled p"
+    },
+    {
+        "message": "!WElcmoe",
+        "audience": "staff",
+        "custom": [],
+        "hint": "welcome",
+        "family": "stray-capitals",
+        "why": "two capitals and a swap"
+    },
+    {
+        "message": "!LOSG",
+        "audience": "staff",
+        "custom": [],
+        "hint": "logs",
+        "family": "stray-capitals",
+        "why": "caps lock and a swap"
+    },
+    {
+        "message": "!Cleanpu",
+        "audience": "staff",
+        "custom": [],
+        "hint": "cleanup",
+        "family": "stray-capitals",
+        "why": "phone capital and a swap"
+    },
+    {
+        "message": "!tikcet open help",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "typo-with-args",
+        "why": "swap, then ticket arguments"
+    },
+    {
+        "message": "!tiket my account got hacked",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "typo-with-args",
+        "why": "missing c, then a support request"
+    },
+    {
+        "message": "!suggesst add a music channel",
+        "audience": "member",
+        "custom": [],
+        "hint": "suggest",
+        "family": "typo-with-args",
+        "why": "doubled s, then an idea"
+    },
+    {
+        "message": "!lgf valorant 4",
+        "audience": "member",
+        "custom": [],
+        "hint": "lfg",
+        "family": "typo-with-args",
+        "why": "swap, then a game and size"
+    },
+    {
+        "message": "!akf back in 20 minutes",
+        "audience": "member",
+        "custom": [],
+        "hint": "afk",
+        "family": "typo-with-args",
+        "why": "swap, then an away note"
+    },
+    {
+        "message": "!nickanme Neon",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "typo-with-args",
+        "why": "swap, then a name"
+    },
+    {
+        "message": "!mdo warn @spammer advertising",
+        "audience": "staff",
+        "custom": [],
+        "hint": "mod",
+        "family": "typo-with-args",
+        "why": "swap, then a warning"
+    },
+    {
+        "message": "!secuirty lock #general",
+        "audience": "staff",
+        "custom": [],
+        "hint": "security",
+        "family": "typo-with-args",
+        "why": "swap, then a channel lock"
+    },
+    {
+        "message": "!automdo enable spam",
+        "audience": "staff",
+        "custom": [],
+        "hint": "automod",
+        "family": "typo-with-args",
+        "why": "swap, then a rule"
+    },
+    {
+        "message": "!temprloe @mira Trial 7d",
+        "audience": "staff",
+        "custom": [],
+        "hint": "temprole",
+        "family": "typo-with-args",
+        "why": "swap, then a member and duration"
+    },
+    {
+        "message": "!stikcy set Read the pins",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sticky",
+        "family": "typo-with-args",
+        "why": "swap, then the text"
+    },
+    {
+        "message": "!anser save refund",
+        "audience": "staff",
+        "custom": [],
+        "hint": "answer",
+        "family": "typo-with-args",
+        "why": "missing w, then a saved answer"
+    },
+    {
+        "message": "!twich add somestreamer",
+        "audience": "staff",
+        "custom": [],
+        "hint": "twitch",
+        "family": "typo-with-args",
+        "why": "missing t, then a streamer"
+    },
+    {
+        "message": "!youtueb add somechannel",
+        "audience": "staff",
+        "custom": [],
+        "hint": "youtube",
+        "family": "typo-with-args",
+        "why": "swap, then a channel"
+    },
+    {
+        "message": "!custm add rules Read them",
+        "audience": "staff",
+        "custom": [],
+        "hint": "custom",
+        "family": "typo-with-args",
+        "why": "missing o, then a new command"
+    },
+    {
+        "message": "!goodby set See you",
+        "audience": "staff",
+        "custom": [],
+        "hint": "goodbye",
+        "family": "typo-with-args",
+        "why": "missing e, then the message"
+    },
+    {
+        "message": "!thansk",
+        "audience": "member",
+        "custom": ["thanks"],
+        "hint": "thanks",
+        "family": "custom-typo",
+        "why": "swap of the server's thanks command"
+    },
+    {
+        "message": "!fqa",
+        "audience": "member",
+        "custom": ["faq"],
+        "hint": "faq",
+        "family": "custom-typo",
+        "why": "swap of the server's faq command"
+    },
+    {
+        "message": "!rulse",
+        "audience": "member",
+        "custom": ["rules"],
+        "hint": "rules",
+        "family": "custom-typo",
+        "why": "swap of the server's rules command"
+    },
+    {
+        "message": "!helo",
+        "audience": "member",
+        "custom": ["hello"],
+        "hint": "hello",
+        "family": "custom-typo",
+        "why": "missing l of the server's hello command"
+    },
+    {
+        "message": "!paly lofi",
+        "audience": "member",
+        "custom": ["play"],
+        "hint": "play",
+        "family": "custom-typo",
+        "why": "swap of the server's play command"
+    },
+    {
+        "message": "!dialy",
+        "audience": "member",
+        "custom": ["daily"],
+        "hint": "daily",
+        "family": "custom-typo",
+        "why": "swap of the server's daily command"
+    },
+    {
+        "message": "!stauts",
+        "audience": "member",
+        "custom": ["status"],
+        "hint": "status",
+        "family": "custom-typo",
+        "why": "swap of the server's status command"
+    },
+    {
+        "message": "!dicsord",
+        "audience": "member",
+        "custom": ["discord"],
+        "hint": "discord",
+        "family": "custom-typo",
+        "why": "swap of the server's discord command"
+    },
+    {
+        "message": "!8bal",
+        "audience": "member",
+        "custom": ["coinflip", "8ball"],
+        "hint": "8ball",
+        "family": "custom-typo",
+        "why": "missing l, and the other custom is far"
+    },
+    {
+        "message": "!server-inf",
+        "audience": "staff",
+        "custom": ["server-info"],
+        "hint": "server-info",
+        "family": "custom-typo",
+        "why": "last letter missing"
+    },
+    {
+        "message": "!pnog",
+        "audience": "member",
+        "custom": ["pong"],
+        "hint": "pong",
+        "family": "custom-near-builtin",
+        "why": "swap of custom pong, ping is further"
+    },
+    {
+        "message": "!pnig",
+        "audience": "member",
+        "custom": ["pong"],
+        "hint": "ping",
+        "family": "custom-near-builtin",
+        "why": "swap of ping, custom pong is further"
+    },
+    {
+        "message": "!pingg",
+        "audience": "member",
+        "custom": ["pin"],
+        "hint": "ping",
+        "family": "custom-near-builtin",
+        "why": "doubled g, custom pin is further"
+    },
+    {
+        "message": "!rolse",
+        "audience": "member",
+        "custom": ["rules"],
+        "hint": "roles",
+        "family": "custom-near-builtin",
+        "why": "swap of roles, custom rules is further"
+    },
+    {
+        "message": "!bnak",
+        "audience": "member",
+        "custom": ["bank"],
+        "hint": "bank",
+        "family": "custom-near-builtin",
+        "why": "swap of custom bank, rank is further"
+    },
+    {
+        "message": "!rnak",
+        "audience": "member",
+        "custom": ["bank"],
+        "hint": "rank",
+        "family": "custom-near-builtin",
+        "why": "swap of rank, custom bank is further"
+    },
+    {
+        "message": "!voet",
+        "audience": "member",
+        "custom": ["vote"],
+        "hint": "vote",
+        "family": "custom-near-builtin",
+        "why": "swap of custom vote, voice is further"
+    },
+    {
+        "message": "!vocie",
+        "audience": "member",
+        "custom": ["vote"],
+        "hint": "voice",
+        "family": "custom-near-builtin",
+        "why": "swap of voice, custom vote is further"
+    },
+    {
+        "message": "!aplly",
+        "audience": "member",
+        "custom": ["apply"],
+        "hint": "apply",
+        "family": "custom-near-builtin",
+        "why": "typo of custom apply, appeal is further"
+    },
+    {
+        "message": "!apeal",
+        "audience": "member",
+        "custom": ["apply"],
+        "hint": "appeal",
+        "family": "custom-near-builtin",
+        "why": "missing p of appeal, custom apply is further"
+    },
+    {
+        "message": "!levles",
+        "audience": "member",
+        "custom": ["levels"],
+        "hint": "levels",
+        "family": "custom-near-builtin",
+        "why": "swap of custom levels, level is staff only"
+    },
+    {
+        "message": "!twittr",
+        "audience": "staff",
+        "custom": ["twitter"],
+        "hint": "twitter",
+        "family": "custom-near-builtin",
+        "why": "missing e of custom twitter, twitch is further"
+    },
+    {
+        "message": "!twtich",
+        "audience": "staff",
+        "custom": ["twitter"],
+        "hint": "twitch",
+        "family": "custom-near-builtin",
+        "why": "swap of twitch, custom twitter is further"
+    },
+    {
+        "message": "!stikcy",
+        "audience": "staff",
+        "custom": ["stickers"],
+        "hint": "sticky",
+        "family": "custom-near-builtin",
+        "why": "swap of sticky, custom stickers is further"
+    },
+    {
+        "message": "!pink",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to ping"
+    },
+    {
+        "message": "!king",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to ping"
+    },
+    {
+        "message": "!held",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to help"
+    },
+    {
+        "message": "!hell",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to help"
+    },
+    {
+        "message": "!ask",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to afk"
+    },
+    {
+        "message": "!suffix",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to prefix"
+    },
+    {
+        "message": "!replay",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to replies"
+    },
+    {
+        "message": "!applies",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to replies"
+    },
+    {
+        "message": "!nickel",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to nickname"
+    },
+    {
+        "message": "!username",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to nickname"
+    },
+    {
+        "message": "!apple",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to appeal"
+    },
+    {
+        "message": "!apply",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to appeal"
+    },
+    {
+        "message": "!rolls",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to roles"
+    },
+    {
+        "message": "!rules",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to roles"
+    },
+    {
+        "message": "!very",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to verify"
+    },
+    {
+        "message": "!certify",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to verify"
+    },
+    {
+        "message": "!boarding",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word inside onboarding"
+    },
+    {
+        "message": "!ticker",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to ticket"
+    },
+    {
+        "message": "!tick",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to ticket"
+    },
+    {
+        "message": "!loved",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to solved"
+    },
+    {
+        "message": "!solid",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to solved"
+    },
+    {
+        "message": "!biggest",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word rhyming with suggest"
+    },
+    {
+        "message": "!tank",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to rank"
+    },
+    {
+        "message": "!rant",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to rank"
+    },
+    {
+        "message": "!thank",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to rank"
+    },
+    {
+        "message": "!even",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to event"
+    },
+    {
+        "message": "!vent",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to event"
+    },
+    {
+        "message": "!limestone",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to milestone"
+    },
+    {
+        "message": "!bookcase",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to showcase"
+    },
+    {
+        "message": "!profit",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to profile"
+    },
+    {
+        "message": "!vice",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to voice"
+    },
+    {
+        "message": "!choice",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to voice"
+    },
+    {
+        "message": "!leg",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to lfg"
+    },
+    {
+        "message": "!sup",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "greeting next to setup"
+    },
+    {
+        "message": "!wealth",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to health"
+    },
+    {
+        "message": "!heal",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to health"
+    },
+    {
+        "message": "!discovery",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to recovery"
+    },
+    {
+        "message": "!present",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to preset"
+    },
+    {
+        "message": "!stars",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to stats"
+    },
+    {
+        "message": "!sidewalk",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to sidebar"
+    },
+    {
+        "message": "!backpack",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to backup"
+    },
+    {
+        "message": "!expert",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to export"
+    },
+    {
+        "message": "!mood",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to mod"
+    },
+    {
+        "message": "!automatic",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to automod"
+    },
+    {
+        "message": "!secret",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to security"
+    },
+    {
+        "message": "!deacon",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to defcon"
+    },
+    {
+        "message": "!dogs",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to logs"
+    },
+    {
+        "message": "!logo",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to logs"
+    },
+    {
+        "message": "!alter",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to alerts"
+    },
+    {
+        "message": "!autopilot",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to autorole"
+    },
+    {
+        "message": "!temple",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to temprole"
+    },
+    {
+        "message": "!remember",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to memberlist"
+    },
+    {
+        "message": "!punish",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to publish"
+    },
+    {
+        "message": "!polish",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to publish"
+    },
+    {
+        "message": "!become",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to welcome"
+    },
+    {
+        "message": "!goodnight",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "chat next to goodbye"
+    },
+    {
+        "message": "!customer",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to custom"
+    },
+    {
+        "message": "!aunt",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to auto"
+    },
+    {
+        "message": "!sticker",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to sticky"
+    },
+    {
+        "message": "!stinky",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to sticky"
+    },
+    {
+        "message": "!youth",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to youtube"
+    },
+    {
+        "message": "!switch",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to twitch"
+    },
+    {
+        "message": "!lineup",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word rhyming with cleanup"
+    },
+    {
+        "message": "!helpful",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to helpdesk"
+    },
+    {
+        "message": "!another",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to answer"
+    },
+    {
+        "message": "!escape",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to escalate"
+    },
+    {
+        "message": "!lever",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "near-word",
+        "why": "ordinary word next to level"
+    },
+    {
+        "message": "!hello everyone",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "greeting"
+    },
+    {
+        "message": "!lol",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "laughter"
+    },
+    {
+        "message": "!thanks",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "thanks, no such command here"
+    },
+    {
+        "message": "!hi",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "greeting"
+    },
+    {
+        "message": "!haha",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "laughter"
+    },
+    {
+        "message": "!ok",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "reply word"
+    },
+    {
+        "message": "!yes",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "reply word"
+    },
+    {
+        "message": "!gg",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "gaming chat"
+    },
+    {
+        "message": "!nice one",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "praise"
+    },
+    {
+        "message": "!sorry",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "apology"
+    },
+    {
+        "message": "!good morning",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "greeting"
+    },
+    {
+        "message": "!wow",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "reaction"
+    },
+    {
+        "message": "!yo",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "greeting"
+    },
+    {
+        "message": "!why not",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "short-chat",
+        "why": "chat"
+    },
+    {
+        "message": "!banana",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "unrelated word"
+    },
+    {
+        "message": "!pizza",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "unrelated word"
+    },
+    {
+        "message": "!homework",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "unrelated word"
+    },
+    {
+        "message": "!test",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "unrelated word"
+    },
+    {
+        "message": "!coffee",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "unrelated word"
+    },
+    {
+        "message": "!attention everyone",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "chat, not a command"
+    },
+    {
+        "message": "!play despacito",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "music bot command"
+    },
+    {
+        "message": "!skip",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "music bot command"
+    },
+    {
+        "message": "!daily",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "economy bot command"
+    },
+    {
+        "message": "!balance",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "economy bot command"
+    },
+    {
+        "message": "!queue",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "music bot command"
+    },
+    {
+        "message": "!volume 50",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "music bot command"
+    },
+    {
+        "message": "!beg",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "economy bot command"
+    },
+    {
+        "message": "!slots",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "economy bot command"
+    },
+    {
+        "message": "!deposit all",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "economy bot command"
+    },
+    {
+        "message": "!8ball will it rain",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "fun bot command"
+    },
+    {
+        "message": "!roll 2d6",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "dice bot command"
+    },
+    {
+        "message": "!avatar @mira",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "utility bot command"
+    },
+    {
+        "message": "!bank",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "economy bot command, close to rank"
+    },
+    {
+        "message": "!rep @mira",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "reputation bot command, close to replies"
+    },
+    {
+        "message": "!pause",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "music bot command"
+    },
+    {
+        "message": "!purge 50",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "another moderation bot"
+    },
+    {
+        "message": "!clear 50",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "another moderation bot, close to cleanup"
+    },
+    {
+        "message": "!ban @spammer",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "another moderation bot"
+    },
+    {
+        "message": "!kick @spammer",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "another moderation bot"
+    },
+    {
+        "message": "!tempban @spammer 7d",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "another moderation bot, close to temprole"
+    },
+    {
+        "message": "!setpu",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means setup, staff only"
+    },
+    {
+        "message": "!helath",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means health, staff only"
+    },
+    {
+        "message": "!recovry",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means recovery, staff only"
+    },
+    {
+        "message": "!presets",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means preset, staff only"
+    },
+    {
+        "message": "!stat",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means stats, staff only"
+    },
+    {
+        "message": "!sidbar",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means sidebar, staff only"
+    },
+    {
+        "message": "!bakcup",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means backup, staff only"
+    },
+    {
+        "message": "!exprt",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means export, staff only"
+    },
+    {
+        "message": "!mdo warn @mira",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means mod, staff only"
+    },
+    {
+        "message": "!automdo",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means automod, staff only"
+    },
+    {
+        "message": "!secuirty lock",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means security, staff only"
+    },
+    {
+        "message": "!defocn",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means defcon, staff only"
+    },
+    {
+        "message": "!log",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means logs, staff only"
+    },
+    {
+        "message": "!alert",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means alerts, staff only"
+    },
+    {
+        "message": "!invite",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means invites, staff only"
+    },
+    {
+        "message": "!autorol",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means autorole, staff only"
+    },
+    {
+        "message": "!rolepikcer",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means rolepicker, staff only"
+    },
+    {
+        "message": "!temprloe",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means temprole, staff only"
+    },
+    {
+        "message": "!memberlst",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means memberlist, staff only"
+    },
+    {
+        "message": "!pubish",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means publish, staff only"
+    },
+    {
+        "message": "!wlecome",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means welcome, staff only"
+    },
+    {
+        "message": "!goodby",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means goodbye, staff only"
+    },
+    {
+        "message": "!cusotm",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means custom, staff only"
+    },
+    {
+        "message": "!atuo",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means auto, staff only"
+    },
+    {
+        "message": "!stikcy",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means sticky, staff only"
+    },
+    {
+        "message": "!yotube",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means youtube, staff only"
+    },
+    {
+        "message": "!twich",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means twitch, staff only"
+    },
+    {
+        "message": "!clenup",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means cleanup, staff only"
+    },
+    {
+        "message": "!helpdek",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means helpdesk, staff only"
+    },
+    {
+        "message": "!anser",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means answer, staff only"
+    },
+    {
+        "message": "!esclate",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means escalate, staff only"
+    },
+    {
+        "message": "!levle",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "staff-only-member",
+        "why": "means level, staff only"
+    },
+    {
+        "message": "!afg",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "one letter from afk and lfg"
+    },
+    {
+        "message": "!lfk",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "one letter from lfg and afk"
+    },
+    {
+        "message": "!pres",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "start of preset, close to prefix"
+    },
+    {
+        "message": "!pre",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "start of prefix and preset"
+    },
+    {
+        "message": "!au",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "start of auto, automod and autorole"
+    },
+    {
+        "message": "!st",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "start of stats and sticky"
+    },
+    {
+        "message": "!se",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "start of setup and security"
+    },
+    {
+        "message": "!ro",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "start of roles and rolepicker"
+    },
+    {
+        "message": "!pr",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "start of prefix, preset, profile, publish"
+    },
+    {
+        "message": "!lvl",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "could be rank or level"
+    },
+    {
+        "message": "!xp",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "could be rank, level or leaderboard"
+    },
+    {
+        "message": "!rolemenu",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "two-commands",
+        "why": "could be roles or rolepicker"
+    },
+    {
+        "message": "!asdf",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "keyboard mash"
+    },
+    {
+        "message": "!qwerty",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "keyboard row"
+    },
+    {
+        "message": "!xyzzy",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "nonsense"
+    },
+    {
+        "message": "!zzzz",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "nonsense"
+    },
+    {
+        "message": "!123",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "digits only"
+    },
+    {
+        "message": "!x",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "single letter"
+    },
+    {
+        "message": "!sdfghjkl",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "keyboard row"
+    },
+    {
+        "message": "!a1b2",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "nonsense"
+    },
+    {
+        "message": "!voce",
+        "audience": "member",
+        "custom": ["vote"],
+        "hint": null,
+        "family": "custom-near-builtin",
+        "why": "one letter from voice and custom vote"
+    },
+    {
+        "message": "!rles",
+        "audience": "member",
+        "custom": ["rules"],
+        "hint": null,
+        "family": "custom-near-builtin",
+        "why": "one letter from roles and custom rules"
+    },
+    {
+        "message": "!helpr",
+        "audience": "member",
+        "custom": ["helper"],
+        "hint": null,
+        "family": "custom-near-builtin",
+        "why": "one letter from help and custom helper"
+    },
+    {
+        "message": "!pingy",
+        "audience": "member",
+        "custom": ["pingu"],
+        "hint": null,
+        "family": "custom-near-builtin",
+        "why": "one letter from ping and custom pingu"
+    },
+    {
+        "message": "!hell",
+        "audience": "member",
+        "custom": ["hello"],
+        "hint": null,
+        "family": "custom-near-builtin",
+        "why": "real word, near help and custom hello"
+    },
+    {
+        "message": "!tank",
+        "audience": "member",
+        "custom": ["bank"],
+        "hint": null,
+        "family": "custom-near-builtin",
+        "why": "real word, near rank and custom bank"
+    },
+    {
+        "message": "!pink",
+        "audience": "member",
+        "custom": ["pin"],
+        "hint": null,
+        "family": "custom-near-builtin",
+        "why": "real word, near ping and custom pin"
+    },
+    {
+        "message": "!lever",
+        "audience": "staff",
+        "custom": ["levels"],
+        "hint": null,
+        "family": "custom-near-builtin",
+        "why": "real word, near level and custom levels"
+    },
+    {
+        "message": "!hello everyone",
+        "audience": "member",
+        "custom": ["faq"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "greeting, the custom is unrelated"
+    },
+    {
+        "message": "!haha",
+        "audience": "member",
+        "custom": ["rules"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "laughter, the custom is unrelated"
+    },
+    {
+        "message": "!pray",
+        "audience": "member",
+        "custom": ["play"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "real word next to custom play"
+    },
+    {
+        "message": "!march",
+        "audience": "member",
+        "custom": ["merch"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "real word next to custom merch"
+    },
+    {
+        "message": "!jello",
+        "audience": "member",
+        "custom": ["hello"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "real word next to custom hello"
+    },
+    {
+        "message": "!thinks",
+        "audience": "member",
+        "custom": ["thanks"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "real word next to custom thanks"
+    },
+    {
+        "message": "!dairy",
+        "audience": "member",
+        "custom": ["daily"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "real word next to custom daily"
+    },
+    {
+        "message": "!note",
+        "audience": "member",
+        "custom": ["vote"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "real word next to custom vote"
+    },
+    {
+        "message": "!skip",
+        "audience": "member",
+        "custom": ["coinflip"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "music bot command, custom is unrelated"
+    },
+    {
+        "message": "!setpu",
+        "audience": "member",
+        "custom": ["rules"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "means setup, a custom gives no staff access"
+    },
+    {
+        "message": "!record",
+        "audience": "member",
+        "custom": ["discord"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "real word next to custom discord"
+    },
+    {
+        "message": "!far",
+        "audience": "staff",
+        "custom": ["faq"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "real word next to custom faq"
+    },
+    {
+        "message": "!wine",
+        "audience": "staff",
+        "custom": ["wiki"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "real word next to custom wiki"
+    },
+    {
+        "message": "!prefxi",
+        "audience": "member",
+        "custom": [],
+        "hint": "prefix",
+        "family": "swapped-letters",
+        "why": "Adjacent letters swapped in the command"
+    },
+    {
+        "message": "!repleis",
+        "audience": "member",
+        "custom": [],
+        "hint": "replies",
+        "family": "swapped-letters",
+        "why": "Adjacent letters swapped in the command"
+    },
+    {
+        "message": "!nickanme",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "swapped-letters",
+        "why": "Adjacent letters swapped in the command"
+    },
+    {
+        "message": "!seutp",
+        "audience": "staff",
+        "custom": [],
+        "hint": "setup",
+        "family": "swapped-letters",
+        "why": "Adjacent letters swapped in the command"
+    },
+    {
+        "message": "!reocvery",
+        "audience": "staff",
+        "custom": [],
+        "hint": "recovery",
+        "family": "swapped-letters",
+        "why": "Adjacent letters swapped in the command"
+    },
+    {
+        "message": "!preste",
+        "audience": "staff",
+        "custom": [],
+        "hint": "preset",
+        "family": "swapped-letters",
+        "why": "Adjacent letters swapped in the command"
+    },
+    {
+        "message": "!siedbar",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sidebar",
+        "family": "swapped-letters",
+        "why": "Adjacent letters swapped in the command"
+    },
+    {
+        "message": "!exprot",
+        "audience": "staff",
+        "custom": [],
+        "hint": "export",
+        "family": "swapped-letters",
+        "why": "Adjacent letters swapped in the command"
+    },
+    {
+        "message": "!mdo",
+        "audience": "staff",
+        "custom": [],
+        "hint": "mod",
+        "family": "swapped-letters",
+        "why": "Adjacent letters swapped in the command"
+    },
+    {
+        "message": "!automd",
+        "audience": "staff",
+        "custom": [],
+        "hint": "automod",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!securty",
+        "audience": "staff",
+        "custom": [],
+        "hint": "security",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!defcn",
+        "audience": "staff",
+        "custom": [],
+        "hint": "defcon",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!lgs recent",
+        "audience": "staff",
+        "custom": [],
+        "hint": "logs",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!appel submit",
+        "audience": "member",
+        "custom": [],
+        "hint": "appeal",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!alrts list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "alerts",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!invtes list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "invites",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!rols list",
+        "audience": "member",
+        "custom": [],
+        "hint": "roles",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!autorle",
+        "audience": "staff",
+        "custom": [],
+        "hint": "autorole",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!rolepcker",
+        "audience": "staff",
+        "custom": [],
+        "hint": "rolepicker",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!temprol",
+        "audience": "staff",
+        "custom": [],
+        "hint": "temprole",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!onbording",
+        "audience": "member",
+        "custom": [],
+        "hint": "onboarding",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!membrlist",
+        "audience": "staff",
+        "custom": [],
+        "hint": "memberlist",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!publsh",
+        "audience": "staff",
+        "custom": [],
+        "hint": "publish",
+        "family": "missing-letters",
+        "why": "A letter omitted from the command"
+    },
+    {
+        "message": "!wellcome configure",
+        "audience": "staff",
+        "custom": [],
+        "hint": "welcome",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!goodbyee configure",
+        "audience": "staff",
+        "custom": [],
+        "hint": "goodbye",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!cusstom list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "custom",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!autoo list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "auto",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!stickky list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sticky",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!youttube list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "youtube",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!twitchh list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "twitch",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!cleanuup preview",
+        "audience": "staff",
+        "custom": [],
+        "hint": "cleanup",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!tickett open",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!solvved",
+        "audience": "member",
+        "custom": [],
+        "hint": "solved",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!sugggest add dark theme",
+        "audience": "member",
+        "custom": [],
+        "hint": "suggest",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!helpdeskk",
+        "audience": "staff",
+        "custom": [],
+        "hint": "helpdesk",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!ansswer",
+        "audience": "staff",
+        "custom": [],
+        "hint": "answer",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!escallate",
+        "audience": "staff",
+        "custom": [],
+        "hint": "escalate",
+        "family": "extra-letters",
+        "why": "Accidentally repeated letter in a command"
+    },
+    {
+        "message": "!leaderboars",
+        "audience": "member",
+        "custom": [],
+        "hint": "leaderboard",
+        "family": "nearby-key",
+        "why": "Nearby keyboard key or swapped short acronym"
+    },
+    {
+        "message": "!evrnt list",
+        "audience": "member",
+        "custom": [],
+        "hint": "event",
+        "family": "nearby-key",
+        "why": "Nearby keyboard key or swapped short acronym"
+    },
+    {
+        "message": "!milestobe list",
+        "audience": "member",
+        "custom": [],
+        "hint": "milestone",
+        "family": "nearby-key",
+        "why": "Nearby keyboard key or swapped short acronym"
+    },
+    {
+        "message": "!showvase list",
+        "audience": "member",
+        "custom": [],
+        "hint": "showcase",
+        "family": "nearby-key",
+        "why": "Nearby keyboard key or swapped short acronym"
+    },
+    {
+        "message": "!levrl settings",
+        "audience": "staff",
+        "custom": [],
+        "hint": "level",
+        "family": "nearby-key",
+        "why": "Nearby keyboard key or swapped short acronym"
+    },
+    {
+        "message": "!voicr list",
+        "audience": "member",
+        "custom": [],
+        "hint": "voice",
+        "family": "nearby-key",
+        "why": "Nearby keyboard key or swapped short acronym"
+    },
+    {
+        "message": "!bickname set Nova",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "nearby-key",
+        "why": "Nearby keyboard key or swapped short acronym"
+    },
+    {
+        "message": "!toles list",
+        "audience": "member",
+        "custom": [],
+        "hint": "roles",
+        "family": "nearby-key",
+        "why": "Nearby keyboard key or swapped short acronym"
+    },
+    {
+        "message": "!auyo list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "auto",
+        "family": "nearby-key",
+        "why": "Nearby keyboard key or swapped short acronym"
+    },
+    {
+        "message": "!yicket open",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "nearby-key",
+        "why": "Nearby keyboard key or swapped short acronym"
+    },
+    {
+        "message": "!leadreboarrd",
+        "audience": "member",
+        "custom": [],
+        "hint": "leaderboard",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!onbaordingg",
+        "audience": "member",
+        "custom": [],
+        "hint": "onboarding",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!memeberlsit",
+        "audience": "staff",
+        "custom": [],
+        "hint": "memberlist",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!rolpeickre",
+        "audience": "staff",
+        "custom": [],
+        "hint": "rolepicker",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!recovreyz",
+        "audience": "staff",
+        "custom": [],
+        "hint": "recovery",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!securtiyy",
+        "audience": "staff",
+        "custom": [],
+        "hint": "security",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!autormdo",
+        "audience": "staff",
+        "custom": [],
+        "hint": "automod",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!miletsonee",
+        "audience": "member",
+        "custom": [],
+        "hint": "milestone",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!shocwasee",
+        "audience": "member",
+        "custom": [],
+        "hint": "showcase",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!helppedsk",
+        "audience": "staff",
+        "custom": [],
+        "hint": "helpdesk",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!nickanmee",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!temproleea",
+        "audience": "staff",
+        "custom": [],
+        "hint": "temprole",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!autoroelz",
+        "audience": "staff",
+        "custom": [],
+        "hint": "autorole",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!cleanuppp preview",
+        "audience": "staff",
+        "custom": [],
+        "hint": "cleanup",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!youtubeez list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "youtube",
+        "family": "two-mistakes",
+        "why": "Two typing mistakes in a recognizable command"
+    },
+    {
+        "message": "!verifai",
+        "audience": "member",
+        "custom": [],
+        "hint": "verify",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!sekurity status",
+        "audience": "staff",
+        "custom": [],
+        "hint": "security",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!rekuvery status",
+        "audience": "staff",
+        "custom": [],
+        "hint": "recovery",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!youtoob list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "youtube",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!nicknaym set Nova",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!tickit open",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!sugjest add dark theme",
+        "audience": "member",
+        "custom": [],
+        "hint": "suggest",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!prophile",
+        "audience": "member",
+        "custom": [],
+        "hint": "profile",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!prefiks",
+        "audience": "member",
+        "custom": [],
+        "hint": "prefix",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!ranks",
+        "audience": "member",
+        "custom": [],
+        "hint": "rank",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!events list",
+        "audience": "member",
+        "custom": [],
+        "hint": "event",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!profiles show",
+        "audience": "member",
+        "custom": [],
+        "hint": "profile",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!milestones list",
+        "audience": "member",
+        "custom": [],
+        "hint": "milestone",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!showcases list",
+        "audience": "member",
+        "custom": [],
+        "hint": "showcase",
+        "family": "phonetic-or-form",
+        "why": "Recognizable phonetic spelling or command inflection"
+    },
+    {
+        "message": "!PiGn please",
+        "audience": "member",
+        "custom": [],
+        "hint": "ping",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!HeLpP roles",
+        "audience": "member",
+        "custom": [],
+        "hint": "help",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!AFKK lunch",
+        "audience": "member",
+        "custom": [],
+        "hint": "afk",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!PreFixx",
+        "audience": "member",
+        "custom": [],
+        "hint": "prefix",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!REPLIESs list",
+        "audience": "member",
+        "custom": [],
+        "hint": "replies",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!SETUUP start",
+        "audience": "staff",
+        "custom": [],
+        "hint": "setup",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!HeaLThh",
+        "audience": "staff",
+        "custom": [],
+        "hint": "health",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!PRESEET list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "preset",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!STTATS",
+        "audience": "staff",
+        "custom": [],
+        "hint": "stats",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!Sidebarr status",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sidebar",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!BACKUUP list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "backup",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!EXPORRT settings",
+        "audience": "staff",
+        "custom": [],
+        "hint": "export",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!MoDD status",
+        "audience": "staff",
+        "custom": [],
+        "hint": "mod",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!AuOt list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "auto",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!TIKCET open help",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "capitals-and-arguments",
+        "why": "Command typo with capitals or trailing arguments"
+    },
+    {
+        "message": "!pignpong",
+        "audience": "member",
+        "custom": ["pingpong"],
+        "hint": "pingpong",
+        "family": "custom-hint",
+        "why": "Swapped letters in the custom game command"
+    },
+    {
+        "message": "!ticktes open",
+        "audience": "member",
+        "custom": ["tickets"],
+        "hint": "tickets",
+        "family": "custom-hint",
+        "why": "Swapped ending identifies the custom plural command"
+    },
+    {
+        "message": "!rankign",
+        "audience": "member",
+        "custom": ["ranking"],
+        "hint": "ranking",
+        "family": "custom-hint",
+        "why": "Swapped ending in the custom ranking command"
+    },
+    {
+        "message": "!profiels",
+        "audience": "member",
+        "custom": ["profiles"],
+        "hint": "profiles",
+        "family": "custom-hint",
+        "why": "Swapped letters in the custom plural command"
+    },
+    {
+        "message": "!welcomeruless",
+        "audience": "member",
+        "custom": ["welcomerules"],
+        "hint": "welcomerules",
+        "family": "custom-hint",
+        "why": "Doubled ending in the custom rules command"
+    },
+    {
+        "message": "!cofffee",
+        "audience": "member",
+        "custom": ["coffee"],
+        "hint": "coffee",
+        "family": "custom-hint",
+        "why": "Extra letter in the custom coffee command"
+    },
+    {
+        "message": "!birhtday Nova",
+        "audience": "member",
+        "custom": ["birthday"],
+        "hint": "birthday",
+        "family": "custom-hint",
+        "why": "Swapped letters in the birthday command"
+    },
+    {
+        "message": "!calender list",
+        "audience": "staff",
+        "custom": ["calendar"],
+        "hint": "calendar",
+        "family": "custom-hint",
+        "why": "Common misspelling of the custom calendar command"
+    },
+    {
+        "message": "!resouces",
+        "audience": "member",
+        "custom": ["resources"],
+        "hint": "resources",
+        "family": "custom-hint",
+        "why": "Missing letter in the custom resources command"
+    },
+    {
+        "message": "!giveawya",
+        "audience": "member",
+        "custom": ["giveaway"],
+        "hint": "giveaway",
+        "family": "custom-hint",
+        "why": "Swapped ending in the custom giveaway command"
+    },
+    {
+        "message": "!reminderr 10m stretch",
+        "audience": "member",
+        "custom": ["reminder"],
+        "hint": "reminder",
+        "family": "custom-hint",
+        "why": "Repeated ending in the custom reminder command"
+    },
+    {
+        "message": "!FAQQ",
+        "audience": "member",
+        "custom": ["faq"],
+        "hint": "faq",
+        "family": "custom-hint",
+        "why": "Repeated consonant in the custom help acronym"
+    },
+    {
+        "message": "!petphotto",
+        "audience": "member",
+        "custom": ["petphoto"],
+        "hint": "petphoto",
+        "family": "custom-hint",
+        "why": "Repeated letter in the custom pet command"
+    },
+    {
+        "message": "!communitty",
+        "audience": "member",
+        "custom": ["community"],
+        "hint": "community",
+        "family": "custom-hint",
+        "why": "Repeated letter in the custom community command"
+    },
+    {
+        "message": "!streamschedle",
+        "audience": "staff",
+        "custom": ["streamschedule", "twitchclips"],
+        "hint": "streamschedule",
+        "family": "custom-hint",
+        "why": "Missing vowel in the custom schedule command"
+    },
+    {
+        "message": "!thanks for helping",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!please wait a minute",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!sorry I am late",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!nice work",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!cool idea",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!well that was unexpected",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!good night everyone",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!welcome-back friend",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!helpful people here",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!reply when you can",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!healing takes time",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!invite me next time",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!roleplay tonight anyone",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!tickets are sold out",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!voices sound great together",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!ranking these movies was hard",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!events like this are fun",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!nickname-is-hard to choose",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!backups saved my homework",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-chat",
+        "why": "An ordinary conversational sentence rather than a bot request"
+    },
+    {
+        "message": "!play never gonna give you up",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!pause",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!resume",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!shuffle",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!lyrics",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!work",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!gamble 100",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!meme",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!weather London",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!remindme 20m drink water",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!poll pizza or pasta",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!ban user123 spam",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!kick user123",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "Recognizable command belonging to another bot"
+    },
+    {
+        "message": "!healtth",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!recovrey",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!presett",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!statss",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!sidebarr",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!backpu",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!exporrt",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!mdo status",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!automodd",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!securtiy",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!defconn",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!logss",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!alertss",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!inviets",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!autorolle",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!rolepickre",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!temproleee",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!memberlsit",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!welcoem configure",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "inaccessible-command",
+        "why": "Likely intended staff command is unavailable to this member"
+    },
+    {
+        "message": "!helq",
+        "audience": "member",
+        "custom": ["helm"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!pinx",
+        "audience": "member",
+        "custom": ["pink"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!ranx",
+        "audience": "member",
+        "custom": ["rant"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!rolex",
+        "audience": "member",
+        "custom": ["rolexx"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!profilx",
+        "audience": "member",
+        "custom": ["profily"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!tickex",
+        "audience": "member",
+        "custom": ["ticker"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!evenx",
+        "audience": "member",
+        "custom": ["evens"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!voicx",
+        "audience": "member",
+        "custom": ["voicy"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!appeax",
+        "audience": "member",
+        "custom": ["appear"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!nicknamx",
+        "audience": "member",
+        "custom": ["nicknams"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!coffex",
+        "audience": "member",
+        "custom": ["coffee", "coffer"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!weater",
+        "audience": "member",
+        "custom": ["weather", "weaver"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!gamex",
+        "audience": "member",
+        "custom": ["games", "gamer"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!streamx",
+        "audience": "member",
+        "custom": ["streams", "streamy"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!daixy",
+        "audience": "member",
+        "custom": ["daily", "dairy"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!petx",
+        "audience": "member",
+        "custom": ["pets", "pety"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!movix",
+        "audience": "member",
+        "custom": ["movie", "movin"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!quix",
+        "audience": "member",
+        "custom": ["quiz", "quip"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!notex",
+        "audience": "member",
+        "custom": ["notes", "noted"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!rollx",
+        "audience": "member",
+        "custom": ["rolls", "rolly"],
+        "hint": null,
+        "family": "ambiguous",
+        "why": "Two available names fit equally well without context"
+    },
+    {
+        "message": "!qxzvpt",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!zzqqrr",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!123456",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!x9x9x9",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!___",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!---",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!qwertyuiop",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!asdfghjkl",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!zxcvbnm",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!aaaaaaa",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!bbbbb",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!hjk987xyz",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!0o0o0o",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!no_such_command_42",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!xyz-xyz-xyz",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!123abc789",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!qrpzt99",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!wubwubwub",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!f00b4rz",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!mnbvcxz",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended available command"
+    },
+    {
+        "message": "!hello there",
+        "audience": "member",
+        "custom": ["hellohelp"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Conversation despite a similar custom name"
+    },
+    {
+        "message": "!thanks everyone",
+        "audience": "member",
+        "custom": ["thankyou"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Gratitude rather than invoking a custom command"
+    },
+    {
+        "message": "!coffee tastes amazing",
+        "audience": "member",
+        "custom": ["coffees"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Ordinary sentence despite a custom drink command"
+    },
+    {
+        "message": "!pizza arrived",
+        "audience": "member",
+        "custom": ["pizzas"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Food announcement rather than a command typo"
+    },
+    {
+        "message": "!good luck tomorrow",
+        "audience": "member",
+        "custom": ["goodluck"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Conversational phrase with a space"
+    },
+    {
+        "message": "!play song title",
+        "audience": "member",
+        "custom": ["playlist"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Another bot music command despite nearby custom name"
+    },
+    {
+        "message": "!skip",
+        "audience": "member",
+        "custom": ["skipper"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Another bot playback command despite nearby custom name"
+    },
+    {
+        "message": "!daily",
+        "audience": "member",
+        "custom": ["dailies"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Another bot economy command despite nearby custom name"
+    },
+    {
+        "message": "!balance",
+        "audience": "member",
+        "custom": ["balances"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Another bot economy command despite nearby custom name"
+    },
+    {
+        "message": "!weather London",
+        "audience": "member",
+        "custom": ["weatherreport"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Another bot weather command despite custom vocabulary"
+    },
+    {
+        "message": "!xyz999",
+        "audience": "member",
+        "custom": ["pingpong", "tickets"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Unrelated text despite custom command availability"
+    },
+    {
+        "message": "!qzqqz",
+        "audience": "member",
+        "custom": ["coffee", "faq"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Unrelated text despite custom command availability"
+    },
+    {
+        "message": "!streaming is exhausting",
+        "audience": "member",
+        "custom": ["streams"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Ordinary sentence despite custom stream command"
+    },
+    {
+        "message": "!reminders are useful",
+        "audience": "member",
+        "custom": ["reminder"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Ordinary observation about reminders"
+    },
+    {
+        "message": "!ranks mean nothing here",
+        "audience": "member",
+        "custom": ["ranking"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Ordinary sentence close to built-in and custom names"
+    },
+    {
+        "message": "!profiles look great",
+        "audience": "member",
+        "custom": ["profilecard"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Ordinary observation near the profile command"
+    },
+    {
+        "message": "!ticketing is broken at the venue",
+        "audience": "member",
+        "custom": ["tickets"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Venue complaint near built-in and custom ticket names"
+    },
+    {
+        "message": "!inviets",
+        "audience": "member",
+        "custom": ["inviteparty"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Intended built-in staff command remains unavailable"
+    },
+    {
+        "message": "!securtiy",
+        "audience": "member",
+        "custom": ["securetips"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Intended built-in staff command remains unavailable"
+    },
+    {
+        "message": "!backupz",
+        "audience": "member",
+        "custom": ["backupguide"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Intended built-in staff command remains unavailable"
+    },
+    {
+        "message": "!pinng Are you there?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "ping",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!hepl I need the command list please",
+        "audience": "staff",
+        "custom": [],
+        "hint": "help",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!afkk lunch break",
+        "audience": "member",
+        "custom": [],
+        "hint": "afk",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!agk Back after dinner",
+        "audience": "staff",
+        "custom": [],
+        "hint": "afk",
+        "family": "nearby-key",
+        "why": "A neighboring keyboard key replaced one letter"
+    },
+    {
+        "message": "!prefx What prefix are we using here?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "prefix",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!repllies Can we switch the bot replies to plain text?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "replies",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!nicknmae",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!nickame show",
+        "audience": "staff",
+        "custom": [],
+        "hint": "nickname",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!setupp Please show what still needs configuring",
+        "audience": "staff",
+        "custom": [],
+        "hint": "setup",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!healtth Do all the bot permissions look right?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "health",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!recvoery",
+        "audience": "staff",
+        "custom": [],
+        "hint": "recovery",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!recovry list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "recovery",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!presett",
+        "audience": "staff",
+        "custom": [],
+        "hint": "preset",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!preste community",
+        "audience": "staff",
+        "custom": [],
+        "hint": "preset",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!statss How active was the server this week?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "stats",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!sidebaar add",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sidebar",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!backupp create",
+        "audience": "staff",
+        "custom": [],
+        "hint": "backup",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!exxport I want a copy of our server data",
+        "audience": "staff",
+        "custom": [],
+        "hint": "export",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!modd warn @Riley Please stop flooding chat",
+        "audience": "staff",
+        "custom": [],
+        "hint": "mod",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!atuomod",
+        "audience": "staff",
+        "custom": [],
+        "hint": "automod",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!automd How do I block invitation links?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "automod",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!securty Show the raid protection settings please",
+        "audience": "staff",
+        "custom": [],
+        "hint": "security",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!defconn 2",
+        "audience": "staff",
+        "custom": [],
+        "hint": "defcon",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!lgos",
+        "audience": "staff",
+        "custom": [],
+        "hint": "logs",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!logss set #staff-log",
+        "audience": "staff",
+        "custom": [],
+        "hint": "logs",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!appeall",
+        "audience": "member",
+        "custom": [],
+        "hint": "appeal",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!appel I would like my moderation case reviewed",
+        "audience": "staff",
+        "custom": [],
+        "hint": "appeal",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!alrets",
+        "audience": "staff",
+        "custom": [],
+        "hint": "alerts",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!alertss Can we send staff alerts to this channel?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "alerts",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!inviets",
+        "audience": "staff",
+        "custom": [],
+        "hint": "invites",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!inviites list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "invites",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!roels",
+        "audience": "member",
+        "custom": [],
+        "hint": "roles",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!rolse How do I pick my roles?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "roles",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!verfiy",
+        "audience": "member",
+        "custom": [],
+        "hint": "verify",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!veriffy I agree to the server rules",
+        "audience": "staff",
+        "custom": [],
+        "hint": "verify",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!autroole",
+        "audience": "staff",
+        "custom": [],
+        "hint": "autorole",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!autorle add Member",
+        "audience": "staff",
+        "custom": [],
+        "hint": "autorole",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!rolepikcer",
+        "audience": "staff",
+        "custom": [],
+        "hint": "rolepicker",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!rolepickr Can I configure the website role menu?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "rolepicker",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!temproel",
+        "audience": "staff",
+        "custom": [],
+        "hint": "temprole",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!temprolle @Morgan Helper 7d",
+        "audience": "staff",
+        "custom": [],
+        "hint": "temprole",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!onbaording",
+        "audience": "member",
+        "custom": [],
+        "hint": "onboarding",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!onbording What is left on my newcomer checklist?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "onboarding",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!memberlst Show the role group order",
+        "audience": "staff",
+        "custom": [],
+        "hint": "memberlist",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!publsih",
+        "audience": "staff",
+        "custom": [],
+        "hint": "publish",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!publlish schedule Friday at 18:00",
+        "audience": "staff",
+        "custom": [],
+        "hint": "publish",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!welocme",
+        "audience": "staff",
+        "custom": [],
+        "hint": "welcome",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!welcme Please show the new member greeting settings",
+        "audience": "staff",
+        "custom": [],
+        "hint": "welcome",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!goodbey",
+        "audience": "staff",
+        "custom": [],
+        "hint": "goodbye",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!goodbyee disable",
+        "audience": "staff",
+        "custom": [],
+        "hint": "goodbye",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!cutsom",
+        "audience": "staff",
+        "custom": [],
+        "hint": "custom",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!custtom list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "custom",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!auot",
+        "audience": "staff",
+        "custom": [],
+        "hint": "auto",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!autto How do I add an automatic reply?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "auto",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!stikcy",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sticky",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!stickky Keep the rules reminder at the bottom of this channel",
+        "audience": "staff",
+        "custom": [],
+        "hint": "sticky",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!youtueb",
+        "audience": "staff",
+        "custom": [],
+        "hint": "youtube",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!youtbe list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "youtube",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!twtich",
+        "audience": "staff",
+        "custom": [],
+        "hint": "twitch",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!twitchh add cozycoder",
+        "audience": "staff",
+        "custom": [],
+        "hint": "twitch",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!claenup",
+        "audience": "staff",
+        "custom": [],
+        "hint": "cleanup",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!cleanp I want old messages removed automatically",
+        "audience": "staff",
+        "custom": [],
+        "hint": "cleanup",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!tickt I cannot access my account",
+        "audience": "staff",
+        "custom": [],
+        "hint": "ticket",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!solvde",
+        "audience": "member",
+        "custom": [],
+        "hint": "solved",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!solvedd This fixed my problem, thanks",
+        "audience": "staff",
+        "custom": [],
+        "hint": "solved",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!suggets",
+        "audience": "member",
+        "custom": [],
+        "hint": "suggest",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!sugest Could we have a channel for local meetups?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "suggest",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!hepldesk",
+        "audience": "staff",
+        "custom": [],
+        "hint": "helpdesk",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!helpdsk setup",
+        "audience": "staff",
+        "custom": [],
+        "hint": "helpdesk",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!answre",
+        "audience": "staff",
+        "custom": [],
+        "hint": "answer",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!answwer list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "answer",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!escalatte This needs a private support ticket",
+        "audience": "staff",
+        "custom": [],
+        "hint": "escalate",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!rnak",
+        "audience": "member",
+        "custom": [],
+        "hint": "rank",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!rankk @Avery",
+        "audience": "staff",
+        "custom": [],
+        "hint": "rank",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!leaderbaord",
+        "audience": "member",
+        "custom": [],
+        "hint": "leaderboard",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!leaderbord Who has the most XP this week?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "leaderboard",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!evnet",
+        "audience": "member",
+        "custom": [],
+        "hint": "event",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!eventt list",
+        "audience": "staff",
+        "custom": [],
+        "hint": "event",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!milesotne",
+        "audience": "member",
+        "custom": [],
+        "hint": "milestone",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!milestne birthday 04-18",
+        "audience": "staff",
+        "custom": [],
+        "hint": "milestone",
+        "family": "missing-letter",
+        "why": "A letter was dropped from the intended command"
+    },
+    {
+        "message": "!shwocase",
+        "audience": "member",
+        "custom": [],
+        "hint": "showcase",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!showcaase Where can I see the member showcases?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "showcase",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!porfile",
+        "audience": "member",
+        "custom": [],
+        "hint": "profile",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!proflie @Sam",
+        "audience": "staff",
+        "custom": [],
+        "hint": "profile",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!levell Show the XP reward role settings",
+        "audience": "staff",
+        "custom": [],
+        "hint": "level",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!vioce",
+        "audience": "member",
+        "custom": [],
+        "hint": "voice",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!voicce rename Quiet study room",
+        "audience": "staff",
+        "custom": [],
+        "hint": "voice",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!lgg Looking for a group for the raid tonight",
+        "audience": "member",
+        "custom": [],
+        "hint": "lfg",
+        "family": "nearby-key",
+        "why": "A neighboring keyboard key replaced one letter"
+    },
+    {
+        "message": "!lfgg Anyone want to join a group for tonight?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "lfg",
+        "family": "extra-letter",
+        "why": "An accidental repeated letter in a command request"
+    },
+    {
+        "message": "!oing Check whether the bot responds",
+        "audience": "member",
+        "custom": [],
+        "hint": "ping",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!gelp Show me how to use this bot please",
+        "audience": "member",
+        "custom": [],
+        "hint": "help",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!sfk Taking the dog for a walk",
+        "audience": "member",
+        "custom": [],
+        "hint": "afk",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!orefix Show the server command prefix",
+        "audience": "member",
+        "custom": [],
+        "hint": "prefix",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!eeplies plain",
+        "audience": "member",
+        "custom": [],
+        "hint": "replies",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!bickname What name is the bot using?",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!aetup What features still need setting up?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "setup",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!jealth Check the bot permissions please",
+        "audience": "staff",
+        "custom": [],
+        "hint": "health",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!vackup create",
+        "audience": "staff",
+        "custom": [],
+        "hint": "backup",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!ricket open I need private support",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!toles Show the reaction role panels",
+        "audience": "member",
+        "custom": [],
+        "hint": "roles",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!cerify I accept the rules",
+        "audience": "member",
+        "custom": [],
+        "hint": "verify",
+        "family": "first-key",
+        "why": "The first letter hit a neighboring keyboard key"
+    },
+    {
+        "message": "!seccurty Show raid protection",
+        "audience": "staff",
+        "custom": [],
+        "hint": "security",
+        "family": "two-mistakes",
+        "why": "Two typing slips in a recognizable long command"
+    },
+    {
+        "message": "!rolpikcer Set up the website role menu",
+        "audience": "staff",
+        "custom": [],
+        "hint": "rolepicker",
+        "family": "two-mistakes",
+        "why": "Two typing slips in a recognizable long command"
+    },
+    {
+        "message": "!onbaordng Show my newcomer checklist",
+        "audience": "member",
+        "custom": [],
+        "hint": "onboarding",
+        "family": "two-mistakes",
+        "why": "Two typing slips in a recognizable long command"
+    },
+    {
+        "message": "!membrlsit Reorder the role groups",
+        "audience": "staff",
+        "custom": [],
+        "hint": "memberlist",
+        "family": "two-mistakes",
+        "why": "Two typing slips in a recognizable long command"
+    },
+    {
+        "message": "!lederbaord Show the members with the most XP",
+        "audience": "member",
+        "custom": [],
+        "hint": "leaderboard",
+        "family": "two-mistakes",
+        "why": "Two typing slips in a recognizable long command"
+    },
+    {
+        "message": "!milsetne birthday 09-21",
+        "audience": "member",
+        "custom": [],
+        "hint": "milestone",
+        "family": "two-mistakes",
+        "why": "Two typing slips in a recognizable long command"
+    },
+    {
+        "message": "!automoddz Configure the spam filters",
+        "audience": "staff",
+        "custom": [],
+        "hint": "automod",
+        "family": "two-mistakes",
+        "why": "Two typing slips in a recognizable long command"
+    },
+    {
+        "message": "!recovrey What work failed recently?",
+        "audience": "staff",
+        "custom": [],
+        "hint": "recovery",
+        "family": "swapped-letters",
+        "why": "Letter order slipped while typing the command"
+    },
+    {
+        "message": "!yootube Add a channel for upload notifications",
+        "audience": "staff",
+        "custom": [],
+        "hint": "youtube",
+        "family": "phonetic",
+        "why": "The command was spelled by its sound"
+    },
+    {
+        "message": "!defkon Show the lockdown level",
+        "audience": "staff",
+        "custom": [],
+        "hint": "defcon",
+        "family": "phonetic",
+        "why": "The command was spelled by its sound"
+    },
+    {
+        "message": "!kleenup Set automatic message deletion",
+        "audience": "staff",
+        "custom": [],
+        "hint": "cleanup",
+        "family": "phonetic",
+        "why": "The command was spelled by its sound"
+    },
+    {
+        "message": "!nikname Show the bot nickname",
+        "audience": "member",
+        "custom": [],
+        "hint": "nickname",
+        "family": "phonetic",
+        "why": "The command was spelled by its sound"
+    },
+    {
+        "message": "!helpdesks Set up our forum support",
+        "audience": "staff",
+        "custom": [],
+        "hint": "helpdesk",
+        "family": "wrong-form",
+        "why": "A command was put in the wrong grammatical form"
+    },
+    {
+        "message": "!events What is coming up in the server?",
+        "audience": "member",
+        "custom": [],
+        "hint": "event",
+        "family": "wrong-form",
+        "why": "A command was put in the wrong grammatical form"
+    },
+    {
+        "message": "!tickets open I need help with a private issue",
+        "audience": "member",
+        "custom": [],
+        "hint": "ticket",
+        "family": "wrong-form",
+        "why": "A command was put in the wrong grammatical form"
+    },
+    {
+        "message": "!profiles Show my member profile",
+        "audience": "member",
+        "custom": [],
+        "hint": "profile",
+        "family": "wrong-form",
+        "why": "A command was put in the wrong grammatical form"
+    },
+    {
+        "message": "!appeals I want to contest my timeout",
+        "audience": "member",
+        "custom": [],
+        "hint": "appeal",
+        "family": "wrong-form",
+        "why": "A command was put in the wrong grammatical form"
+    },
+    {
+        "message": "!suggests We should have a book club",
+        "audience": "member",
+        "custom": [],
+        "hint": "suggest",
+        "family": "wrong-form",
+        "why": "A command was put in the wrong grammatical form"
+    },
+    {
+        "message": "!VoICce limit 4",
+        "audience": "member",
+        "custom": [],
+        "hint": "voice",
+        "family": "mixed-case",
+        "why": "Stray capitals accompany a recognizable typo"
+    },
+    {
+        "message": "!ShOwCAEs Show the member creations",
+        "audience": "member",
+        "custom": [],
+        "hint": "showcase",
+        "family": "mixed-case",
+        "why": "Stray capitals accompany a recognizable typo"
+    },
+    {
+        "message": "!EsCaLaet This support post needs a private ticket",
+        "audience": "staff",
+        "custom": [],
+        "hint": "escalate",
+        "family": "mixed-case",
+        "why": "Stray capitals accompany a recognizable typo"
+    },
+    {
+        "message": "!TwTICh List live alert subscriptions",
+        "audience": "staff",
+        "custom": [],
+        "hint": "twitch",
+        "family": "mixed-case",
+        "why": "Stray capitals accompany a recognizable typo"
+    },
+    {
+        "message": "!ruels",
+        "audience": "member",
+        "custom": ["rules"],
+        "hint": "rules",
+        "family": "custom-hint",
+        "why": "The request identifies an available command despite the typo"
+    },
+    {
+        "message": "!cofee I need the coffee command",
+        "audience": "staff",
+        "custom": ["coffee", "tea"],
+        "hint": "coffee",
+        "family": "custom-hint",
+        "why": "The request identifies an available command despite the typo"
+    },
+    {
+        "message": "!scedule When is the weekly stream?",
+        "audience": "member",
+        "custom": ["schedule", "streams"],
+        "hint": "schedule",
+        "family": "custom-hint",
+        "why": "The request identifies an available command despite the typo"
+    },
+    {
+        "message": "!faqss",
+        "audience": "member",
+        "custom": ["faqs"],
+        "hint": "faqs",
+        "family": "custom-hint",
+        "why": "The request identifies an available command despite the typo"
+    },
+    {
+        "message": "!welcomerules I need the welcome rules link",
+        "audience": "member",
+        "custom": ["welcome-rules", "welcome-info"],
+        "hint": "welcome-rules",
+        "family": "custom-hint",
+        "why": "The request identifies an available command despite the typo"
+    },
+    {
+        "message": "!profielcard Please show my profile card",
+        "audience": "staff",
+        "custom": ["profilecard", "profiletheme"],
+        "hint": "profilecard",
+        "family": "custom-hint",
+        "why": "The request identifies an available command despite the typo"
+    },
+    {
+        "message": "!tikcetsfaq Where is the tickets FAQ?",
+        "audience": "member",
+        "custom": ["ticketsfaq"],
+        "hint": "ticketsfaq",
+        "family": "custom-hint",
+        "why": "The request identifies an available command despite the typo"
+    },
+    {
+        "message": "!pign Show my latency",
+        "audience": "member",
+        "custom": ["pings"],
+        "hint": "ping",
+        "family": "custom-hint",
+        "why": "The request identifies an available command despite the typo"
+    },
+    {
+        "message": "!pigns Show the server pings information",
+        "audience": "member",
+        "custom": ["pings"],
+        "hint": "pings",
+        "family": "custom-hint",
+        "why": "The request identifies an available command despite the typo"
+    },
+    {
+        "message": "!modhepl Where is the moderator help page?",
+        "audience": "member",
+        "custom": ["modhelp", "modnotes"],
+        "hint": "modhelp",
+        "family": "custom-hint",
+        "why": "The request identifies an available command despite the typo"
+    },
+    {
+        "message": "!pink is definitely my favorite color",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!hell that was a close match",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!held my breath through the entire final round",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!preface the story with a little context please",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!replied to your email this morning",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!nicknames can be difficult to remember",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!setback after setback today",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!healthy snacks are on the kitchen table",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!recovering from the flu so I might be quiet",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!present company excluded of course",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!states have different rules for that",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!sideways is apparently how my cat sleeps",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!backpack is still in the car",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!expert advice would be welcome right now",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!mood is improving now that the sun is out",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!automatic doors scare my dog every time",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!securely tied the boat before leaving",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!decaf coffee defeats the purpose for me",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!legs are sore after that hike",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!appealing idea but I cannot afford it",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!alerted the neighbors about the missing cat",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!invited my cousins over for dinner",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!rolled a natural twenty on the first try",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!variety makes these game nights more fun",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!autobiography is the genre I read least",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!roleplaying is how we met in the first place",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!onboard with that plan if everyone else is",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!membership at the climbing gym is too expensive",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!publisher rejected the manuscript again",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!welcomed a new puppy into the family",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!goodnight everybody, see you tomorrow",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!costume arrived just in time for the party",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!autumn is easily the best season",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!sticker on the laptop says it all",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!youthful optimism is carrying this project",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!twice I have forgotten my keys this week",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!cleaner air would be nice after all this smoke",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!ticker on the news is moving too quickly",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!solvent fumes gave me a headache",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!voiced my concerns at the meeting already",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "ordinary-word",
+        "why": "The full sentence uses an ordinary English word"
+    },
+    {
+        "message": "!hello everyone",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!thanks for waiting for me",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!wow that ending was incredible",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!yes I can make it on Saturday",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!no I have not seen that episode",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!okay sounds like a plan",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!brb someone is at the door",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!oops wrong channel",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!nice one Alex",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!please tell me someone recorded that",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!wait I am still loading",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!sorry my microphone was muted",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!congrats on the new job",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!happy birthday Jamie!",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!ugh the train is late again",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!hmm I need a minute to think",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!same here honestly",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!sure I will bring snacks",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!yep",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!nope",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!idk",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!gg everyone, that was fun",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!good morning folks",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!cheers for sorting that out",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!anyway how was your weekend?",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!honestly I forgot completely",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!finally the package arrived",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!amazing work on that drawing",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "casual-chat",
+        "why": "A natural chat reaction rather than a command request"
+    },
+    {
+        "message": "!play https://example.org/song",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!skip",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!resume",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!stop",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!volume 35",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!shuffle",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!repeat song",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!lyrics",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!nowplaying",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!disconnect",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!balance",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!beg",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!deposit 100",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!withdraw 50",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!slots 10",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!blackjack 25",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!inventory",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!shop",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!buy fishingrod",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!fish",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!hunt",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!meme",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!8ball Will it rain tomorrow?",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!weather Oslo",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!translate fr Good morning",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!avatar @Taylor",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "other-bot",
+        "why": "A familiar external bot command with no matching built-in"
+    },
+    {
+        "message": "!seutp Please show the feature setup checklist",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!helath Check whether the bot has the permissions it needs",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!recovry Show failed work",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!presett Apply the community preset",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!statss Show this week of server activity",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!siedbar Add the dashboard link",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!bakcup create",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!exprot Send me the server data as JSON",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!mdo warn @Jordan Stop spamming",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!atuomod Configure the spam rules",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!secuirty Show the raid protection settings",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!defocn 3",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!lgos set #staff",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!alrets Configure alerts for risky changes",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!inviets list",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!autroole add Member",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!rolepikcer Show the website role menu settings",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!helpdsk setup",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!publlish Schedule an announcement",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!welcme Set up the new member greeting",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!goodbey Disable departure messages",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!custtom Add a text response command",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!autto Add an automatic reply",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!levell Set the XP reward roles",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!esclate Open a private ticket for this help post",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "unavailable-command",
+        "why": "The intended built-in command is unavailable to members"
+    },
+    {
+        "message": "!zxqvbn",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended command"
+    },
+    {
+        "message": "!q7z9p2",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended command"
+    },
+    {
+        "message": "!zzzzzzzz",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended command"
+    },
+    {
+        "message": "!qqwweerrtt",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended command"
+    },
+    {
+        "message": "!x9_x9_x9",
+        "audience": "member",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended command"
+    },
+    {
+        "message": "!314159265",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended command"
+    },
+    {
+        "message": "!zz-kq-vv",
+        "audience": "staff",
+        "custom": [],
+        "hint": null,
+        "family": "gibberish",
+        "why": "No defensible intended command"
+    },
+    {
+        "message": "!brunch is my favorite meal",
+        "audience": "member",
+        "custom": ["lunch", "rules"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Context still gives no usable intended command"
+    },
+    {
+        "message": "!pink flowers are blooming outside",
+        "audience": "member",
+        "custom": ["pings", "colors"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Context still gives no usable intended command"
+    },
+    {
+        "message": "!thanks for the lift home",
+        "audience": "staff",
+        "custom": ["thankyou", "rides"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Context still gives no usable intended command"
+    },
+    {
+        "message": "!foods I miss from home include mangoes and dumplings",
+        "audience": "member",
+        "custom": ["food", "snacks"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Context still gives no usable intended command"
+    },
+    {
+        "message": "!play my favorite song",
+        "audience": "member",
+        "custom": ["playlist", "rules"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Context still gives no usable intended command"
+    },
+    {
+        "message": "!balance",
+        "audience": "staff",
+        "custom": ["bankinfo", "rules"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Context still gives no usable intended command"
+    },
+    {
+        "message": "!goodnight everyone",
+        "audience": "member",
+        "custom": ["goodmorning", "rules"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Context still gives no usable intended command"
+    },
+    {
+        "message": "!helath Check bot permissions",
+        "audience": "member",
+        "custom": ["healthtips", "rules"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Context still gives no usable intended command"
+    },
+    {
+        "message": "!tickets are expensive especially this close to the concert",
+        "audience": "member",
+        "custom": ["ticketsfaq", "concerts"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Context still gives no usable intended command"
+    },
+    {
+        "message": "!xq77zz",
+        "audience": "staff",
+        "custom": ["faq", "links", "profilecard"],
+        "hint": null,
+        "family": "custom-quiet",
+        "why": "Context still gives no usable intended command"
+    },
+    {
+        "message": "!motd1",
+        "audience": "member",
+        "custom": ["motd2", "motd3"],
+        "hint": null,
+        "family": "ambiguous-name",
+        "why": "Two available command names are equally plausible without context"
+    },
+    {
+        "message": "!faq-c",
+        "audience": "staff",
+        "custom": ["faq-a", "faq-b"],
+        "hint": null,
+        "family": "ambiguous-name",
+        "why": "Two available command names are equally plausible without context"
+    },
+    {
+        "message": "!rules-3",
+        "audience": "member",
+        "custom": ["rules-1", "rules-2"],
+        "hint": null,
+        "family": "ambiguous-name",
+        "why": "Two available command names are equally plausible without context"
+    },
+    {
+        "message": "!rolepcker",
+        "audience": "staff",
+        "custom": ["rolepacker"],
+        "hint": null,
+        "family": "ambiguous-name",
+        "why": "Two available command names are equally plausible without context"
+    },
+    {
+        "message": "!helpdes",
+        "audience": "staff",
+        "custom": ["helpden"],
+        "hint": null,
+        "family": "ambiguous-name",
+        "why": "Two available command names are equally plausible without context"
+    }
+]

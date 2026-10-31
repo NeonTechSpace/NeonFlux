@@ -22,7 +22,9 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md), [the 
 The bot runs on the SDK's native Effect lifecycle through `runBot`, with background workers as scoped Effect fibers
 rather than a separate scheduler.
 Command parsing uses the SDK's public `commands.parseQuoted` parser, with no separate command framework.
-Help and typo suggestions use one command table. Suggestions call the SDK's public `commands.suggest` helper
+Help and typo suggestions use one command table. Suggestions use the bot's own matcher in
+[closest-name.ts](../projects/bot/src/closest-name.ts) rather than the SDK's `commands.suggest`, whose closeness cannot
+be tightened and which answers common words such as `hello` with a command
 
 Single-server mode keeps one serialized `messageCreate` pipeline.
 Multi-server mode is sized for a public bot on one shared client.

@@ -208,11 +208,15 @@ export function handleResponse(store: ResponseStore, serverId: string, context: 
             )
             result = yield* store.evaluate({ ...request, roleIds: [serverId, ...member.roleIds] })
         }
-        if (!result.send) return "defined" in result
+        if (!result.send)
+            return {
+                known: "defined" in result,
+                customNames: "customNames" in result ? result.customNames : [],
+            }
         // The backend reservation stays consumed, so a redelivered message never replies twice
         yield* reply(nativeReply(result.reply)).pipe(
             Effect.mapError(() => new ResponseHandlingError({ stage: "send" })),
         )
-        return true
+        return { known: true, customNames: [] as readonly string[] }
     })
 }

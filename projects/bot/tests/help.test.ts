@@ -49,14 +49,14 @@ const general = (prefix: string): GeneralSettingsStore => ({
     setNickname: () => Effect.die("unused"),
     recordNickname: () => Effect.die("unused"),
 })
-// A custom command named rules exists but is cooling down, and nothing else is defined
+// A custom command named rules exists but is cooling down, and giveaway is the one other custom command
 const responses: ResponseStore = {
     manage: () => Effect.die("unused"),
     evaluate: (request) =>
         Effect.succeed(
             /^\?rules(\s|$)/.test(request.content)
                 ? ({ send: false, defined: true } as const)
-                : ({ send: false } as const),
+                : ({ send: false, customNames: ["giveaway", "rules"] } as const),
         ),
 }
 
@@ -287,17 +287,62 @@ test("an unknown command close to a built-in one gets one hint, while other text
                 assert.deepEqual(yield* say("?case list"), [])
                 // A custom command of that name exists, so roles is not suggested for it
                 assert.deepEqual(yield* say("?rules"), [])
+                // Ordinary words stay quiet
+                assert.deepEqual(yield* say("?hello everyone"), [])
+                assert.deepEqual(yield* say("?thank you"), [])
+                // The server's own commands are hinted too, and win over a built-in that fits the word less well
+                assert.deepEqual(yield* say("?giveawya"), [
+                    "Did you mean ?giveaway? Send ?help to list the commands you can use",
+                ])
+                assert.deepEqual(yield* say("?rulez"), [
+                    "Did you mean ?rules? Send ?help to list the commands you can use",
+                ])
+                // A real word gets no hint for a custom command or a look-alike built-in
+                assert.deepEqual(yield* say("?rule"), [])
+                // A form of a built-in command gets one, unless it starts a sentence
+                assert.deepEqual(yield* say("?tickets"), [
+                    "Did you mean ?ticket? Send ?help to list the commands you can use",
+                ])
+                assert.deepEqual(yield* say("?tickets are sold out"), [])
+                // Several close commands are all named, closest first
+                assert.deepEqual(yield* say("?riles"), [
+                    "Did you mean ?roles or ?rules? Send ?help to list the commands you can use",
+                ])
+            }),
+        ),
+    )
+})
+
+test("a hint only names a built-in command the member can use", async () => {
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const member = yield* helpBot({ actorOwner: false, actorPermissions: 0n })
+                assert.deepEqual(yield* member.say("?mdo"), [])
+                assert.deepEqual(yield* member.say("?bakcup"), [])
+            }),
+        ),
+    )
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const staff = yield* helpBot({ actorOwner: false, actorPermissions: Permissions.KickMembers })
+                assert.deepEqual(yield* staff.say("?mdo"), [
+                    "Did you mean ?mod? Send ?help to list the commands you can use",
+                ])
+                assert.deepEqual(yield* staff.say("?bakcup"), [])
             }),
         ),
     )
 })
 
 test("every help page stays within ten lines and eight embed fields for each audience, in both reply styles", () => {
-    assert.equal(suggestCommand("Tikcet"), "ticket")
-    assert.equal(suggestCommand("leaderbord"), "leaderboard")
-    assert.equal(suggestCommand("mo"), "mod")
-    assert.equal(suggestCommand("xyz"), undefined)
-    assert.equal(suggestCommand("bakcup"), "backup")
+    const everything = new Set<Audience>(["everyone", "staff", "manager", "admin"])
+    assert.deepEqual(suggestCommand("Tikcet", everything), ["ticket"])
+    assert.deepEqual(suggestCommand("leaderbord", everything), ["leaderboard"])
+    assert.deepEqual(suggestCommand("mo", everything), ["mod"])
+    assert.deepEqual(suggestCommand("xyz", everything), [])
+    assert.deepEqual(suggestCommand("bakcup", everything), ["backup"])
     const topics = [undefined, ...groups, ...new Set(commandTable.flatMap((entry) => [entry.feature, entry.name]))]
     const people: Audience[][] = [
         ["everyone"],
