@@ -63,5 +63,5 @@ The server owner, Administrators and security staff with Manage roles can use th
 - Changing the exempt list does not change a lockdown that is already on
 - `!security lock` is refused on a channel the lockdown holds
 - The start and end go to the security log and the staff log channel when there is one, and a lost note is not sent again
-- Tested against Fluxer: Channels locked and restored to exactly what they had, also with the lift after a restart
-- Not tested against Fluxer yet: A member really being stopped, and NeonFlux's own allow
+- Tested against Fluxer: Channels locked and restored to exactly what they had, also with the lift after a restart. Calculating from real permissions, posting went off for a real member, and stayed on where a role had its own allow
+- Not tested against Fluxer yet: Fluxer really refusing a member's post, and NeonFlux's own allow

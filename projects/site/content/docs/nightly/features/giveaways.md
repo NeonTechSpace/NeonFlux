@@ -64,5 +64,5 @@ Every form except `help` needs the server owner, Administrator or Manage communi
 - A card post with an unknown outcome is never repeated, and `!recovery` shows the step that settles it
 - A deleted card or channel ends the giveaway with a problem
 - An ended or cancelled giveaway expires after 90 days
-- Tested against Fluxer: The card and its entry emoji, a draw with no valid entry, a reroll and a cancel
-- Not tested against Fluxer yet: A real member's entry, a winner, a winner's DM and the 5,000 limit
+- Tested against Fluxer: The card and its entry emoji, a draw with no valid entry, a reroll and a cancel. From a simulated entry: A real member drawn as winner, the card edit and a real DM
+- Not tested against Fluxer yet: A real member's reaction as an entry, and the 5,000 limit

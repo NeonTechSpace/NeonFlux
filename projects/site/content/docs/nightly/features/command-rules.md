@@ -58,5 +58,5 @@ NeonFlux: !rank works in #bot-commands
 - `commands` is a reserved name, so a [custom command](./custom-responses.md) with that name no longer runs
 - A role rule reads the copy of the member the bot holds
 - A rule naming a category never matches, and a rule naming a deleted channel refuses until it is changed
-- Tested against the real backend: Rules saved and read back
-- Not tested against Fluxer yet: A rule refusing a real member's message
+- Tested on a real member at the real command check: Channel and role rules, the owner's exemption and refusing a rule on `!mod`. A test script sent the commands
+- Not tested against Fluxer yet: A person typing a command that a rule refuses

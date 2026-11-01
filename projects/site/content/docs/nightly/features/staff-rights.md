@@ -73,5 +73,5 @@ Owner: !mod rights clear @Alex
 - A member who is timed out holds no right until the timeout ends, and a channel action needs a member who can view the channel
 - `!mod recover` keeps needing the real permission, so someone else checks an unconfirmed action
 - Rights stay out of backups, so the owner grants them again by hand after a restore. They are in the readable export
-- Tested against the real backend: Settings and limits
-- Not tested against Fluxer yet: A right acting on a real member
+- Tested on a real member with no real permission: Slowmode, lock, unlock and purge through rights, refusals, the limit, suspension and clearing it, and the link to anti-nuke. A test script sent the commands
+- Not tested against Fluxer yet: A right acting on another member, and a person typing the commands

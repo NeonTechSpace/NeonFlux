@@ -114,5 +114,5 @@ Staff means the server owner, an Administrator, or a member with a moderation st
 - A fault on Fluxer's voice servers can make an occupied room look empty, and the bot could then delete it
 - Room commands pause while the server is at DEFCON 2
 - A reaction on the card right after a restart does nothing until the server's first voice event
-- Tested against Fluxer: The lock's permission change, a refused unknown region and the card
-- Not tested against Fluxer yet: A member's own reaction, a room made by a real join, and the page with a real sign-in and a real room
+- Tested against Fluxer: Lock, unlock, allow and block on a room made from a simulated join, a refused unknown region and the card
+- Not tested against Fluxer yet: A member's own reaction, a person really joining a generator, and the page with a real sign-in and a real room

@@ -73,5 +73,5 @@ Turning jail off stops new jails only, and members already jailed stay held
 - A role removed from moderation staff keeps its access to the jail channel until someone removes it
 - A backup restore can remove the jail role's denial from a channel. The channel's update event adds it back
 - Deleting the jail role leaves its overwrites on each channel, where they do nothing
-- Tested against Fluxer: Setup on real channels
-- Not tested against Fluxer yet: Jailing and releasing a real member
+- Tested against Fluxer: Setup on real channels. On a real member: Jail, unjail and a timed release with the exact roles back, and a role added during a jail being taken away. A test script sent the commands
+- Not tested against Fluxer yet: A person typing the commands, and a jailed member who is really in voice

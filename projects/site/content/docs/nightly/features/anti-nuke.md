@@ -77,5 +77,5 @@ Turning it down, reading incidents and restoring roles stay reachable at DEFCON 
 - A voice bot closing several rooms in a burst can still reach the channels limit, and `!antinuke trust add` is the way out
 - Counts stay in memory, so a restart forgets them
 - A server keeps its newest 200 incidents
-- Tested against Fluxer: Real activity log entries firing the channels, roles, new channels and roles, dangerous permissions, webhooks, kicks, bans and unbans rules
-- Not tested against Fluxer yet: Stripping, kicking or banning a real member, and a prune entry
+- Tested against Fluxer: Real activity log entries firing the channels, roles, new channels and roles, dangerous permissions, webhooks, kicks, bans and unbans rules. On a real member, from simulated entries: Strip and exact restore, and alert only for the owner
+- Not tested against Fluxer yet: Kicking or banning a real member, starting the lockdown from an incident, and a prune entry
