@@ -47,6 +47,18 @@ Commit generated files together with the change that needs them
 
 To tune a detector, work only from `train.json`. A false positive costs more than a miss, since a flagged link is usually deleted, so never trade a new false positive for a catch. The `holdout.json` sets scored the last tuning round and now only guard against regressions, so a new round needs new held-out cases, written by someone other than the person tuning and scored once at the end
 
+## Public docs
+
+The public docs live in `projects/site/content/docs/<version>/`. `nightly/` is the version being written. Its pages are for server staff and people hosting NeonFlux, while `docs/` stays for contributors and describes every detail
+
+- Add a page as a Markdown file with `title` and `description` in its frontmatter, and list it in that version's `meta.json`. The build fails when a page and the list disagree
+- Link another page by its file, such as `./tickets.md#commands`. The build turns that into an address that works in every version, and `pnpm run lint` checks the file and heading exist
+- Mark anything not built with a line that starts `> **Planned:**`
+- A table of sentences or long commands becomes a list of entries when built, and a code block past 28 lines opens with a button, so neither needs special writing
+- After changing a Markdown step in `astro.config.mjs` or `src/docs/`, delete `projects/site/.astro/` and build again, because Astro keeps pages it already rendered
+
+To add a Stable version, copy `nightly/` to a folder named for the version, such as `v1.0.0/`, and add `{ folder: "v1.0.0", channel: "stable" }` to `versions` in `projects/site/src/docs/versions.js`. The newest Stable then takes `/docs/`, Nightly moves to `/docs/nightly/` and older Stable versions stay at their own address, and the version menu appears
+
 ## Adding a feature or a table
 
 A new feature or backend table usually has to be registered in several places. Each line names what catches a missing entry, and a line without a check depends on review
@@ -68,5 +80,7 @@ A new feature or backend table usually has to be registered in several places. E
 | Readable server export | `FAMILIES` in `backend/convex/serverExport.ts` | `backend/tests/server-export.test.ts` |
 | Backup configuration families | The backup snapshot and restore in `backend/convex/backup.ts` | `backend/tests/backup.test.ts` |
 | Feature navigation | The feature table in [the repository guide](REPOSITORY.md#find-a-feature), or a link from the guide for a file outside a feature | `pnpm run lint`, through [repository-guide.mjs](../projects/scripts/repository-guide.mjs) |
+| Public docs | A page or section in `site/content/docs/nightly/features/`, as [public docs](#public-docs) describes | Review only, since nothing checks that a new feature has a page |
+| Public feature pages | An entry in `FE` in `site/src/features.js`, with its art and example in `site/src/scripts/home.js` | Review only, since a feature need not have a page. `site/tests/seo.test.mjs` then checks its address, heading and docs link |
 
 Document the feature's usable behavior and limits in [the bot guide](BOT.md), [the backend guide](BACKEND.md) or [the dashboard guide](WEB.md)

@@ -1,0 +1,35 @@
+{
+    "name": "neonflux",
+    "type": "dark",
+    "colors": { "editor.background": "#00000000", "editor.foreground": "#e4e6f7" },
+    "tokenColors": [
+        { "settings": { "foreground": "#e4e6f7" } },
+        { "scope": ["comment", "punctuation.definition.comment"], "settings": { "foreground": "#8f93b5" } },
+        {
+            "scope": ["keyword", "storage", "keyword.operator.assignment", "support.function.builtin"],
+            "settings": { "foreground": "#c9a2ff" }
+        },
+        {
+            "scope": ["string", "string.quoted", "string.unquoted", "punctuation.definition.string"],
+            "settings": { "foreground": "#8fe0c8" }
+        },
+        {
+            "scope": ["constant", "constant.numeric", "constant.language", "variable.other.constant"],
+            "settings": { "foreground": "#ff9ecf" }
+        },
+        {
+            "scope": [
+                "entity.name.function",
+                "support.function",
+                "entity.name.command",
+                "support.function.builtin.shell"
+            ],
+            "settings": { "foreground": "#8db5ff" }
+        },
+        {
+            "scope": ["variable", "support.type.property-name", "entity.name.tag", "variable.other.readwrite"],
+            "settings": { "foreground": "#a9c6ff" }
+        },
+        { "scope": ["punctuation", "meta.brace"], "settings": { "foreground": "#a4a7c2" } }
+    ]
+}

@@ -1,0 +1,73 @@
+{
+    "sections": [
+        {
+            "title": "Features",
+            "groups": [
+                {
+                    "pages": ["features/first-steps"]
+                },
+                {
+                    "title": "Safety",
+                    "pages": [
+                        "features/moderation",
+                        "features/automod",
+                        "features/verification",
+                        "features/security-alerts"
+                    ]
+                },
+                {
+                    "title": "Members",
+                    "pages": ["features/welcome", "features/roles", "features/profiles", "features/birthdays"]
+                },
+                {
+                    "title": "Support",
+                    "pages": ["features/tickets", "features/help-desk", "features/suggestions"]
+                },
+                {
+                    "title": "Activity",
+                    "pages": [
+                        "features/leveling",
+                        "features/events",
+                        "features/messages",
+                        "features/voice",
+                        "features/looking-for-group",
+                        "features/stream-alerts"
+                    ]
+                },
+                {
+                    "title": "Server tools",
+                    "pages": [
+                        "features/custom-responses",
+                        "features/logs",
+                        "features/cleanup",
+                        "features/sticky-messages",
+                        "features/backup",
+                        "features/analytics",
+                        "features/structure-editor",
+                        "features/your-data"
+                    ]
+                }
+            ]
+        },
+        {
+            "title": "Self-hosting",
+            "groups": [
+                {
+                    "pages": ["self-hosting/overview"]
+                },
+                {
+                    "title": "Set up",
+                    "pages": ["self-hosting/backend", "self-hosting/bot", "self-hosting/dashboard"]
+                },
+                {
+                    "title": "Run it",
+                    "pages": [
+                        "self-hosting/server-modes",
+                        "self-hosting/optional-services",
+                        "self-hosting/keeping-it-running"
+                    ]
+                }
+            ]
+        }
+    ]
+}

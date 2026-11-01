@@ -1,0 +1,23 @@
+---
+import { FE, featureDescription, featurePath, featureTitle } from "../../features.js"
+import Home from "../../layouts/Home.astro"
+import { pageGraph } from "../../seo.js"
+
+export const getStaticPaths = () => FE.map((feature) => ({ params: { feature: feature.d }, props: { feature } }))
+
+const { feature } = Astro.props
+const graph = pageGraph([{ name: "NeonFlux", path: "/" }, { name: feature.n, path: featurePath(feature) }])
+---
+
+<Home title={featureTitle(feature)} description={featureDescription(feature)} {graph} feature>
+    <!-- The page script replaces this with the full page and its example, and search engines can read it either way -->
+    <section class="fh pad">
+        <h1>{feature.n}</h1>
+        <p>{feature.l}</p>
+    </section>
+    <section class="sec pad">
+        <h2>What it covers</h2>
+        <ul class="facts">{feature.f.map((fact) => <li>{fact}</li>)}</ul>
+        <div class="src"><a href={`/docs/features/${feature.d}/`}>All the commands for this</a></div>
+    </section>
+</Home>

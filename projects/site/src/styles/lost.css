@@ -1,0 +1,293 @@
+.lost {
+    flex: 1;
+    width: 100%;
+    max-width: calc(1240px * var(--fs));
+    margin: 0 auto;
+    padding: calc(24px * var(--fs)) clamp(20px, 4vw, 56px) calc(40px * var(--fs));
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    align-items: center;
+    gap: clamp(16px, 4vw, 64px);
+    min-height: calc(100dvh - var(--bar));
+}
+.lost-words h1 {
+    margin: 0;
+    font: 700 clamp(calc(46px * var(--fs)), 6vw, calc(84px * var(--fs))) / 1.02 var(--display);
+    letter-spacing: -0.022em;
+    color: var(--bright);
+    text-wrap: balance;
+}
+.lost-words p {
+    margin: calc(18px * var(--fs)) 0 0;
+    max-width: 30ch;
+    color: var(--soft);
+    font-size: calc(21px * var(--fs));
+    line-height: 1.45;
+}
+.lost-ways {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: calc(30px * var(--fs));
+}
+.lost-ways a {
+    padding: 11px 20px;
+    border-radius: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+        box-shadow 180ms var(--ease),
+        color 180ms var(--ease),
+        translate 180ms var(--ease);
+}
+.way-main {
+    color: #fff;
+    background: radial-gradient(73% 138% at 50% 0%, #6d63ff 50%, #5a3fd8);
+    box-shadow:
+        inset 0 1px 0 #ffffff40,
+        0 10px 28px #5a3fd859;
+}
+.way-alt {
+    color: var(--ink);
+    background: #ffffff0a;
+    box-shadow: inset 0 0 0 1px #ffffff24;
+}
+@media (hover: hover) {
+    .lost-ways a:hover {
+        translate: 0 -1px;
+    }
+    .way-alt:hover {
+        color: var(--bright);
+        box-shadow: inset 0 0 0 1px #ffffff4d;
+    }
+}
+
+/* The scene: The box turns slowly, open at the top, and shows through its own glass walls */
+.scene {
+    --s: min(calc(250px * var(--fs)), 25vw);
+    display: grid;
+    justify-items: center;
+    gap: calc(10px * var(--fs));
+}
+.stage {
+    position: relative;
+    width: calc(var(--s) * 2.2);
+    height: calc(var(--s) * 2.3);
+    padding: 0;
+    border: 0;
+    border-radius: 24px;
+    background: none;
+    cursor: pointer;
+    perspective: calc(var(--s) * 4.2);
+}
+.floor {
+    position: absolute;
+    left: 50%;
+    bottom: 2%;
+    width: calc(var(--s) * 1.9);
+    height: calc(var(--s) * 0.5);
+    translate: -50% 0;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, #6d63ff47, #2f62c81f 55%, transparent);
+}
+.tilt {
+    position: absolute;
+    inset: 0;
+    display: block;
+    transform-style: preserve-3d;
+    transform: translateY(calc(var(--s) * 0.28)) rotateX(-20deg);
+}
+.crate {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+    transform-style: preserve-3d;
+    animation: crate-turn 34s linear infinite;
+}
+@keyframes crate-turn {
+    from {
+        transform: rotateY(0deg);
+    }
+    to {
+        transform: rotateY(-360deg);
+    }
+}
+.wall,
+.lid {
+    position: absolute;
+    left: calc(var(--s) / -2);
+    top: calc(var(--s) / -2);
+    display: grid;
+    place-items: center;
+    width: var(--s);
+    height: var(--s);
+    border-radius: 4px;
+    background: linear-gradient(170deg, #7c8cff2e, #6d4fd01a 55%, #6ea0ff33);
+    box-shadow:
+        inset 0 0 0 1.5px #a9c0ff8c,
+        inset 0 0 calc(var(--s) * 0.16) #8d7dfb2e;
+    outline: 1px solid transparent;
+    transform-style: preserve-3d;
+}
+.wall b {
+    font: 800 calc(var(--s) * 0.34) / 1 var(--display);
+    letter-spacing: -0.02em;
+    background: linear-gradient(180deg, #e4e8ff, #8db5ff 55%, #b07fff);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    backface-visibility: hidden;
+    opacity: 0.92;
+}
+.front {
+    transform: translateZ(calc(var(--s) / 2));
+}
+.right {
+    transform: rotateY(90deg) translateZ(calc(var(--s) / 2));
+}
+.back {
+    transform: rotateY(180deg) translateZ(calc(var(--s) / 2));
+}
+.left {
+    transform: rotateY(-90deg) translateZ(calc(var(--s) / 2));
+}
+/* A little light on the floor of the box, which only shows how empty it is */
+.base {
+    transform: rotateX(90deg) translateZ(calc(var(--s) / -2));
+    background: radial-gradient(closest-side, #b9c8ff6b, #6d63ff26 60%, #161a3acc);
+}
+/* The lid stands open, leaning back on the box's back edge */
+.lid {
+    transform: translateY(calc(var(--s) / -2)) translateZ(calc(var(--s) / -2)) rotateX(26deg)
+        translateY(calc(var(--s) / -2));
+    background: linear-gradient(170deg, #7c8cff40, #6d4fd026);
+}
+/* Dust rises out of the open box */
+.spark {
+    position: absolute;
+    left: var(--x);
+    top: calc(var(--s) * 0.42);
+    width: 5px;
+    height: 5px;
+    margin: -2.5px;
+    border-radius: 50%;
+    background: #dfe6ff;
+    box-shadow: 0 0 9px 2px #9db4ff99;
+    opacity: 0;
+    transform: translateZ(var(--z));
+    animation: spark-rise var(--for) ease-in var(--wait) infinite;
+}
+.s1 {
+    --x: calc(var(--s) * -0.2);
+    --z: calc(var(--s) * 0.12);
+    --for: 7s;
+    --wait: 0s;
+}
+.s2 {
+    --x: calc(var(--s) * 0.16);
+    --z: calc(var(--s) * -0.18);
+    --for: 9s;
+    --wait: -3s;
+}
+.s3 {
+    --x: calc(var(--s) * 0.04);
+    --z: calc(var(--s) * 0.22);
+    --for: 8s;
+    --wait: -5s;
+}
+.s4 {
+    --x: calc(var(--s) * -0.08);
+    --z: calc(var(--s) * -0.06);
+    --for: 11s;
+    --wait: -8s;
+}
+@keyframes spark-rise {
+    12% {
+        opacity: 0.9;
+    }
+    70% {
+        opacity: 0.6;
+    }
+    100% {
+        opacity: 0;
+        translate: calc(var(--s) * 0.07) calc(var(--s) * -1.28);
+    }
+}
+/* The robot has come to look */
+.visitor {
+    position: absolute;
+    left: -14%;
+    bottom: 3%;
+    width: calc(var(--s) * 0.78);
+    height: auto;
+    filter: drop-shadow(0 calc(var(--s) * 0.07) calc(var(--s) * 0.09) #00000080);
+    transform-origin: 50% 100%;
+    animation: visitor-bob 5.5s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+@keyframes visitor-bob {
+    from {
+        transform: translateY(0) rotate(-1.5deg);
+    }
+    to {
+        transform: translateY(calc(var(--s) * -0.035)) rotate(1.5deg);
+    }
+}
+/* A knock jolts the box and makes the robot jump */
+.stage.hit .tilt {
+    animation: knock-box 420ms cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+@keyframes knock-box {
+    25% {
+        transform: translateY(calc(var(--s) * 0.28)) rotateX(-20deg) rotateZ(-2.6deg) scale(0.985);
+    }
+    55% {
+        transform: translateY(calc(var(--s) * 0.28)) rotateX(-20deg) rotateZ(1.8deg);
+    }
+}
+.reply {
+    min-height: 1.5em;
+    margin: 0;
+    color: var(--soft);
+    font-size: calc(18px * var(--fs));
+    text-align: center;
+}
+html[data-still] :is(.crate, .spark, .visitor) {
+    animation-play-state: paused;
+}
+html[data-still] .crate {
+    animation-delay: -4s;
+}
+html[data-still] .spark {
+    opacity: 0.5;
+}
+@media (max-width: 860px) {
+    .lost {
+        grid-template-columns: minmax(0, 1fr);
+        align-content: center;
+        justify-items: center;
+        text-align: center;
+        gap: 6px;
+    }
+    .lost-words p {
+        margin-inline: auto;
+    }
+    .lost-ways {
+        justify-content: center;
+    }
+    .scene {
+        --s: min(132px, 33vw);
+        margin-top: 14px;
+    }
+    .visitor {
+        left: -5%;
+    }
+    .lost-words h1 {
+        font-size: calc(42px * var(--fs));
+    }
+    .lost-words p {
+        font-size: calc(19px * var(--fs));
+    }
+}

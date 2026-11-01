@@ -1,0 +1,471 @@
+---
+import Seo from "../components/Seo.astro"
+import { dashboardUrl } from "../dashboard-url.js"
+import "../styles/home.css"
+
+const { title, description, graph, feature = false } = Astro.props
+---
+
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <Seo {title} {description} {graph} />
+        <link rel="preload" href="/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin />
+        <link rel="preload" href="/fonts/atkinson.woff2" as="font" type="font/woff2" crossorigin />
+    </head>
+    <body style="margin: 0">
+        <div class="nf" id="nf">
+            <canvas id="bg" aria-hidden="true"></canvas>
+            <div hidden id="art">
+                <img id="atlas" data-src="/art/atlas.webp" alt="" />
+                <img data-a="mod" src="/art/b-38-moderation-gavel.webp" alt="" /><img
+                    data-a="auto"
+                    src="/art/b-15-guard-shield.webp"
+                    alt=""
+                /><img data-a="roles" src="/art/b-51-roles-tags.webp" alt="" /><img
+                    data-a="ver"
+                    src="/art/b-36-permission-lock.webp"
+                    alt=""
+                /><img data-a="wel" src="/art/b-34-welcome-door.webp" alt="" /><img
+                    data-a="tic"
+                    src="/art/b-39-support-lifebuoy.webp"
+                    alt=""
+                /><img data-a="help" src="/art/b-18-api-book.webp" alt="" /><img
+                    data-a="lev"
+                    src="/art/b-46-levels-trophy.webp"
+                    alt=""
+                /><img data-a="eve" src="/art/b-13-events-bell.webp" alt="" /><img
+                    data-a="pro"
+                    src="/art/b-35-member-badge.webp"
+                    alt=""
+                /><img data-a="msg" src="/art/b-32-announce-megaphone.webp" alt="" /><img
+                    data-a="voi"
+                    src="/art/b-42-music-headphones.webp"
+                    alt=""
+                />
+            </div>
+            <nav class="top" aria-label="Main">
+                <strong
+                    ><a href="/">Neon<span class="g">Flux</span></a></strong
+                >
+                <div class="fm" id="fm">
+                    <button class="fmb" id="fmb" type="button" aria-expanded="false" aria-controls="fmp">
+                        Features<svg
+                            viewBox="0 0 24 24"
+                            width="14"
+                            height="14"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.6"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                        >
+                            <path d="M5 9l7 7 7-7" />
+                        </svg>
+                    </button>
+                    <div class="fmp" id="fmp" hidden><ul id="fml"></ul></div>
+                </div>
+                <a class="opt" href="/docs/">Docs</a
+                ><a class="opt" href="https://github.com/NeonTechSpace/NeonFlux">GitHub</a
+                ><button class="tog" id="tog" role="switch" aria-checked="true" aria-label="Animations">
+                    <i></i><span>Animations</span>
+                </button>
+            </nav>
+
+            <div class="fms" id="fms" aria-hidden="true"></div>
+            <div class="dust" id="dust" aria-hidden="true"></div>
+            <div class:list={["view", { on: !feature }]} id="v-home">
+                <section class="calm pad">
+                    <div>
+                        <h1>Neon<span class="g">Flux</span></h1>
+                        <p class="tag big">An open-source Fluxer bot you can host for yourself or for others</p>
+                        <ul>
+                            <li>
+                                <b>The only bot you should ever need</b
+                                ><span>Moderation, roles, tickets, levels and more</span>
+                            </li>
+                            <li>
+                                <b>A bot you can trust</b
+                                ><span>Anyone can check what it does, even if you never look</span>
+                            </li>
+                            <li>
+                                <b>A bot you can own</b><span>Run your own, change any part and keep your data</span>
+                            </li>
+                        </ul>
+                        <div class="acts">
+                            <a class="main" href={dashboardUrl}>Open dashboard</a
+                            ><a class="alt" href="/docs/self-hosting/overview/"
+                                >Run your own</a
+                            >
+                        </div>
+                    </div>
+                    <div class="cg" id="cg"></div>
+                </section>
+                <section class="calmna pad">
+                    <img src="/art/b-36-permission-lock.webp" alt="" />
+                    <h1>You can look, but this one's private</h1>
+                    <p>It runs for one community. Join its server, or ask for permission to manage it</p>
+                    <div class="acts"><a class="main" href="/">Back to the homepage</a></div>
+                </section>
+                <div class="pin" id="pin">
+                    <i class="mark" style="top: 0"></i><i class="mark" style="top: 100svh"></i
+                    ><i class="mark" style="top: 200svh"></i><i class="mark" style="top: 300svh"></i>
+                    <div class="stick" id="stick">
+                        <canvas id="gl" aria-hidden="true"></canvas>
+                        <h1 class="h-word" id="hword">NeonFlux</h1>
+                        <div class="anchor" id="anchor"></div>
+                        <div id="hits"></div>
+                        <div class="h-say">
+                            <p class="tag">An open-source Fluxer bot you can host for yourself or for others</p>
+                            <div class="stk h-claim" id="claim"></div>
+                            <div class="stk h-sub" id="sub"></div>
+                            <div class="ticks" id="ticks" role="group" aria-label="Open the box step by step">
+                                <button aria-label="Step 1: Most stay locked">
+                                    <b></b><span>Most stay locked</span></button
+                                ><button aria-label="Step 2: This one does it all">
+                                    <b></b><span>this one does it all</span></button
+                                ><button aria-label="Step 3: Shows how it works">
+                                    <b></b><span>shows how it works</span></button
+                                ><button aria-label="Step 4: And it's yours"><b></b><span>and it's yours</span></button>
+                            </div>
+                            <div class="acts" id="hacts">
+                                <a class="main" href={dashboardUrl}>Open dashboard</a
+                                ><a class="alt" href="/docs/self-hosting/overview/"
+                                    >Run your own</a
+                                >
+                            </div>
+                            <p class="hint">
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2.6"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    aria-hidden="true"
+                                >
+                                    <path d="M5 9l7 7 7-7" /></svg
+                                ><span id="hint">Scroll to open the box</span><span id="knr" aria-live="polite"></span
+                                ><a class="skip" href="#try">Or try an example</a>
+                            </p>
+                        </div>
+                        <button class="knock" id="knock" aria-label="Knock on the box"></button>
+                    </div>
+                </div>
+
+                <div class="rest" id="rest">
+                    <section class="wk pad" id="wk">
+                        <div class="sun"></div>
+                        <h2 class="rv">What NeonFlux does in a normal week</h2>
+                        <p class="lead rv">
+                            Each dot is one thing it did. Pick one<span class="mo">, or just watch</span>
+                        </p>
+                        <div class="stagew">
+                            <div>
+                                <div class="clock" aria-live="off">
+                                    <small id="cday">Monday</small><span id="ctime">00:00</span>
+                                </div>
+                                <div class="fea" id="fea"></div>
+                            </div>
+                            <div class="feed" id="feed" aria-live="polite"></div>
+                        </div>
+                        <div
+                            class="rail"
+                            id="rail"
+                            role="slider"
+                            tabindex="0"
+                            aria-label="Time in the week"
+                            aria-valuemin="0"
+                            aria-valuemax="168"
+                            aria-valuenow="0"
+                        >
+                            <div class="tr"></div>
+                            <div class="fl"></div>
+                            <div class="hd"></div>
+                        </div>
+                        <div class="wkc"><button id="wkp" class="alt wkp">Pause</button></div>
+                    </section>
+
+                    <section class="sec pad" id="try">
+                        <h2 class="rv">Try it here</h2>
+                        <p class="lead rv">Pick a feature and use it, with made-up people</p>
+                        <div class="dock" id="rail2"></div>
+                        <div class="stage" id="stage"></div>
+                    </section>
+                    <section class="sec pad" id="board">
+                        <h2 class="rv">The dashboard</h2>
+                        <p class="lead rv">
+                            People who run the server change settings here. Members pick roles and edit their profile
+                        </p>
+                        <div class="bw" id="bw">
+                            <div class="bwt" role="group" aria-label="Who you are">
+                                <button data-v="own" aria-pressed="true">Running the server</button
+                                ><button data-v="mem" aria-pressed="false">On the server</button
+                                ><button data-v="out" aria-pressed="false">Anyone else</button>
+                            </div>
+                            <div class="bwv" data-v="own">
+                                <div class="bwl" id="bwl"></div>
+                                <div class="bwa">
+                                    <h3>Audit log</h3>
+                                    <div id="bwa"></div>
+                                </div>
+                            </div>
+                            <div class="bwv" data-v="mem" hidden>
+                                <div class="bwm">
+                                    <div class="me bwme"><b>You</b><span>Your profile</span></div>
+                                    <div>
+                                        <h3>Roles you can pick</h3>
+                                        <div class="bwr" id="bwr"></div>
+                                        <p>You only see what this server has switched on</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bwv" data-v="out" hidden>
+                                <div class="bwo">
+                                    <img src="/art/b-36-permission-lock.webp" alt="" />
+                                    <h3>You can look, but this one's private</h3>
+                                    <p>You need to be on the server to see anything here</p>
+                                    <a href="#no-access">See the full page</a>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                    <section class="sec pad" id="more">
+                        <h2 class="rv">Smaller features</h2>
+                        <div class="bento">
+                            <article class="tile t6">
+                                <div class="tv">
+                                    <div class="uim">
+                                        <span class="ui"><b>See it</b></span
+                                        ><span class="ui"><b>Export it</b></span
+                                        ><span class="ui on"><b>Delete it</b></span>
+                                    </div>
+                                </div>
+                                <h3>Your data</h3>
+                                <p>
+                                    In a DM with the bot, any member can see and export what it stores about them and
+                                    delete most of it
+                                </p>
+                            </article>
+                            <article class="tile t3">
+                                <div class="tv">
+                                    <div class="uif" id="tbk"></div>
+                                </div>
+                                <h3>Backup and restore</h3>
+                                <p>The owner gets an encrypted backup by DM, and can preview a restore first</p>
+                            </article>
+                            <article class="tile t3">
+                                <div class="tv">
+                                    <div class="uib">
+                                        <i style="height: 38%"></i><i style="height: 62%"></i><i style="height: 48%"></i
+                                        ><i style="height: 84%"></i><i style="height: 70%"></i
+                                        ><i style="height: 100%"></i><i style="height: 58%"></i
+                                        ><i style="height: 76%"></i>
+                                    </div>
+                                </div>
+                                <h3>Analytics</h3>
+                                <p>Counts only, never which member did what</p>
+                            </article>
+                            <article class="tile t3">
+                                <div class="tv">
+                                    <div class="uis">
+                                        <div class="uic">
+                                            <i class="av" style="--h: 280">M</i>
+                                            <div><b>Mia</b><span>Add a game night?</span></div>
+                                            <button class="vote" id="vote" aria-pressed="false">Vote</button>
+                                        </div>
+                                        <div class="uic">
+                                            <i class="av" style="--h: 220">B</i>
+                                            <div><b>Ben</b><span>A channel for art</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <h3>Suggestions</h3>
+                                <p>Members post ideas and vote on them</p>
+                            </article>
+                            <article class="tile t3">
+                                <div class="tv">
+                                    <div class="uis">
+                                        <div class="uic">
+                                            <i class="av bot"><img src="/art/neonflux-bot.webp" alt="" /></i>
+                                            <div><b>NeonFlux</b><span>Happy birthday, @Sam</span></div>
+                                        </div>
+                                        <div class="uic">
+                                            <i class="av" style="--h: 280">M</i>
+                                            <div><b>Mia</b><span>Have a good one!</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <h3>Birthdays</h3>
+                                <p>Members opt in by DM. No year and no age</p>
+                            </article>
+                            <article class="tile t6">
+                                <div class="tv">
+                                    <div class="uig" id="tvg">
+                                        <i class="on" style="--h: 280">M</i><i class="on" style="--h: 220">B</i
+                                        ><i class="on" style="--h: 300">L</i><i></i><i></i>
+                                    </div>
+                                </div>
+                                <h3>Looking for group</h3>
+                                <p>
+                                    Post what you want to play and others join. Once it starts, the group gets its own
+                                    private voice room
+                                </p>
+                            </article>
+                            <article class="tile t4">
+                                <div class="tv">
+                                    <div class="uil">
+                                        <span>Role changed</span><span>Channel renamed</span
+                                        ><span class="al">New webhook in #general</span><span>Member left</span>
+                                    </div>
+                                </div>
+                                <h3>Logs and security alerts</h3>
+                                <p>Tells staff what changed, and flags changes that often come before a raid</p>
+                            </article>
+                            <article class="tile t4">
+                                <div class="tv">
+                                    <div class="uil cut">
+                                        <span>Old message</span><span>Old message</span><span>Old message</span
+                                        ><span class="ke">Recent message</span>
+                                    </div>
+                                </div>
+                                <h3>Message cleanup</h3>
+                                <p>Deletes messages older than the age you choose</p>
+                            </article>
+                            <article class="tile t4">
+                                <div class="tv">
+                                    <div class="uil">
+                                        <span># rules</span><span class="ke"># welcome</span><span># general</span
+                                        ><span># help</span>
+                                    </div>
+                                </div>
+                                <h3>Server structure</h3>
+                                <p>Rename and reorder channels on the website, and see the change before saving</p>
+                            </article>
+                        </div>
+                    </section>
+
+                    <section class="proof pad" aria-labelledby="pfh">
+                        <h2 class="rv" id="pfh">Check it yourself</h2>
+                        <div class="pf" id="pf"></div>
+                    </section>
+                    <section class="sec pad" id="run">
+                        <h2 class="rv">Run your own</h2>
+                        <p class="lead rv">Host it for one server, or as a public bot for many</p>
+                        <ol class="stp" id="stp">
+                            <li>
+                                <h3>Get the code</h3>
+                                <pre><code>git clone https://github.com/NeonTechSpace/NeonFlux
+cd NeonFlux/projects</code></pre>
+                            </li>
+                            <li>
+                                <h3>Install and check it</h3>
+                                <pre><code>pnpm install --frozen-lockfile
+pnpm run check</code></pre>
+                            </li>
+                            <li>
+                                <h3>Connect it</h3>
+                                <p>
+                                    Make a Fluxer bot account, set up the backend, then fill in
+                                    <code>bot/.env</code> from its example
+                                </p>
+                            </li>
+                            <li>
+                                <h3>Start it</h3>
+                                <pre><code>pnpm run build
+pnpm run start</code></pre>
+                                <p>Send <code>!ping</code> in your server. It should answer <code>Pong!</code></p>
+                            </li>
+                        </ol>
+                        <a
+                            class="more"
+                            href="/docs/self-hosting/overview/"
+                            >Read the full guide<svg
+                                viewBox="0 0 24 24"
+                                width="16"
+                                height="16"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2.4"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                            >
+                                <path d="M5 12h14M13 6l6 6-6 6" /></svg
+                        ></a>
+                    </section>
+                    <section class="sec pad" id="faq">
+                        <h2 class="rv">Questions</h2>
+                        <div class="qs">
+                            <details>
+                                <summary>Can I invite this bot to my server?</summary>
+                                <p>
+                                    Not this copy, because it runs for one community. You can host your own for one
+                                    server, or as a public bot for many
+                                </p>
+                            </details>
+                            <details>
+                                <summary>What does it cost?</summary>
+                                <p>The code is free under Apache 2.0. You only pay for wherever you choose to run it</p>
+                            </details>
+                            <details>
+                                <summary>What do I need to run it?</summary>
+                                <p>Node, pnpm, a Fluxer bot account and a Convex deployment for the backend</p>
+                            </details>
+                            <details>
+                                <summary>Are there slash commands?</summary>
+                                <p>
+                                    Fluxer doesn't let bots register them yet, so commands start with a prefix you can
+                                    change
+                                </p>
+                            </details>
+                            <details>
+                                <summary>Do I have to use chat commands?</summary>
+                                <p>
+                                    No. The dashboard has the settings too, and changes from either place show in the
+                                    same audit log
+                                </p>
+                            </details>
+                            <details>
+                                <summary>What does it keep about members?</summary>
+                                <p>
+                                    Things like levels, warnings and RSVPs. In a DM with the bot, any member can see and
+                                    export it and delete most of it
+                                </p>
+                            </details>
+                        </div>
+                    </section>
+                    <div class="end pad" id="end">
+                        <div class="orb" id="orb"></div>
+                        <img class="endbot" src="/art/neonflux-bot-big.webp" alt="" loading="lazy" />
+                        <h2 class="rv">If a bot is truly good, it can <span class="g">prove it</span></h2>
+                        <div class="acts rv">
+                            <a class="main" href={dashboardUrl}>Open dashboard</a
+                            ><a class="alt" href="/docs/self-hosting/overview/"
+                                >Run your own</a
+                            >
+                        </div>
+                    </div>
+                    <footer class="foot pad">
+                        <strong>NeonFlux, open source under Apache 2.0</strong
+                        ><a href="/docs/">Docs</a
+                        ><a href="https://github.com/NeonTechSpace/NeonFlux">GitHub</a
+                        ><a href="https://github.com/NeonTechSpace/NeonFlux/blob/main/docs/SECURITY.md">Security</a>
+                        <p class="lgl">
+                            NeonFlux is an independent project. It is not affiliated with, endorsed by or sponsored by
+                            Fluxer
+                        </p>
+                    </footer>
+                </div>
+            </div>
+
+            <div class:list={["view", { on: feature }]} id="v-f">
+                <slot />
+            </div>
+        </div>
+        <script src="../scripts/home.js"></script>
+    </body>
+</html>

@@ -1,0 +1,4 @@
+.astro/
+.env
+.env.*
+!.env.example

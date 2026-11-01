@@ -1,0 +1,40 @@
+---
+// What search engines and link previews read about a page: Title, description, its one true address, preview text and
+// picture, the site's icons and structured data
+import { shareImage, siteName } from "../seo.js"
+
+const { title, description, canonical = Astro.url.pathname, noindex = false, type = "website", graph = [] } = Astro.props
+
+const address = new URL(canonical, Astro.site).href
+const picture = new URL(shareImage.path, Astro.site).href
+// Kept from closing the script element early, whatever text the graph holds
+const structured = graph.length
+    ? JSON.stringify({ "@context": "https://schema.org", "@graph": graph }).replace(/</g, "\\u003c")
+    : ""
+---
+
+<title>{title}</title>
+<meta name="description" content={description} />
+{noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={address} />}
+<meta property="og:type" content={type} />
+<meta property="og:site_name" content={siteName} />
+<meta property="og:locale" content="en_US" />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+{!noindex && <meta property="og:url" content={address} />}
+<meta property="og:image" content={picture} />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content={String(shareImage.width)} />
+<meta property="og:image:height" content={String(shareImage.height)} />
+<meta property="og:image:alt" content={shareImage.alt} />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={picture} />
+<meta name="twitter:image:alt" content={shareImage.alt} />
+<meta name="theme-color" content="#0a0b16" />
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+<link rel="icon" href="/favicon-48.png" type="image/png" sizes="48x48" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="manifest" href="/site.webmanifest" />
+{structured && <script type="application/ld+json" set:html={structured} />}

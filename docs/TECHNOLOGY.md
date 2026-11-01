@@ -10,10 +10,11 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md), [the 
 | --- | --- |
 | Bot SDK | [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js) as `@neontechspace/fluxerly` 1000.0.0-nightly.20261030.41, through its `@neontechspace/fluxerly/effect` entry point |
 | Runtime composition | Effect 4 |
-| Language and modules | TypeScript 7 with ECMAScript modules in all four packages |
+| Language and modules | TypeScript 7 with ECMAScript modules in the bot, backend, contracts and dashboard packages, and JavaScript modules in the public site |
 | Runtime | Node.js 24 |
 | Backend and database | Convex, which the bot reaches with the Convex client library |
-| Website | React 19, TanStack Start, TanStack Router, TanStack Query, Vite 8, Nitro 3 beta and Tailwind CSS 4 |
+| Website | React 19, TanStack Start, TanStack Router, TanStack Query, Vite 8, Nitro 3 release candidate and Tailwind CSS 4 |
+| Public site and docs | Astro 7 with static output, Pagefind for search |
 | Package manager | pnpm 12 workspace |
 | Bot distribution (planned) | One bot Docker image on GitHub Container Registry (GHCR) |
 
@@ -89,6 +90,11 @@ Cloudflare Turnstile gates verification starts through server-side token validat
 The motion challenge is drawn on a browser canvas from backend-generated frames, as described in [the challenge evaluation guide](CAPTCHA.md).
 See [the dashboard guide](WEB.md) for setup
 
+## Public site
+
+The homepage, feature pages and public docs show every visitor the same thing, so Astro builds them into static files that any static host can serve. Only the dashboard and the verification page need a server, so they stay on TanStack Start at their own address. `compressHTML` is off because Astro's compression joins a word to an inline tag on the next line. The homepage's WebGL2 animation is written without a library. Each feature page has its own address and first HTML for search engines, and moving between them stays inside the page so the animation keeps running.
+The docs are Markdown rendered with Astro's own Markdown tools and a custom code colour theme, and Pagefind builds their search index after the site build. Each version sits in its own folder, so a version's text never changes when a newer one is written. See [the dashboard guide](WEB.md#public-site) for running it and [the contributing guide](CONTRIBUTING.md#public-docs) for changing the docs
+
 ## Version ownership
 
 - Node: The exact development version lives in [projects/.node-version](../projects/.node-version). The workspace manifest's `engines.node` keeps the supported major range, not a second exact pin
@@ -99,6 +105,7 @@ See [the dashboard guide](WEB.md) for setup
 - Contracts: The [contracts manifest](../projects/contracts/package.json) takes Effect and TypeScript from the catalog
 - `@effect/tsgo` must support the pinned TypeScript version. Its release notes list the versions each release supports
 - Website: The [web manifest](../projects/web/package.json) pins every other website dependency and takes its Convex client and TypeScript from the catalog
+- Public site: The [site manifest](../projects/site/package.json) pins Astro, its Markdown package and Pagefind
 - Workspace tools: The [workspace manifest](../projects/package.json) pins Prettier, which formats every package, `@effect/tsgo`, which the Effect typecheck runs, and Oxlint with `oxlint-tsgolint`, which the lint runs. `oxlint-tsgolint` must support the pinned TypeScript version
 - Add a dependency only when code uses it, and keep project-specific dependencies in their project rather than the workspace root
 
@@ -126,4 +133,3 @@ Remove an entry once an Effect release no longer needs it
 
 - Bot container image: One Docker image published to GHCR, with build and release automation. It must build or bundle the [shared contracts](#shared-contracts)
 - Website hosting and packaging: Not selected yet
-- Public documentation pages: Fumadocs with MDX. These dependencies are not installed

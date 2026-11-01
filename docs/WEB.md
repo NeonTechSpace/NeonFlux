@@ -1,6 +1,6 @@
 # Run the dashboard
 
-This guide is for operators running NeonFlux's website next to an existing bot and Convex deployment. The website is a dark-only dashboard for server settings, private moderation cases, the member role picker and the browser side of advanced verification. Public documentation pages and hosting are planned
+This guide is for operators running NeonFlux's website next to an existing bot and Convex deployment. The website is a dark-only dashboard for server settings, private moderation cases, the member role picker and the browser side of advanced verification. The public homepage, feature pages and docs are a [separate static site](#public-site). Hosting is planned
 
 ## Set up the website
 
@@ -18,6 +18,14 @@ Localhost links only work on the machine running the website. For members on oth
 The web server holds the OAuth client secret and the sign-in handshake. The browser gets only an opaque dashboard session, never the Fluxer access token, client secret or bot token. The web server keeps the Fluxer refresh token in a second cookie that it encrypts with `WEB_SESSION_SECRET`, that browser scripts cannot read and that the browser sends only to the session refresh and sign-out. With it the web server renews the access token when less than an hour of it remains. Changing `WEB_SESSION_SECRET` therefore stops these renewals, and each session then ends when its access token runs out. A renewal whose answer from Fluxer is lost, or that ends in a gateway error or timeout, is never sent again, so that session also ends when its access token runs out. A refresh token is kept at any length its encrypted cookie fits in, within the 4096 bytes a browser keeps for one cookie. One that does not fit is not kept, and that session also ends when its access token runs out. Signing out asks Fluxer to revoke the refresh token. Keep private values out of `VITE_` variables and version control
 
 Run `pnpm --filter @neonflux/web run check` from `projects/` for type checks, tests and the production build. Start the built site with `pnpm --filter @neonflux/web run start`
+
+## Public site
+
+The [site package](../projects/site/) holds the homepage, feature pages and public docs. Its build is a folder of static files with no server or credentials, while the dashboard runs on its own address
+
+From `projects/`, run `pnpm run dev:site` to work on it and `pnpm --filter @neonflux/site run check` to build and test it. `pnpm --filter @neonflux/site run build` writes the files to `projects/site/dist/`
+
+The site's buttons open `https://dashboard.neonflux.neontechspace.com`. To open another dashboard, copy [the site environment example](../projects/site/.env.example) to `projects/site/.env` and set `PUBLIC_DASHBOARD_URL` before building
 
 ## Dashboard
 

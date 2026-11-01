@@ -16,7 +16,7 @@ const run = (command, args, env = {}) => {
 }
 run(
     "oxlint",
-    ["-c", ".oxlintrc.json", "--threads=2", "--deny-warnings", "bot", "backend", "contracts", "web", "scripts"],
+    ["-c", ".oxlintrc.json", "--threads=2", "--deny-warnings", "bot", "backend", "contracts", "web", "site", "scripts"],
     {
         // oxlint-tsgolint checks types on Go threads, which --threads does not limit
         GOMAXPROCS: "2",

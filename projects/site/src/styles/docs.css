@@ -1,0 +1,1159 @@
+@font-face {
+    font-family: "Bricolage";
+    src: url("/fonts/bricolage.woff2") format("woff2");
+    font-weight: 200 800;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Atkinson";
+    src: url("/fonts/atkinson.woff2") format("woff2");
+    font-weight: 200 800;
+    font-display: swap;
+}
+:root {
+    --ground: #0a0b16;
+    --raised: #151730;
+    --well: #101124;
+    --line: #2c2e57;
+    --ink: #e9ebf7;
+    --bright: #f6f7fd;
+    --soft: #b4b7d1;
+    --faint: #8f93b5;
+    --link: #9dbcff;
+    --blue: #6ea0ff;
+    --purple: #b07fff;
+    --display: "Bricolage", ui-sans-serif, system-ui, sans-serif;
+    --body: "Atkinson", ui-sans-serif, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+    --fs: 1;
+    --bar: calc(60px * var(--fs));
+    --ease: cubic-bezier(0.32, 0.72, 0, 1);
+    color-scheme: dark;
+    interpolate-size: allow-keywords;
+    scroll-padding-top: calc(var(--bar) + 24px);
+}
+@media (min-width: 1700px) {
+    :root {
+        --fs: 1.14;
+    }
+}
+@media (min-width: 2200px) {
+    :root {
+        --fs: 1.3;
+    }
+}
+@media (min-width: 3000px) {
+    :root {
+        --fs: 1.55;
+    }
+}
+* {
+    box-sizing: border-box;
+}
+html {
+    background: var(--ground);
+}
+body {
+    margin: 0;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    color: var(--ink);
+    font: 400 calc(18px * var(--fs)) / 1.7 var(--body);
+}
+/* Soft light drifts behind the reading, very slowly. Each piece is painted once and only moved, so scrolling and reading
+   cost nothing, and the clock sets its place so it carries on from page to page. With animations off it holds still */
+.ambient {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+}
+.glow {
+    position: absolute;
+    width: 90vmax;
+    height: 90vmax;
+    border-radius: 50%;
+    will-change: transform;
+    animation: drift var(--for) ease-in-out calc(-1 * var(--t, 0ms)) infinite alternate;
+}
+.glow.a {
+    --for: 83s;
+    --x: 5vw;
+    --y: 4vh;
+    left: -52vmax;
+    top: -38vmax;
+    background: radial-gradient(closest-side, #2f62c833, transparent);
+}
+.glow.b {
+    --for: 107s;
+    --x: -6vw;
+    --y: 6vh;
+    right: -40vmax;
+    top: -56vmax;
+    background: radial-gradient(closest-side, #5a46c83d, transparent);
+}
+.glow.c {
+    --for: 131s;
+    --x: -4vw;
+    --y: -5vh;
+    right: -46vmax;
+    bottom: -66vmax;
+    background: radial-gradient(closest-side, #a0468c1a, transparent);
+}
+@keyframes drift {
+    to {
+        transform: translate3d(var(--x), var(--y), 0);
+    }
+}
+.motes {
+    position: absolute;
+    inset: 0 0 -640px;
+    opacity: 0.8;
+    will-change: transform;
+    background-image:
+        radial-gradient(circle 1px at 62px 118px, #c9d6ff99, transparent),
+        radial-gradient(circle 1.4px at 214px 402px, #d9c9ff80, transparent),
+        radial-gradient(circle 1px at 388px 66px, #c9d6ff66, transparent),
+        radial-gradient(circle 1px at 470px 290px, #c9d6ff80, transparent),
+        radial-gradient(circle 1.2px at 566px 544px, #d9c9ff66, transparent),
+        radial-gradient(circle 1px at 132px 590px, #c9d6ff59, transparent);
+    background-size: 640px 640px;
+    animation: rise 190s linear calc(-1 * var(--t, 0ms)) infinite;
+}
+@keyframes rise {
+    to {
+        transform: translate3d(0, -640px, 0);
+    }
+}
+html[data-still] :is(.glow, .motes) {
+    animation-play-state: paused;
+}
+html[data-still] *,
+html[data-still] *::before,
+html[data-still] *::after,
+html[data-still] .station::details-content {
+    transition: none !important;
+}
+/* Moving between pages: The bar and list stay, the page settles in and the bead slides along the list to its new place */
+@view-transition {
+    navigation: auto;
+}
+.bar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: calc(18px * var(--fs));
+    height: var(--bar);
+    padding: 0 clamp(14px, 2vw, 28px);
+    background: #11132af0;
+    box-shadow: inset 0 -1px 0 #ffffff14;
+    transition: translate 260ms var(--ease);
+}
+html[data-bar-hidden] .bar {
+    translate: 0 -100%;
+}
+.side {
+    view-transition-name: side;
+}
+main {
+    view-transition-name: page;
+}
+.bead {
+    view-transition-name: bead;
+}
+.signal {
+    view-transition-name: signal;
+}
+::view-transition-group(*) {
+    animation-duration: 420ms;
+    animation-timing-function: var(--ease);
+}
+::view-transition-old(root),
+::view-transition-new(root),
+::view-transition-old(side),
+::view-transition-new(side),
+::view-transition-old(bar),
+::view-transition-new(bar) {
+    animation: none;
+    mix-blend-mode: normal;
+}
+::view-transition-old(side),
+::view-transition-old(bar) {
+    display: none;
+}
+::view-transition-old(page) {
+    animation: page-out 110ms ease both;
+}
+::view-transition-new(page) {
+    animation: page-in 300ms var(--ease) both;
+}
+@keyframes page-out {
+    to {
+        opacity: 0;
+    }
+}
+@keyframes page-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+}
+a {
+    color: var(--link);
+    text-underline-offset: 0.18em;
+}
+.prose a {
+    text-decoration-color: #9dbcff59;
+    transition: text-decoration-color 160ms var(--ease);
+}
+.prose a:hover {
+    text-decoration-color: currentColor;
+}
+/* A list of links would out-shout the page, so its underlines wait for the pointer */
+#common-tasks + ul a:not(:hover) {
+    text-decoration-color: transparent;
+}
+:focus-visible {
+    outline: 2px solid var(--link);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+.skip {
+    position: absolute;
+    left: 12px;
+    top: -60px;
+    z-index: 40;
+    padding: 8px 14px;
+    background: var(--raised);
+    border-radius: 8px;
+}
+.skip:focus {
+    top: 10px;
+}
+
+/* ---------- top bar ---------- */
+.bar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: calc(18px * var(--fs));
+    height: var(--bar);
+    padding: 0 clamp(14px, 2vw, 28px);
+    background: var(--raised);
+    box-shadow:
+        inset 0 -1px 0 #ffffff1f,
+        0 10px 30px #00000066;
+}
+.bar a,
+.bar button,
+.bar summary {
+    color: var(--soft);
+    font: inherit;
+    font-size: calc(16px * var(--fs));
+    text-decoration: none;
+    white-space: nowrap;
+}
+.bar a:hover,
+.bar summary:hover {
+    color: var(--ink);
+}
+.bar .logo {
+    font: 700 calc(21px * var(--fs)) / 1 var(--display);
+    color: var(--ink);
+    letter-spacing: -0.01em;
+}
+.logo span {
+    background: linear-gradient(90deg, var(--blue), var(--purple));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+.bar .here {
+    color: var(--ink);
+}
+.bar-end {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: calc(14px * var(--fs));
+}
+.bar button {
+    cursor: pointer;
+    border: 0;
+    background: none;
+}
+.find {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: calc(180px * var(--fs));
+    padding: 6px 12px;
+    border-radius: 10px;
+    background: var(--well) !important;
+    box-shadow: inset 0 0 0 1px var(--line);
+    transition: box-shadow 180ms var(--ease);
+}
+.find:hover {
+    box-shadow: inset 0 0 0 1px #4a4d8a;
+    color: var(--ink) !important;
+}
+.ver-one,
+.ver summary {
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: calc(16px * var(--fs));
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1px #6c5bd066;
+    background: #6c5bd01f;
+    white-space: nowrap;
+}
+.ver {
+    position: relative;
+}
+.ver summary {
+    cursor: pointer;
+    list-style: none;
+}
+.ver summary::-webkit-details-marker {
+    display: none;
+}
+.ver nav {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    min-width: calc(200px * var(--fs));
+    display: grid;
+    gap: 2px;
+    padding: 6px;
+    background: var(--raised);
+    border-radius: 12px;
+    box-shadow:
+        inset 0 0 0 1px var(--line),
+        0 18px 40px #00000099;
+}
+.ver nav a {
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+.ver nav a:hover,
+.ver nav a[aria-current] {
+    background: #ffffff0f;
+    color: var(--ink);
+}
+.tog {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+}
+.tog i {
+    position: relative;
+    width: 34px;
+    height: 18px;
+    border: 1.5px solid var(--blue);
+    border-radius: 9px;
+    flex: none;
+}
+.tog i::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--blue);
+    transform: translateX(16px);
+    transition:
+        transform 200ms cubic-bezier(0.2, 1.2, 0.3, 1),
+        background 200ms;
+}
+html[data-still] .tog i {
+    border-color: var(--faint);
+}
+html[data-still] .tog i::after {
+    background: var(--faint);
+    transform: none;
+}
+.menu {
+    display: none;
+    padding: 6px 12px;
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px var(--line) !important;
+}
+
+/* ---------- page layout ---------- */
+.frame {
+    flex: 1;
+    width: 100%;
+    max-width: calc(1560px * var(--fs));
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: calc(288px * var(--fs)) minmax(0, 1fr) calc(232px * var(--fs));
+    gap: clamp(24px, 3vw, 56px);
+    padding: 0 clamp(14px, 2vw, 28px);
+}
+.side {
+    position: sticky;
+    top: var(--bar);
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--bar));
+    padding-top: calc(22px * var(--fs));
+    transition:
+        top 260ms var(--ease),
+        height 260ms var(--ease);
+}
+html[data-bar-hidden] .side {
+    top: 0;
+    height: 100dvh;
+}
+html[data-bar-hidden] .outline {
+    top: 0;
+    max-height: 100dvh;
+}
+/* The two parts of the docs, with a highlight that slides to the chosen one */
+.parts {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    flex: none;
+    padding: 3px;
+    border-radius: 12px;
+    background: #ffffff0a;
+    box-shadow: inset 0 0 0 1px #ffffff0f;
+}
+.parts::before {
+    content: "";
+    position: absolute;
+    inset: 3px auto 3px 3px;
+    width: calc(50% - 3px);
+    border-radius: 9px;
+    background: linear-gradient(180deg, #2a2c5c, #212349);
+    box-shadow:
+        inset 0 1px 0 #ffffff1f,
+        0 2px 8px #00000059;
+    transition: translate 280ms var(--ease);
+}
+.parts[data-at="1"]::before {
+    translate: 100% 0;
+}
+.parts button {
+    position: relative;
+    padding: 6px 4px;
+    border: 0;
+    border-radius: 9px;
+    background: none;
+    color: var(--soft);
+    font: 500 calc(16px * var(--fs)) / 1.3 var(--body);
+    cursor: pointer;
+    transition: color 200ms var(--ease);
+}
+.parts button:hover,
+.parts button[aria-selected="true"] {
+    color: var(--bright);
+}
+/* The list scrolls on its own. Its edges fade only where more of it lies beyond */
+.scroll {
+    flex: 1;
+    min-height: 0;
+    margin: 6px 0 0 -8px;
+    padding: 14px 6px 40px 8px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+}
+@property --fade-top {
+    syntax: "<length>";
+    inherits: false;
+    initial-value: 0px;
+}
+@property --fade-bottom {
+    syntax: "<length>";
+    inherits: false;
+    initial-value: 0px;
+}
+@supports (animation-timeline: scroll()) {
+    .scroll {
+        mask-image: linear-gradient(
+            to bottom,
+            transparent calc(var(--fade-top) * 0.3),
+            #000 var(--fade-top),
+            #000 calc(100% - var(--fade-bottom)),
+            transparent
+        );
+        animation:
+            fade-top linear both,
+            fade-bottom linear both;
+        animation-timeline: scroll(self), scroll(self);
+        animation-range:
+            0 12px,
+            calc(100% - 40px) 100%;
+    }
+}
+@keyframes fade-top {
+    to {
+        --fade-top: 40px;
+    }
+}
+@keyframes fade-bottom {
+    from {
+        --fade-bottom: 40px;
+    }
+    to {
+        --fade-bottom: 0px;
+    }
+}
+/* One line runs down the list, with a ring for each stop. It is lit from the top down to a bead on the current page */
+.course {
+    --rail: 10px;
+    --text: 30px;
+    --row: calc(40px * var(--fs));
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.course[hidden] {
+    display: none;
+}
+.course::before {
+    content: "";
+    position: absolute;
+    top: calc(var(--row) / 2);
+    bottom: 0;
+    left: calc(var(--rail) - 0.5px);
+    width: 1px;
+    background: linear-gradient(to bottom, var(--line), var(--line) calc(100% - 36px), transparent);
+}
+.station summary,
+.station-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: var(--row);
+    padding: 0 8px 0 var(--text);
+    border-radius: 10px;
+    color: #c3c8e6;
+    font: 600 calc(16.5px * var(--fs)) / 1.3 var(--body);
+    list-style: none;
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 160ms var(--ease);
+}
+.station summary::-webkit-details-marker {
+    display: none;
+}
+.station summary svg {
+    flex: none;
+    margin-left: auto;
+    color: var(--faint);
+    transition:
+        rotate 220ms var(--ease),
+        color 160ms var(--ease);
+}
+.station[open] summary svg {
+    rotate: 90deg;
+}
+.ring {
+    position: absolute;
+    top: 50%;
+    left: calc(var(--rail) - 6.5px);
+    width: 13px;
+    height: 13px;
+    margin-top: -6.5px;
+    border: 1.5px solid #ffffff4d;
+    border-radius: 50%;
+    z-index: 1;
+    background: #0f1630;
+    transition: border-color 160ms var(--ease);
+}
+[data-reach="passed"] > .ring,
+[data-reach="passed"] > summary > .ring {
+    border-color: #8d7dfbb3;
+    box-shadow: 0 0 8px #8d7dfb4d;
+}
+[data-reach="here"] > .ring,
+[data-reach="here"] > summary > .ring {
+    border-color: #a78bfa;
+    background: radial-gradient(circle at 50% 40%, #6d5bd0, #0f1630 72%);
+    box-shadow: 0 0 12px #8d7dfb73;
+}
+.station::details-content {
+    block-size: 0;
+    overflow: clip;
+    transition:
+        block-size 260ms var(--ease),
+        content-visibility 260ms allow-discrete;
+}
+.station[open]::details-content {
+    block-size: auto;
+}
+.side ul,
+.outline ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.side ul {
+    padding-bottom: 8px;
+}
+.side li a {
+    position: relative;
+    display: block;
+    padding: 6px 8px 6px var(--text);
+    border-radius: 10px;
+    color: #a3a7c8;
+    font-size: calc(16.5px * var(--fs));
+    line-height: 1.35;
+    text-decoration: none;
+    transition: color 160ms var(--ease);
+}
+/* Pointing at a page marks its place on the line, where the bead would go */
+.side li a::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: calc(var(--rail) - 4px);
+    width: 8px;
+    height: 8px;
+    margin-top: -4px;
+    border: 1.5px solid #a78bfa;
+    border-radius: 50%;
+    background: var(--ground);
+    opacity: 0;
+    scale: 0.5;
+    transition:
+        opacity 160ms var(--ease),
+        scale 160ms var(--ease);
+}
+@media (hover: hover) {
+    .station summary:hover,
+    .station-link:hover,
+    .side li a:hover {
+        color: var(--bright);
+    }
+    .station summary:hover svg {
+        color: var(--bright);
+    }
+    .side li a:not([aria-current]):hover::before {
+        opacity: 1;
+        scale: 1;
+    }
+}
+.station-link[aria-current],
+.side li a[aria-current] {
+    color: #cdbcff;
+    font-weight: 600;
+}
+/* The capsule stands in for the ring of the row it sits on */
+.station-link[aria-current] > .ring,
+.station:not([open]) > summary[data-here] > .ring {
+    opacity: 0;
+}
+/* A soft tint under the pointed row, clear of the line */
+.station summary::after,
+.station-link::after,
+.side li a::after {
+    content: "";
+    position: absolute;
+    inset: 2px 0 2px calc(var(--text) - 10px);
+    z-index: -1;
+    border-radius: 9px;
+    transition: background 160ms var(--ease);
+}
+@media (hover: hover) {
+    .station summary:hover::after,
+    .station-link:hover::after,
+    .side li a:hover::after {
+        background: #ffffff0a;
+    }
+}
+/* The current page anchors the bead. A closed group holding it lends its own row instead */
+.station summary[data-here],
+.station-link[aria-current],
+.side li a[aria-current] {
+    anchor-name: --here;
+}
+.signal {
+    position: absolute;
+    top: calc(var(--row) / 2);
+    bottom: anchor(--here center);
+    left: calc(var(--rail) - 1px);
+    width: 2px;
+    border-radius: 1px;
+    background: linear-gradient(to bottom, #6ea0ff4d, #8d7dfb calc(100% - 28px), #ff7ac0);
+    box-shadow: 0 0 10px #8d7dfb73;
+    pointer-events: none;
+}
+.bead {
+    position: absolute;
+    top: calc(anchor(--here center) - 11px);
+    left: calc(var(--rail) - 3px);
+    z-index: 2;
+    width: 6px;
+    height: 22px;
+    border-radius: 3px;
+    background: linear-gradient(to bottom, #ffc4e2, #ff7ac0);
+    box-shadow: 0 0 14px 1px #ff7ac08c;
+    pointer-events: none;
+}
+main {
+    min-width: 0;
+    padding: calc(32px * var(--fs)) 0 calc(56px * var(--fs));
+}
+.older {
+    margin: 0 0 24px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: #6c5bd01a;
+    box-shadow: inset 0 0 0 1px #6c5bd055;
+    max-width: 74ch;
+}
+.outline {
+    position: sticky;
+    top: var(--bar);
+    align-self: start;
+    max-height: calc(100dvh - var(--bar));
+    overflow-y: auto;
+    padding: calc(34px * var(--fs)) 0 24px;
+    font-size: calc(16px * var(--fs));
+    line-height: 1.4;
+}
+.outline p {
+    margin: 0 0 8px;
+    color: var(--faint);
+}
+.outline a {
+    display: block;
+    padding: 4px 0 4px 12px;
+    color: var(--soft);
+    text-decoration: none;
+    box-shadow: inset 1px 0 0 var(--line);
+    transition:
+        color 160ms var(--ease),
+        box-shadow 160ms var(--ease);
+}
+.outline a:hover,
+.outline a[aria-current] {
+    color: var(--ink);
+}
+.outline a[aria-current] {
+    box-shadow: inset 2px 0 0 var(--purple);
+}
+
+/* ---------- page text ---------- */
+.prose {
+    max-width: 74ch;
+}
+.prose h1 {
+    margin: 0;
+    font: 650 calc(38px * var(--fs)) / 1.15 var(--display);
+    letter-spacing: -0.012em;
+    color: var(--bright);
+    text-wrap: balance;
+}
+.lede {
+    margin: 10px 0 calc(28px * var(--fs));
+    color: var(--soft);
+    font-size: calc(19px * var(--fs));
+    line-height: 1.5;
+}
+.prose h2 {
+    margin: 2.4em 0 0.5em;
+    font: 600 calc(25px * var(--fs)) / 1.25 var(--display);
+    color: var(--bright);
+}
+.prose h3 {
+    margin: 1.8em 0 0.4em;
+    font: 600 calc(19.5px * var(--fs)) / 1.3 var(--display);
+    color: var(--bright);
+}
+.prose p,
+.prose ul,
+.prose ol,
+.prose table,
+.prose blockquote,
+.prose .code {
+    margin: 0 0 1em;
+}
+.prose ul,
+.prose ol {
+    padding-left: 1.4em;
+}
+.prose li + li {
+    margin-top: 0.3em;
+}
+.prose li::marker {
+    color: var(--faint);
+}
+.prose strong {
+    color: var(--bright);
+    font-weight: 600;
+}
+.prose :not(pre) > code {
+    font: max(0.92em, 16px) var(--mono);
+    color: #c5d3ff;
+    overflow-wrap: anywhere;
+}
+.prose blockquote {
+    padding: 2px 0 2px 16px;
+    box-shadow: inset 2px 0 0 #6c5bd0;
+    color: var(--soft);
+}
+.prose blockquote > :last-child {
+    margin-bottom: 0;
+}
+.prose table {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: calc(17px * var(--fs));
+    line-height: 1.5;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+}
+.prose th {
+    text-align: left;
+    color: var(--faint);
+    font-weight: 400;
+}
+.prose th,
+.prose td {
+    padding: 8px 18px 8px 0;
+    border-bottom: 1px solid #ffffff0f;
+    vertical-align: top;
+}
+/* Tables of sentences are built as entries, which read as text and never run off a phone */
+.entries {
+    margin: 0 0 1em;
+}
+.entry {
+    padding: 11px 0;
+    border-bottom: 1px solid #ffffff0f;
+}
+.entry:first-child {
+    padding-top: 2px;
+}
+.entry:last-child {
+    border-bottom: 0;
+}
+.entry dt {
+    color: var(--bright);
+}
+.entry dd {
+    margin: 3px 0 0;
+    color: var(--soft);
+}
+.entry dd p {
+    margin: 0;
+}
+.entry-label {
+    display: block;
+    color: var(--faint);
+    font-size: calc(16px * var(--fs));
+}
+/* The code sits in a quiet well. A line longer than the well wraps and hangs past its own indent, so each statement still
+   starts on its own line and nothing scrolls sideways. On a phone that would wrap almost every line, so there it scrolls */
+.code {
+    position: relative;
+    border-radius: 12px;
+    background: var(--well);
+    box-shadow: inset 0 0 0 1px #ffffff12;
+    overflow: hidden;
+}
+.prose pre {
+    margin: 0;
+    padding: 14px 18px;
+    overflow-x: auto;
+    background: none !important;
+    font: calc(16px * var(--fs)) / 1.6 var(--mono);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+}
+.prose pre code {
+    font: inherit;
+}
+.prose pre .line {
+    display: inline-block;
+    width: 100%;
+    padding-left: calc(var(--indent, 0ch) + 3ch);
+    text-indent: calc(-1 * (var(--indent, 0ch) + 3ch));
+}
+.code-rest {
+    display: block;
+}
+.code-more {
+    position: relative;
+    display: block;
+    width: 100%;
+    padding: 10px 16px;
+    border: 0;
+    border-top: 1px solid #ffffff12;
+    background: var(--well);
+    color: var(--link);
+    font: calc(16px * var(--fs)) var(--body);
+    cursor: pointer;
+}
+.code-more:hover {
+    color: var(--bright);
+}
+/* The code fades into the button, so it reads as carrying on */
+.code-more::before {
+    content: "";
+    position: absolute;
+    inset: auto 0 100%;
+    height: 64px;
+    pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--well));
+    transition: opacity 260ms var(--ease);
+}
+.code-more[aria-expanded="true"]::before {
+    opacity: 0;
+}
+.copy {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 2px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--well);
+    box-shadow:
+        inset 0 0 0 1px var(--line),
+        0 0 0 6px var(--well);
+    color: var(--soft);
+    font: calc(16px * var(--fs)) var(--body);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 160ms var(--ease);
+}
+.code:hover .copy,
+.copy:focus-visible {
+    opacity: 1;
+}
+@media (hover: none) {
+    .copy {
+        opacity: 1;
+    }
+}
+@media (max-width: 640px) {
+    .prose pre {
+        white-space: pre;
+        overflow-wrap: normal;
+    }
+    .prose pre .line {
+        display: inline;
+        padding-left: 0;
+        text-indent: 0;
+    }
+}
+
+/* ---------- home cards and page turning ---------- */
+.turn a {
+    display: grid;
+    gap: 2px;
+    padding: 16px 18px;
+    border-radius: 14px;
+    text-decoration: none;
+    color: var(--ink);
+    background: #14163088;
+    box-shadow: inset 0 0 0 1px #ffffff14;
+    transition: box-shadow 180ms var(--ease);
+}
+.turn a:hover {
+    box-shadow: inset 0 0 0 1px #5a5da8;
+}
+.turn {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 74ch;
+    margin-top: calc(48px * var(--fs));
+}
+.turn small {
+    color: var(--faint);
+    font-size: calc(16px * var(--fs));
+}
+.turn-next {
+    grid-column: 2;
+    text-align: right;
+}
+.foot {
+    padding: 18px clamp(14px, 2vw, 28px);
+    border-top: 1px solid #ffffff14;
+    color: var(--faint);
+    font-size: calc(16px * var(--fs));
+    text-align: center;
+}
+
+/* ---------- search ---------- */
+.search {
+    width: min(calc(640px * var(--fs)), calc(100vw - 24px));
+    max-height: min(70dvh, calc(620px * var(--fs)));
+    margin: 12vh auto auto;
+    padding: 0;
+    border: 0;
+    border-radius: 16px;
+    color: var(--ink);
+    background: var(--raised);
+    box-shadow:
+        inset 0 0 0 1px var(--line),
+        0 30px 80px #000000b3;
+}
+.search::backdrop {
+    background: #05060ecc;
+}
+.search-head {
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    position: sticky;
+    top: 0;
+    background: var(--raised);
+    box-shadow: inset 0 -1px 0 var(--line);
+}
+.search input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 10px;
+    color: var(--ink);
+    background: var(--well);
+    font: inherit;
+}
+.search-head button {
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: var(--soft);
+    font: calc(16px * var(--fs)) var(--body);
+    cursor: pointer;
+}
+.search-state:empty {
+    display: none;
+}
+.search-state {
+    margin: 0;
+    padding: 14px 18px;
+    color: var(--soft);
+}
+.hits {
+    margin: 0;
+    padding: 6px;
+    list-style: none;
+}
+.hits:empty {
+    display: none;
+}
+.hits a {
+    display: grid;
+    gap: 2px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    color: var(--ink);
+    text-decoration: none;
+}
+.hits a:hover,
+.hits a:focus-visible {
+    background: #ffffff0d;
+}
+.hits span {
+    color: var(--soft);
+    font-size: calc(16px * var(--fs));
+    line-height: 1.45;
+}
+.hits mark {
+    background: none;
+    color: var(--link);
+    font-weight: 700;
+}
+
+/* ---------- narrower screens ---------- */
+@media (max-width: 1240px) {
+    .frame {
+        grid-template-columns: calc(268px * var(--fs)) minmax(0, 1fr);
+    }
+    .outline {
+        display: none;
+    }
+}
+@media (max-width: 900px) {
+    .frame {
+        display: block;
+    }
+    .menu {
+        display: block;
+    }
+    .bar .here,
+    .bar .out,
+    .tog span {
+        display: none;
+    }
+    .find {
+        min-width: 0;
+    }
+    .side {
+        align-self: stretch;
+        position: fixed;
+        inset: var(--bar) 0 0 0;
+        z-index: 25;
+        height: auto;
+        padding: 16px 18px 0;
+        background: var(--ground);
+        visibility: hidden;
+        opacity: 0;
+        transition:
+            opacity 180ms var(--ease),
+            visibility 180ms;
+    }
+    html[data-bar-hidden] .side {
+        top: var(--bar);
+        height: auto;
+    }
+    .side.open {
+        visibility: visible;
+        opacity: 1;
+    }
+    .prose h1 {
+        font-size: calc(34px * var(--fs));
+    }
+}
+@media (max-width: 520px) {
+    .bar {
+        gap: 10px;
+    }
+    .bar-end {
+        gap: 8px;
+    }
+    .find {
+        padding: 6px 10px;
+    }
+    .find span {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+    .turn {
+        grid-template-columns: 1fr;
+    }
+    .turn-next {
+        grid-column: 1;
+    }
+}

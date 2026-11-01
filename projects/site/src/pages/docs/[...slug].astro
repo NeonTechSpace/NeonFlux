@@ -1,0 +1,71 @@
+---
+import { getCollection, render } from "astro:content"
+import { docsTargets, buildNav, pageHref } from "../../docs/versions.js"
+import Docs from "../../layouts/Docs.astro"
+
+export async function getStaticPaths() {
+    const metas = import.meta.glob("../../../content/docs/*/meta.json", { eager: true })
+    const entries = await getCollection("docs")
+    const targets = docsTargets()
+    const inFolder = (folder) => entries.filter((entry) => entry.id.startsWith(`${folder}/`))
+    const slugOf = (entry) => entry.id.split("/").slice(1).join("/")
+    const slugsByFolder = new Map(
+        targets.map((target) => [target.folder, new Set(inFolder(target.folder).map((entry) => slugOf(entry)))]),
+    )
+    const param = (base, slug) => {
+        const path = pageHref({ base }, slug).replace(/^\/docs\/?/, "").replace(/\/$/, "")
+        return path || undefined
+    }
+    return targets.flatMap((target) => {
+        const list = inFolder(target.folder)
+        const meta = metas[`../../../content/docs/${target.folder}/meta.json`]
+        const pages = new Map(list.map((entry) => [slugOf(entry), entry.data]))
+        const nav = buildNav(meta.default, pages, target.folder)
+        return list.flatMap((entry) => {
+            const slug = slugOf(entry)
+            const page = {
+                params: { slug: param(target.base, slug) },
+                props: { entry, slug, target, targets, nav, slugsByFolder },
+            }
+            // The version's own address keeps working while it also holds /docs/, so links to it never break
+            const alias = target.alias && {
+                params: { slug: param(target.alias, slug) },
+                props: { moved: pageHref(target, slug) },
+            }
+            return alias ? [page, alias] : [page]
+        })
+    })
+}
+
+const { entry, slug, target, targets, nav, slugsByFolder, moved } = Astro.props
+const rendered = entry ? await render(entry) : undefined
+---
+
+{
+    moved ? (
+        <html lang="en">
+            <head>
+                <meta charset="utf-8" />
+                <title>Moved</title>
+                <meta name="robots" content="noindex" />
+                <meta http-equiv="refresh" content={`0; url=${moved}`} />
+            </head>
+            <body>
+                <a href={moved}>This page moved</a>
+            </body>
+        </html>
+    ) : (
+        <Docs
+            title={entry.data.title}
+            description={entry.data.description}
+            headings={rendered.headings}
+            {target}
+            {targets}
+            {slug}
+            {nav}
+            {slugsByFolder}
+        >
+            <rendered.Content />
+        </Docs>
+    )
+}

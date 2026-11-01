@@ -1,0 +1,76 @@
+---
+// A missing page, told in the homepage's language: Its sealed box stands open with nothing inside, and the robot has come to
+// look. The words say plainly what happened and where to go. Search engines skip the page
+import Seo from "../components/Seo.astro"
+import "../styles/docs.css"
+import "../styles/lost.css"
+
+const sides = ["front", "right", "back", "left"]
+---
+
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <Seo title="Page not found | NeonFlux" description="This page does not exist" noindex />
+        <link rel="preload" href="/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin />
+        <script is:inline>
+            // Read before the first paint, with the same remembered choice as the homepage and docs
+            ;(() => {
+                let stored = null
+                try {
+                    stored = localStorage.getItem("nf.motion")
+                } catch {}
+                const still = stored ? stored !== "on" : matchMedia("(prefers-reduced-motion: reduce)").matches
+                document.documentElement.toggleAttribute("data-still", still)
+            })()
+        </script>
+    </head>
+    <body>
+        <div class="ambient" aria-hidden="true"><i class="glow a"></i><i class="glow b"></i><i class="glow c"></i><i class="motes"></i></div>
+        <header class="bar">
+            <a class="logo" href="/">Neon<span>Flux</span></a>
+            <div class="bar-end">
+                <button class="tog" id="tog" type="button" role="switch" aria-checked="true" aria-label="Animations">
+                    <i></i><span>Animations</span>
+                </button>
+            </div>
+        </header>
+        <main class="lost">
+            <div class="lost-words">
+                <h1>Nothing in this box</h1>
+                <p>This page doesn't exist. The address may be old or mistyped</p>
+                <nav class="lost-ways" aria-label="Where to go next">
+                    <a class="way-main" href="/">Go to the homepage</a>
+                    <a class="way-alt" href="/docs/">Read the docs</a>
+                </nav>
+            </div>
+            <div class="scene">
+                <button class="stage" id="knock" type="button" aria-label="Knock on the box">
+                    <span class="floor" aria-hidden="true"></span>
+                    <span class="tilt" aria-hidden="true">
+                        <span class="crate" id="crate">
+                            {
+                                sides.map((side) => (
+                                    <span class={`wall ${side}`}>
+                                        <b>404</b>
+                                    </span>
+                                ))
+                            }
+                            <span class="wall base"></span>
+                            <span class="lid"></span>
+                            <span class="spark s1"></span>
+                            <span class="spark s2"></span>
+                            <span class="spark s3"></span>
+                            <span class="spark s4"></span>
+                        </span>
+                    </span>
+                    <img class="visitor" src="/art/neonflux-bot-big.webp" alt="" />
+                </button>
+                <p class="reply" id="reply" aria-live="polite">Go on, knock</p>
+            </div>
+        </main>
+        <script src="../scripts/lost.js"></script>
+    </body>
+</html>

@@ -1,0 +1,292 @@
+---
+import Seo from "../components/Seo.astro"
+import { dashboardUrl } from "../dashboard-url.js"
+import { pageHref, versionLinks } from "../docs/versions.js"
+import { pageGraph } from "../seo.js"
+import "../styles/docs.css"
+
+const { title, description, headings, target, targets, slug, nav, slugsByFolder } = Astro.props
+
+const homeTitle = "Docs home"
+const flat = [{ slug: "index", title: homeTitle }, ...nav.flatMap((section) => section.groups.flatMap((group) => group.pages))]
+const index = flat.findIndex((page) => page.slug === slug)
+const previous = index > 0 ? flat[index - 1] : undefined
+const next = index >= 0 ? flat[index + 1] : undefined
+const outline = headings.filter((heading) => heading.depth === 2)
+const links = versionLinks(targets, slugsByFolder, target, slug)
+const graph = pageGraph([
+    { name: "NeonFlux", path: "/" },
+    { name: "Docs", path: target.base },
+    ...(slug === "index" ? [] : [{ name: title, path: pageHref(target, slug) }]),
+])
+const holds = (group) => group.pages.some((page) => page.slug === slug)
+const shownPart = Math.max(nav.findIndex((section) => section.groups.some((group) => holds(group))), 0)
+const onHome = slug === "index"
+// The page under the pointer renders ahead, so moving between docs pages feels immediate
+const speculation = { prerender: [{ where: { href_matches: "/docs/*" }, eagerness: "moderate" }] }
+---
+
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <Seo
+            title={slug === "index" ? title : `${title} | NeonFlux docs`}
+            {description}
+            canonical={pageHref(target, slug)}
+            noindex={!target.isDefault}
+            type={slug === "index" ? "website" : "article"}
+            {graph}
+        />
+        <link rel="preload" href="/fonts/atkinson.woff2" as="font" type="font/woff2" crossorigin />
+        <script is:inline type="speculationrules" set:html={JSON.stringify(speculation)} />
+        <script is:inline>
+            // Read before the first paint. The switch's choice is shared with the homepage, and with no choice the system's
+            // setting decides. --t ties the drifting light to the clock, so it carries on from one page to the next
+            ;(() => {
+                const root = document.documentElement
+                let stored = null
+                try {
+                    stored = localStorage.getItem("nf.motion")
+                } catch {}
+                const still = stored ? stored !== "on" : matchMedia("(prefers-reduced-motion: reduce)").matches
+                root.toggleAttribute("data-still", still)
+                root.style.setProperty("--t", `${Date.now() % 86400000}ms`)
+                const skip = (event) => {
+                    if (root.hasAttribute("data-still")) event.viewTransition?.skipTransition()
+                }
+                addEventListener("pageswap", skip)
+                addEventListener("pagereveal", skip)
+            })()
+        </script>
+    </head>
+    <body data-version={target.folder}>
+        <div class="ambient" aria-hidden="true"><i class="glow a"></i><i class="glow b"></i><i class="glow c"></i><i class="motes"></i></div>
+        <a class="skip" href="#content">Skip to the page</a>
+        <header class="bar" id="bar">
+            <button class="menu" id="menu" type="button" aria-expanded="false" aria-controls="side">Menu</button>
+            <a class="logo" href="/">Neon<span>Flux</span></a>
+            <a class="here" href={target.base}>Docs</a>
+            <div class="bar-end">
+                <button class="find" id="find" type="button" aria-haspopup="dialog">
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                        <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                        <path d="m16.5 16.5 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        ></path>
+                    </svg>
+                    <span>Search</span>
+                </button>
+                {
+                    links.length > 1 ? (
+                        <details class="ver" id="ver">
+                            <summary>{target.label}</summary>
+                            <nav aria-label="Documentation version">
+                                {links.map((link) => (
+                                    <a href={link.href} aria-current={link.current ? "true" : undefined}>
+                                        {link.label}
+                                    </a>
+                                ))}
+                            </nav>
+                        </details>
+                    ) : (
+                        <span class="ver-one">{target.label}</span>
+                    )
+                }
+                <button class="tog" id="tog" type="button" role="switch" aria-checked="true" aria-label="Animations">
+                    <i></i><span>Animations</span>
+                </button>
+                <a class="out" href="https://github.com/NeonTechSpace/NeonFlux" target="_blank" rel="noopener">GitHub</a>
+                <a class="out" href={dashboardUrl}>Dashboard</a>
+            </div>
+        </header>
+        <div class="frame">
+            <aside class="side" id="side">
+                <div class="parts" role="tablist" aria-label="Part of the docs" data-at={shownPart}>
+                    {
+                        nav.map((section, at) => (
+                            <button
+                                type="button"
+                                role="tab"
+                                id={`tab-${at}`}
+                                aria-controls={`part-${at}`}
+                                aria-selected={at === shownPart ? "true" : "false"}
+                                tabindex={at === shownPart ? 0 : -1}
+                            >
+                                {section.title}
+                            </button>
+                        ))
+                    }
+                </div>
+                <div class="scroll" id="scroll">
+                    {
+                        nav.map((section, at) => {
+                            const groupAt = section.groups.findIndex((group) => holds(group))
+                            const reach = (index) => (groupAt < 0 || index > groupAt ? undefined : index < groupAt ? "passed" : "here")
+                            return (
+                                <nav
+                                    class="course"
+                                    id={`part-${at}`}
+                                    role="tabpanel"
+                                    aria-labelledby={`tab-${at}`}
+                                    hidden={at !== shownPart}
+                                >
+                                    <a
+                                        class="station-link home-row"
+                                        data-reach={groupAt >= 0 ? "passed" : undefined}
+                                        href={target.base}
+                                        aria-current={onHome ? "page" : undefined}
+                                    >
+                                        <i class="ring" aria-hidden="true" />
+                                        {homeTitle}
+                                    </a>
+                                    {section.groups.map((group, index) =>
+                                        group.title ? (
+                                            <details class="station" name={`groups-${at}`} open={holds(group)} data-reach={reach(index)}>
+                                                <summary data-here={holds(group) ? "" : undefined}>
+                                                    <i class="ring" aria-hidden="true" />
+                                                    {group.title}
+                                                    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                                                        <path
+                                                            d="m9 5 7 7-7 7"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            stroke-width="2.2"
+                                                            stroke-linecap="round"
+                                                            stroke-linejoin="round"
+                                                        />
+                                                    </svg>
+                                                </summary>
+                                                <ul>
+                                                    {group.pages.map((page) => (
+                                                        <li>
+                                                            <a
+                                                                href={pageHref(target, page.slug)}
+                                                                aria-current={page.slug === slug ? "page" : undefined}
+                                                            >
+                                                                {page.title}
+                                                            </a>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </details>
+                                        ) : (
+                                            group.pages.map((page) => (
+                                                <a
+                                                    class="station-link"
+                                                    data-reach={reach(index)}
+                                                    href={pageHref(target, page.slug)}
+                                                    aria-current={page.slug === slug ? "page" : undefined}
+                                                >
+                                                    <i class="ring" aria-hidden="true" />
+                                                    {page.title}
+                                                </a>
+                                            ))
+                                        ),
+                                    )}
+                                    {(groupAt >= 0 || onHome) && (
+                                        <>
+                                            <i class="signal" aria-hidden="true" />
+                                            <i class="bead" aria-hidden="true" />
+                                        </>
+                                    )}
+                                </nav>
+                            )
+                        })
+                    }
+                </div>
+            </aside>
+            <script is:inline>
+                // Before the first paint: The list stays where it was, and moves only when the current page is out of sight
+                ;(() => {
+                    const scroll = document.getElementById("scroll")
+                    // Docs home belongs to both parts, so it keeps the one the reader came from
+                    const tabs = [...document.querySelectorAll(".parts [role=tab]")]
+                    let part = null
+                    try {
+                        part = tabs[Number(sessionStorage.getItem("nf.part"))]
+                    } catch {}
+                    if (part && document.querySelector(".course .home-row[aria-current]")) {
+                        for (const tab of tabs) {
+                            const selected = tab === part
+                            tab.setAttribute("aria-selected", String(selected))
+                            tab.tabIndex = selected ? 0 : -1
+                            document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected
+                        }
+                        document.querySelector(".parts").dataset.at = String(tabs.indexOf(part))
+                    }
+                    try {
+                        scroll.scrollTop = Number(sessionStorage.getItem("nf.side")) || 0
+                    } catch {}
+                    const here = scroll.querySelector("[aria-current=page]")
+                    if (!here) return
+                    const top = here.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+                    if (top < 40 || top > scroll.clientHeight - 60) scroll.scrollTop += top - scroll.clientHeight / 2
+                })()
+            </script>
+            <main id="content" data-pagefind-body data-pagefind-filter={`version:${target.folder}`}>
+                {
+                    !target.isDefault && (
+                        <p class="older" data-pagefind-ignore>
+                            {target.channel === "nightly"
+                                ? "These pages follow the newest code, which may change before a Stable release."
+                                : `These pages describe ${target.label}, which is not the newest version.`}{" "}
+                            <a href={links[0].href}>Read the {targets[0].label} docs</a>
+                        </p>
+                    )
+                }
+                <article class="prose">
+                    <h1>{title}</h1>
+                    <p class="lede">{description}</p>
+                    <slot />
+                </article>
+                {
+                    (previous || next) && (
+                        <nav class="turn" aria-label="Previous and next page" data-pagefind-ignore>
+                            {previous ? (
+                                <a href={pageHref(target, previous.slug)} rel="prev">
+                                    <small>Previous</small>
+                                    {previous.title}
+                                </a>
+                            ) : (
+                                <span />
+                            )}
+                            {next && (
+                                <a class="turn-next" href={pageHref(target, next.slug)} rel="next">
+                                    <small>Next</small>
+                                    {next.title}
+                                </a>
+                            )}
+                        </nav>
+                    )
+                }
+            </main>
+            {
+                outline.length > 1 && (
+                    <nav class="outline" id="outline" aria-label="On this page">
+                        <p>On this page</p>
+                        <ul>
+                            {outline.map((heading) => (
+                                <li>
+                                    <a href={`#${heading.slug}`}>{heading.text}</a>
+                                </li>
+                            ))}
+                        </ul>
+                    </nav>
+                )
+            }
+        </div>
+        <footer class="foot">
+            NeonFlux is an independent project. It is not affiliated with, endorsed by or sponsored by Fluxer
+        </footer>
+        <dialog class="search" id="search" aria-label="Search the docs">
+            <form method="dialog" class="search-head">
+                <input id="q" type="search" placeholder="Search these docs" autocomplete="off" aria-label="Search these docs" />
+                <button type="submit">Close</button>
+            </form>
+            <p class="search-state" id="state" role="status"></p>
+            <ul class="hits" id="hits"></ul>
+        </dialog>
+        <script src="../scripts/docs.js"></script>
+    </body>
+</html>
