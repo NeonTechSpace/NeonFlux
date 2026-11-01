@@ -196,6 +196,16 @@ test("a rule reads as one sentence with exemptions only when set, and a case kee
         correctionCount: 1,
     } as ModerationCase
     const detail = queryCard({ type: "case", case: record }, "mod", command)
+    // A jail is a change of roles, so its last check says nothing about a timeout. Other actions still say it
+    const checked = { observedAt: 1_700_000_000_000, memberPresent: true, timeoutUntil: null }
+    const lastChecked = (action: ModerationCase["action"]) =>
+        Object.fromEntries(
+            queryCard({ type: "case", case: { ...record, action, observation: checked } }, "mod", command).fields!,
+        )["Last checked"]!
+    assert.doesNotMatch(lastChecked("jail"), /timed out/)
+    assert.doesNotMatch(lastChecked("unjail"), /timed out/)
+    assert.match(lastChecked("jail"), /in the server/)
+    assert.match(lastChecked("timeout"), /not timed out/)
     assert.deepEqual(
         detail.fields!.map(([label]) => label),
         ["Result", "Member", "Channel", "By", "When", "Linked case", "Not delivered", "Last checked"],

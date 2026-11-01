@@ -135,7 +135,7 @@ export function readLockdownFacts(client: Client, serverId: string) {
         }
     })
 }
-/** The server's channels as a lockdown plan, with how many keep a role that can still post */
+/** The server's channels as a lockdown plan, with those that keep a role that can still post */
 export function readLockdownPlan(client: Client, serverId: string) {
     return readLockdownFacts(client, serverId).pipe(
         Effect.flatMap((facts) =>
@@ -154,9 +154,9 @@ export function readLockdownPlan(client: Client, serverId: string) {
                     return {
                         canWrite: facts.canWrite,
                         plan: rows.map(({ row }) => row),
-                        stillPost: rows.filter(
-                            ({ row, channel }) => !row.skip && roleStillPosts(channel, serverId, facts.roles),
-                        ).length,
+                        stillPostIds: rows
+                            .filter(({ row, channel }) => !row.skip && roleStillPosts(channel, serverId, facts.roles))
+                            .map(({ row }) => row.channelId),
                     }
                 },
                 catch: () => new LockdownPlanError(),

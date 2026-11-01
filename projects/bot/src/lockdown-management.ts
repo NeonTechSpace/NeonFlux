@@ -197,7 +197,7 @@ export function handleLockdownCommand(
             return
         }
         if (command.type === "on") {
-            const { plan, canWrite, stillPost } = yield* readLockdownPlan(client, serverId)
+            const { plan, canWrite, stillPostIds } = yield* readLockdownPlan(client, serverId)
             if (!canWrite) {
                 yield* reply(
                     `NeonFlux cannot lock channels yet. ${fixSentence({ permissions: permissionNames(Permissions.ManageRoles) })}`,
@@ -212,6 +212,15 @@ export function handleLockdownCommand(
             if (result.admitted) yield* notifyMetadata()
             yield* runtime()?.notify() ?? Effect.void
             const c = result.lockdown?.counts
+            // Exempt channels stay open on purpose, so they do not count among those a role can still post in. The lockdown has started, so a
+            // failed read only leaves them counted
+            const exemptIds = stillPostIds.length
+                ? yield* store.get({ serverId, actor }).pipe(
+                      Effect.map((status) => status.settings.exemptChannelIds),
+                      Effect.orElseSucceed((): readonly string[] => []),
+                  )
+                : []
+            const stillPost = stillPostIds.filter((id) => !exemptIds.includes(id))
             yield* reply(
                 result.refused === "already-on"
                     ? "A lockdown is already on. Check !lockdown status"
@@ -221,7 +230,7 @@ export function handleLockdownCommand(
                         ? "The last lockdown left channels it could not restore. Send !lockdown off to repeat them first, since only NeonFlux's record of them knows what to give back"
                         : result.requeued !== undefined
                           ? `A lockdown is already on, so NeonFlux tries the ${plural(result.requeued, "failed channel")} again. Check !lockdown status`
-                          : lockdownStarted(c?.queued ?? 0, c?.skipped ?? 0, plan, stillPost),
+                          : lockdownStarted(c?.queued ?? 0, c?.skipped ?? 0, plan, stillPost.length),
             )
             return
         }

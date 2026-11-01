@@ -182,14 +182,14 @@ test("The status card shows the state first, counts and at most 10 problem chann
 })
 
 // A backend that hands out what the tests queue, with what the worker reported
-function fakeStore(queue: LockdownWorkRow[][]) {
+function fakeStore(queue: LockdownWorkRow[][], exemptChannelIds: readonly string[] = []) {
     const reports: unknown[] = [],
         managed: unknown[] = []
     let result: LockdownWorkResult = { rows: [], notes: [] }
     const store: LockdownStore = {
         get: () =>
             Effect.succeed({
-                settings: { exemptChannelIds: [] },
+                settings: { exemptChannelIds: [...exemptChannelIds] },
                 lockdown: null,
             }),
         manage: (input) => {
@@ -462,10 +462,10 @@ test("A member without Manage roles is told so before any read of the backend an
     )
 })
 
-test("The reply says why channels stayed out and which still let a role post", async () => {
+const whyChannelsStayedOut = (exempt: readonly string[], check: (text: string) => void) => {
     const f = createFixtures(),
-        { store } = fakeStore([[], []])
-    await controlled(
+        { store } = fakeStore([[], []], exempt)
+    return controlled(
         Effect.gen(function* () {
             yield* TestClock.adjust(`${now} millis`)
             const bot = yield* createTestBot(
@@ -498,10 +498,14 @@ test("The reply says why channels stayed out and which still let a role post", a
             yield* bot.idle()
             const text = String((p.replies.requests()[0]!.body as { content: string }).content)
             assert.match(text, /left alone: 1 only staff can see, 1 already denied/)
-            assert.match(text, /1 channel gives a role its own allow for Send messages/)
+            check(text)
         }),
     )
-})
+}
+test("The reply says why channels stayed out and which still let a role post", () =>
+    whyChannelsStayedOut([], (text) => assert.match(text, /1 channel gives a role its own allow for Send messages/)))
+test("An exempt channel is not counted among those where a role can still post", () =>
+    whyChannelsStayedOut(["5002"], (text) => assert.doesNotMatch(text, /its own allow/)))
 
 test("A write Fluxer answered with a long 429 goes back to the queue, a short wait fits its deadline, and nothing unknown does", async () => {
     const f = createFixtures()

@@ -98,11 +98,13 @@ const subject = (value: { targetId?: string; channelId?: string }) =>
         : value.channelId
           ? ` in ${format.channelMention(value.channelId)}`
           : ""
-function observed(value: ProviderObservation) {
+function observed(value: ProviderObservation, action: ModerationCase["action"]) {
+    // A jail is a change of roles, so whether the member is timed out says nothing about it
+    const jailCase = action === "jail" || action === "unjail"
     const facts = [
         ...(value.memberPresent === undefined ? [] : [value.memberPresent ? "in the server" : "not in the server"]),
         ...(value.banned === undefined ? [] : [value.banned ? "banned" : "not banned"]),
-        ...(value.timeoutUntil === undefined
+        ...(value.timeoutUntil === undefined || jailCase
             ? []
             : [
                   value.timeoutUntil === null
@@ -152,7 +154,7 @@ function caseCard(value: ModerationCase, command: SafetyCommandText): Card {
             ...field(undelivered.length, "Not delivered", () =>
                 undelivered.join(", ").replace(/^./, (letter) => letter.toUpperCase()),
             ),
-            ...field(value.observation, "Last checked", () => observed(value.observation!)),
+            ...field(value.observation, "Last checked", () => observed(value.observation!, value.action)),
         ],
         ...(edits
             ? {

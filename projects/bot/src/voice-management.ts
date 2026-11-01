@@ -473,7 +473,11 @@ function changeRoom(
                 permissionOverwrites: lockedOverwrites(overwrites, serverId, keepers, grants),
             })
             yield* record({ locked: true })
-            return done("Room locked. Only you, members inside and members you allow can join")
+            return done(
+                authority.actorId === room.ownerId
+                    ? "Room locked. Only you, members inside and members you allow can join"
+                    : "Room locked. Only its owner, members inside and members the owner allows can join",
+            )
         }
         if (command.type === "hide") {
             // The bot keeps sight of its rooms, or Fluxer would stop delivering their voice events

@@ -1807,6 +1807,14 @@ test("A record's text names members, roles and channels as mentions with a times
             }),
             "Event: settings-change (settings)\nBy: <@10>\nChanged: configuration\nSource: Dashboard",
         ],
+        [
+            event({ category: "security", type: "jail-change", resourceIds: ["20"], changedFields: ["jail-stripped"] }),
+            "Event: jail-change (security)\nBy: NeonFlux\nAbout: <@20>\nChanged: jail-stripped\nSource: NeonFlux",
+        ],
+        [
+            event({ category: "security", type: "bot-rights", resourceIds: ["20"], changedFields: ["rights-limit"] }),
+            "Event: bot-rights (security)\nBy: NeonFlux\nAbout: <@20>\nChanged: rights-limit\nSource: NeonFlux",
+        ],
     ]
     for (const [value, expected] of cases) {
         const text = metadataContent(7, value)

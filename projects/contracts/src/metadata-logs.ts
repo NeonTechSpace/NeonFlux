@@ -1000,11 +1000,12 @@ export function metadataLogContent(
                         : type === "privilege-change" && event.changedFields.includes("member-roles")
                           ? `About: ${[user(ids[0]!), ...ids.slice(1).map(role)].join(", ")}`
                           : `About: ${ids.map(type.startsWith("member-") || type === "bot-join" || type === "impersonation" || type === "lockdown-change" || type === "anti-nuke-incident" || type === "jail-change" || type === "bot-rights" || (type === "alert-action" && event.changedFields.includes("kick-bot")) || (action >= 20 && action <= 28) ? user : type.startsWith("role-") || type === "privilege-change" || type === "alert-action" || (action >= 30 && action <= 32) ? role : channel).join(", ")}`
-    // NeonFlux wrote these itself, for staff or for anti-nuke, so no Fluxer event is behind them
-    const ownRecord = type === "lockdown-change" || type === "anti-nuke-incident"
+    // NeonFlux wrote these itself, so no Fluxer event is behind them. A lockdown or an incident with no person came from anti-nuke
+    const antiNukeRecord = type === "lockdown-change" || type === "anti-nuke-incident"
+    const ownRecord = antiNukeRecord || type === "jail-change" || type === "bot-rights"
     const head = [
         `Event: ${type} (${event.category})`,
-        `By: ${event.actor.kind === "unknown" ? (ownRecord ? "Anti-nuke" : "Unknown") : user(event.actor.userId)}`,
+        `By: ${event.actor.kind === "unknown" ? (antiNukeRecord ? "Anti-nuke" : ownRecord ? "NeonFlux" : "Unknown") : user(event.actor.userId)}`,
         ...(d.authorId ? [`Author: ${user(d.authorId)}`] : []),
         ...(d.webhookId
             ? [`Author: ${d.webhookName ? `${d.webhookName} (webhook ${d.webhookId})` : `Webhook ${d.webhookId}`}`]

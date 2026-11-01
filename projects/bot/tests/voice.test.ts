@@ -2355,6 +2355,12 @@ test("a lock stops new members, keeps the owner, the bot and members inside, and
                 `<@${serverOwnerId}> can see and join this room`,
                 "Room unlocked. Members can join again",
             ])
+            yield* say(bot, adminId, "!voice lock <#7001>")
+            yield* bot.idle()
+            assert.equal(
+                replies(native).at(-1),
+                "Room locked. Only its owner, members inside and members the owner allows can join",
+            )
         }),
     )
 })
