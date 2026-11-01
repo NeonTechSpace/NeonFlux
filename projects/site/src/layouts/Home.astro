@@ -24,7 +24,7 @@ const { title, description, graph, feature = false } = Astro.props
                     data-a="auto"
                     src="/art/b-15-guard-shield.webp"
                     alt=""
-                /><img data-a="roles" src="/art/b-51-roles-tags.webp" alt="" /><img
+                /><img data-a="guard" src="/art/b-25-errors-beacon.webp" alt="" /><img data-a="roles" src="/art/b-51-roles-tags.webp" alt="" /><img
                     data-a="ver"
                     src="/art/b-36-permission-lock.webp"
                     alt=""
@@ -244,7 +244,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><span class="al">Too fast, roles taken away</span>
                                     </div>
                                 </div>
-                                <h3>Anti-nuke</h3>
+                                <h3><a href="/docs/features/anti-nuke/">Anti-nuke</a></h3>
                                 <p>
                                     Spots one account deleting channels or banning people faster than anyone works, and
                                     can take its roles. It can only alert about the owner and anyone ranked at or above
@@ -258,7 +258,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><span class="ke"># staff left open</span>
                                     </div>
                                 </div>
-                                <h3>Server-wide lockdown</h3>
+                                <h3><a href="/docs/features/lockdown/">Server-wide lockdown</a></h3>
                                 <p>Stops posting across the server at once, then gives each channel back what it had</p>
                             </article>
                             <article class="tile t3">
@@ -267,12 +267,12 @@ const { title, description, graph, feature = false } = Astro.props
                                         <span>Roles taken</span><span class="ke"># jail</span><span>Same roles back</span>
                                     </div>
                                 </div>
-                                <h3>Jail</h3>
+                                <h3><a href="/docs/features/jail/">Jail</a></h3>
                                 <p>Takes a member's roles and leaves one channel. Release gives the same roles back</p>
                             </article>
                         </div>
-                        <a class="more" href="/docs/features/anti-nuke/"
-                            >Read what each one can't stop<svg
+                        <a class="more" href="/features/protection/"
+                            >See how it works<svg
                                 viewBox="0 0 24 24"
                                 width="16"
                                 height="16"
@@ -297,7 +297,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><span class="ui on"><b>Delete it</b></span>
                                     </div>
                                 </div>
-                                <h3>Your data</h3>
+                                <h3><a href="/docs/features/your-data/">Your data</a></h3>
                                 <p>
                                     In a DM with the bot, any member can see and export what it stores about them and
                                     delete most of it
@@ -307,7 +307,7 @@ const { title, description, graph, feature = false } = Astro.props
                                 <div class="tv">
                                     <div class="uif" id="tbk"></div>
                                 </div>
-                                <h3>Backup and restore</h3>
+                                <h3><a href="/docs/features/backup/">Backup and restore</a></h3>
                                 <p>The owner gets an encrypted backup by DM, and can preview a restore first</p>
                             </article>
                             <article class="tile t3">
@@ -319,7 +319,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><i style="height: 76%"></i>
                                     </div>
                                 </div>
-                                <h3>Analytics</h3>
+                                <h3><a href="/docs/features/analytics/">Analytics</a></h3>
                                 <p>Counts only, never which member did what</p>
                             </article>
                             <article class="tile t3">
@@ -336,7 +336,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         </div>
                                     </div>
                                 </div>
-                                <h3>Suggestions</h3>
+                                <h3><a href="/docs/features/suggestions/">Suggestions</a></h3>
                                 <p>Members post ideas and vote on them</p>
                             </article>
                             <article class="tile t3">
@@ -352,7 +352,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         </div>
                                     </div>
                                 </div>
-                                <h3>Birthdays</h3>
+                                <h3><a href="/docs/features/birthdays/">Birthdays</a></h3>
                                 <p>Members opt in by DM. No year and no age</p>
                             </article>
                             <article class="tile t6">
@@ -362,7 +362,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><i class="on" style="--h: 300">L</i><i></i><i></i>
                                     </div>
                                 </div>
-                                <h3>Looking for group</h3>
+                                <h3><a href="/docs/features/looking-for-group/">Looking for group</a></h3>
                                 <p>
                                     Post what you want to play and others join. Once it starts, the group gets its own
                                     private voice room
@@ -375,7 +375,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><span class="al">New webhook in #general</span><span>Member left</span>
                                     </div>
                                 </div>
-                                <h3>Logs and security alerts</h3>
+                                <h3><a href="/docs/features/logs/">Logs and security alerts</a></h3>
                                 <p>Tells staff what changed, and flags changes that often come before a raid</p>
                             </article>
                             <article class="tile t4">
@@ -385,7 +385,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><span class="ke">Recent message</span>
                                     </div>
                                 </div>
-                                <h3>Message cleanup</h3>
+                                <h3><a href="/docs/features/cleanup/">Message cleanup</a></h3>
                                 <p>Deletes messages older than the age you choose</p>
                             </article>
                             <article class="tile t4">
@@ -395,7 +395,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><span># help</span>
                                     </div>
                                 </div>
-                                <h3>Server structure</h3>
+                                <h3><a href="/docs/features/structure-editor/">Server structure</a></h3>
                                 <p>Rename and reorder channels on the website, and see the change before saving</p>
                             </article>
                             <article class="tile t3">
@@ -407,7 +407,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         </div>
                                     </div>
                                 </div>
-                                <h3>Reminders</h3>
+                                <h3><a href="/docs/features/reminders/">Reminders</a></h3>
                                 <p>Ask for a reminder later, and it arrives by DM</p>
                             </article>
                             <article class="tile t3">
@@ -420,7 +420,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         </div>
                                     </div>
                                 </div>
-                                <h3>Boards</h3>
+                                <h3><a href="/docs/features/boards/">Boards</a></h3>
                                 <p>Enough reactions repost a message. Stars, clowns or any emoji you pick</p>
                             </article>
                             <article class="tile t3">
@@ -430,7 +430,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><i class="on" style="--h: 300">L</i><i class="on" style="--h: 180">R</i><i class="on" style="--h: 340">S</i>
                                     </div>
                                 </div>
-                                <h3>Giveaways</h3>
+                                <h3><a href="/docs/features/giveaways/">Giveaways</a></h3>
                                 <p>Members enter by reacting, and winners are drawn when time's up</p>
                             </article>
                             <article class="tile t3">
@@ -439,7 +439,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         <span class="ke"># Members: 1204</span><span># Staff: 12</span>
                                     </div>
                                 </div>
-                                <h3>Counters</h3>
+                                <h3><a href="/docs/features/counters/">Counters</a></h3>
                                 <p>Keeps a channel named with your member count, or how many hold a role</p>
                             </article>
                             <article class="tile t6">
@@ -450,7 +450,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><span class="ui on"><b>Limit reached</b></span>
                                     </div>
                                 </div>
-                                <h3>Bot-only staff rights</h3>
+                                <h3><a href="/docs/features/staff-rights/">Bot-only staff rights</a></h3>
                                 <p>
                                     Off until the owner turns it on. Staff with no real permissions act only through the
                                     bot, which limits how much each can do and keeps a case for every action
@@ -463,7 +463,7 @@ const { title, description, graph, feature = false } = Astro.props
                                         ><span class="ke">!rank works in #bot-commands</span>
                                     </div>
                                 </div>
-                                <h3>Command rules</h3>
+                                <h3><a href="/docs/features/command-rules/">Command rules</a></h3>
                                 <p>Limit a built-in command to the channels and roles you choose</p>
                             </article>
                         </div>

@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { test } from "node:test"
-import { FE, featurePath } from "../src/features.js"
+import { FE, featureDocs, featurePath } from "../src/features.js"
 
 // These read the build, so run them after `pnpm run build`
 const dist = new URL("../dist/", import.meta.url).pathname
@@ -56,7 +56,10 @@ test("A feature page has its words in its first HTML, so a search engine reads t
         const html = pageOf(new URL(featurePath(feature), site).href)
         assert.ok(html.includes(`<h1>${feature.n}</h1>`), `${feature.n} has no heading`)
         assert.ok(html.includes(feature.f[0].replaceAll("'", "&#39;")), `${feature.n} is missing its facts`)
-        assert.ok(html.includes(`href="/docs/features/${feature.d}/"`), `${feature.n} does not link its docs page`)
+        for (const [href] of featureDocs(feature)) {
+            assert.ok(html.includes(`href="${href}"`), `${feature.n} does not link ${href}`)
+            assert.ok(existsSync(join(dist, href, "index.html")), `${href} is not a page`)
+        }
     }
 })
 

@@ -31,6 +31,25 @@ export const FE = [
         e: 0,
     },
     {
+        k: "guard",
+        n: "Protection",
+        l: "Anti-nuke, server-wide lockdown and jail, for when an account goes bad",
+        f: [
+            "Anti-nuke spots one account deleting channels or banning people in a burst, and can take its roles",
+            "It starts in dry run, where it only records and alerts",
+            "It can only alert about the owner and anyone ranked at or above the bot, and a slow burn is reported, not stopped",
+            "Lockdown stops posting across the server at once, then gives each channel back what it had",
+            "Jail takes a member's roles and leaves one channel, and release gives the same roles back",
+        ],
+        d: "protection",
+        docs: [
+            ["anti-nuke", "Anti-nuke commands"],
+            ["lockdown", "Lockdown commands"],
+            ["jail", "Jail commands"],
+        ],
+        notInBox: true,
+    },
+    {
         k: "roles",
         n: "Roles",
         l: "Members pick their own roles, on the website or by reacting in chat",
@@ -138,11 +157,19 @@ export const FE = [
     },
 ]
 
+// The opening box on the homepage draws exactly these. Its shader and picture sheet are made for this many
+export const BOX = FE.filter((feature) => !feature.notInBox)
+
 export const homeTitle = "NeonFlux: The open-source Fluxer bot you can own"
 export const homeDescription =
     "An open-source Fluxer bot you can host for yourself or for others, with moderation, roles, tickets, welcome messages, leveling and events"
 
 export const featurePath = (feature) => `/features/${feature.d}/`
+// A feature's docs links as [address, label]. Most have one page, and a feature that spans several names them
+export const featureDocs = (feature) =>
+    feature.docs?.map(([slug, label]) => [`/docs/features/${slug}/`, label]) ?? [
+        [`/docs/features/${feature.d}/`, "All the commands for this"],
+    ]
 export const featureTitle = (feature) => `${feature.n} for Fluxer servers | NeonFlux`
 export const featureDescription = (feature) =>
     `${feature.l}. Part of NeonFlux, an open-source Fluxer bot you can host yourself`

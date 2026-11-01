@@ -1,5 +1,14 @@
 import { dashboardUrl } from "../dashboard-url.js"
-import { FE, featureDescription, featurePath, featureTitle, homeDescription, homeTitle } from "../features.js"
+import {
+    BOX,
+    FE,
+    featureDescription,
+    featureDocs,
+    featurePath,
+    featureTitle,
+    homeDescription,
+    homeTitle,
+} from "../features.js"
 
 ;(() => {
     const $ = (i) => document.getElementById(i),
@@ -177,7 +186,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         pmT = [0, 0],
         rp = [0, 0, 9],
         T = 0
-    FE.forEach((f, i) => {
+    BOX.forEach((f, i) => {
         const b = document.createElement("button")
         b.className = "hit"
         b.innerHTML = `<span>${f.n}</span>`
@@ -370,7 +379,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             cw = sp.width / cols,
             chh = sp.height / rows
         G.cols = cols
-        G.grid = FE.map((f, i) => {
+        G.grid = BOX.map((f, i) => {
             const col = i % cols,
                 px = sp.left - r.left + cw * (col + 0.5),
                 py = sp.top - r.top + chh * (Math.floor(i / cols) + 0.4 + (col % 2 ? 0.14 : -0.06))
@@ -455,7 +464,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         gl.uniform1f(u.FL, NA ? 0 : ss(0.68, 0.84, p) * (1 - ss(0.84, 0.98, p)))
         gl.uniform2f(u.M, G.mx ?? 9, G.my ?? 9)
         gl.uniform3f(u.RP, rp[0], rp[1], rp[2])
-        const list = FE.map((f, i) => {
+        const list = BOX.map((f, i) => {
             const fl = motion ? Math.sin(T * 0.9 + i * 1.3) * 0.018 : 0,
                 row = Math.floor(i / 4),
                 ang = ((i % 4) * Math.PI) / 2 + (row * Math.PI) / 3 + 0.4,
@@ -847,6 +856,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     const FM = {
         mod: "Warnings, timeouts, bans and cases",
         auto: "Spam, scam links and banned words",
+        guard: "Anti-nuke, lockdown and jail",
         roles: "Members pick their own",
         ver: "A check before members get in",
         wel: "Greetings and a newcomer checklist",
@@ -1159,6 +1169,47 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
                         M(lg, "NeonFlux", "Removed the message from xX_deals and logged it")
                     }
                 }, 500)
+            }
+        },
+        guard(d) {
+            const lg = room(
+                d,
+                "guard",
+                "An account starts deleting channels. Choose how anti-nuke is set and whose account it is, then run it",
+                '<div class="row seg" role="group" aria-label="Anti-nuke mode"><button id="mD" aria-pressed="true">Dry run</button><button id="mE" aria-pressed="false">Enforce</button></div><div class="row seg" role="group" aria-label="Whose account"><button id="wS" aria-pressed="true">A moderator</button><button id="wO" aria-pressed="false">The owner</button></div><button class="main" id="dgo">Run it</button>',
+                "<span>#</span> staff-log",
+            )
+            let enforce = false,
+                owner = false,
+                running = false
+            const pick = (on, off, value) => {
+                on.setAttribute("aria-pressed", "true")
+                off.setAttribute("aria-pressed", "false")
+                return value
+            }
+            $("mD").onclick = () => (enforce = pick($("mD"), $("mE"), false))
+            $("mE").onclick = () => (enforce = pick($("mE"), $("mD"), true))
+            $("wS").onclick = () => (owner = pick($("wS"), $("wO"), false))
+            $("wO").onclick = () => (owner = pick($("wO"), $("wS"), true))
+            $("dgo").onclick = () => {
+                if (running) return
+                running = true
+                const who = owner ? "Riley, the owner," : "Sam"
+                M(lg, "", `${who} deleted #general`, "sys")
+                later(() => M(lg, "", `${who} deleted #help`, "sys"), 350)
+                later(() => M(lg, "", `${who} deleted #memes`, "sys"), 700)
+                later(() => {
+                    running = false
+                    if (owner)
+                        M(lg, "NeonFlux", "Alert only: I can't act on the server owner, so staff need to step in")
+                    else if (enforce)
+                        M(
+                            lg,
+                            "NeonFlux",
+                            "Took Sam's roles with dangerous permissions. !antinuke restore gives those back",
+                        )
+                    else M(lg, "NeonFlux", "Dry run: Recorded and staff told. Nothing was touched")
+                }, 1100)
             }
         },
         ver(d) {
@@ -1665,7 +1716,13 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             .map((c, j) => `<span style="--k:${j}">${c === " " ? "&nbsp;" : c}</span>`)
             .join("")
         v.innerHTML = `<div class="fh pad ${f.cls || "floaty"}" style="--len:${f.n.length}"><h1>${letters}</h1><p>${f.l}</p>${{ tic: "39-support-lifebuoy", eve: "13-events-bell", msg: "32-announce-megaphone" }[k] ? lv({ tic: "39-support-lifebuoy", eve: "13-events-bell", msg: "32-announce-megaphone" }[k], "ic") : `<img class="ic" src="${art(k)}" alt="">`}</div><section class="pad fdm"><div class="scnd" style="--tc:${TINT[k]}">${k === "mod" ? modBlock() : k === "roles" ? rolesBlock() : demoBlock()}</div></section>
-<section class="sec pad fcv"><h2>What it covers</h2><div class="two"><div><ul class="facts">${f.f.map((x) => `<li class="rv">${esc(x)}</li>`).join("")}</ul><div class="src"><a href="/docs/features/${f.d}/">All the commands for this</a>${f.c ? "" : `<a href="${R}/tree/main/projects/bot/src">Read the code</a>`}</div><div class="acts" style="margin-top:18px"><a class="main" href="${dashboardUrl}">Open dashboard</a></div></div></div></section>
+<section class="sec pad fcv"><h2>What it covers</h2><div class="two"><div><ul class="facts">${f.f.map((x) => `<li class="rv">${esc(x)}</li>`).join("")}</ul><div class="src">${featureDocs(
+            f,
+        )
+            .map(([href, label]) => `<a href="${href}">${label}</a>`)
+            .join(
+                "",
+            )}${f.c ? "" : `<a href="${R}/tree/main/projects/bot/src">Read the code</a>`}</div><div class="acts" style="margin-top:18px"><a class="main" href="${dashboardUrl}">Open dashboard</a></div></div></div></section>
 <nav class="nxs pad" aria-label="Other features"><a class="nx" href="${featurePath(pv)}"><img src="${art(pv.k)}" alt=""><span><small>Previous</small><b>${pv.n}</b></span></a><a class="nx nt" href="${featurePath(nx)}"><span><small>Next</small><b>${nx.n}</b></span><img src="${art(nx.k)}" alt=""></a></nav><footer class="foot pad"><strong>NeonFlux, open source under Apache 2.0</strong><a href="/docs/">Docs</a><a href="https://github.com/NeonTechSpace/NeonFlux">GitHub</a><a href="https://github.com/NeonTechSpace/NeonFlux/blob/main/docs/SECURITY.md">Security</a><p class="lgl">NeonFlux is an independent project. It is not affiliated with, endorsed by or sponsored by Fluxer</p></footer>`
         if (k === "mod") modInit()
         else if (k === "roles") rolesInit()
@@ -1780,6 +1837,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     const TINT = {
         mod: "#8b6cff",
         auto: "#4f8bff",
+        guard: "#6c7cff",
         roles: "#b07fff",
         ver: "#3fb6ff",
         wel: "#9a7cff",
@@ -1792,7 +1850,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         voi: "#a06cff",
     }
     $("rail2").innerHTML = [
-        ["Safety", ["mod", "auto", "ver"]],
+        ["Safety", ["mod", "auto", "guard", "ver"]],
         ["Members", ["wel", "roles", "pro"]],
         ["Support", ["tic", "help"]],
         ["Activity", ["lev", "eve", "msg", "voi"]],

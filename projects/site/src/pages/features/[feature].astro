@@ -1,5 +1,5 @@
 ---
-import { FE, featureDescription, featurePath, featureTitle } from "../../features.js"
+import { FE, featureDescription, featureDocs, featurePath, featureTitle } from "../../features.js"
 import Home from "../../layouts/Home.astro"
 import { pageGraph } from "../../seo.js"
 
@@ -18,6 +18,6 @@ const graph = pageGraph([{ name: "NeonFlux", path: "/" }, { name: feature.n, pat
     <section class="sec pad">
         <h2>What it covers</h2>
         <ul class="facts">{feature.f.map((fact) => <li>{fact}</li>)}</ul>
-        <div class="src"><a href={`/docs/features/${feature.d}/`}>All the commands for this</a></div>
+        <div class="src">{featureDocs(feature).map(([href, label]) => <a {href}>{label}</a>)}</div>
     </section>
 </Home>

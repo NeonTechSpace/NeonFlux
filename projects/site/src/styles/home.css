@@ -5058,3 +5058,30 @@ html.page.snap {
         text-align: left;
     }
 }
+
+/* The whole tile opens its docs page, and the one control inside a tile stays clickable */
+.tile h3:has(a) {
+    position: static;
+}
+.tile h3 a {
+    color: inherit;
+    text-decoration: none;
+}
+.tile h3 a::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border-radius: inherit;
+}
+.tile h3 a:focus-visible {
+    outline: none;
+}
+.tile h3 a:focus-visible::after {
+    outline: 2px solid var(--link);
+    outline-offset: -2px;
+}
+.tile .vote {
+    position: relative;
+    z-index: 3;
+}

@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { test } from "node:test"
+import { BOX } from "../src/features.js"
 
 // These read the build, so run them after `pnpm run build`
 const dist = new URL("../dist/", import.meta.url).pathname
@@ -22,4 +23,20 @@ test("Every art and font file the page names is in the build", () => {
 
 test("The build keeps the space between a word and the inline tag after it", () => {
     assert.match(page, /fill in\s+<code/)
+})
+
+test("The opening box gets as many features as its shader draws", () => {
+    assert.equal(BOX.length, 12)
+    assert.match(built, /for\(int i=0;i<12;i\+\+\)/)
+})
+
+test("Every tile links a docs page that exists", () => {
+    const links = [...page.matchAll(/<article class="tile[^]*?<\/article>/g)].map(
+        ([tile]) => /<h3><a href="([^"]+)"/.exec(tile)?.[1],
+    )
+    assert.ok(links.length > 0)
+    for (const href of links) {
+        assert.ok(href, "A tile has no docs link")
+        assert.ok(existsSync(join(dist, href, "index.html")), `${href} is not a page`)
+    }
 })
