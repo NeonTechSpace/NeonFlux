@@ -48,6 +48,7 @@ import { applyEventsManagement } from "./events.ts"
 import { applySchedulesManagement } from "./schedules.ts"
 import { writeNickname } from "./generalSettings.ts"
 import { applyVoiceManagement } from "./voice.ts"
+import { applyCommandRule } from "./commandRules.ts"
 import { applyRolePickerConfiguration } from "./rolePicker.ts"
 import { applyStickyManagement } from "./sticky.ts"
 import { applyHelpDeskManagement } from "./helpDesk.ts"
@@ -63,6 +64,15 @@ import { applyShowcaseConfiguration } from "./showcases.ts"
 import { applyProfileConfiguration } from "./profiles.ts"
 import { applyYoutubeManagement } from "./youtube.ts"
 import { applyTwitchManagement } from "./twitch.ts"
+import { applyLockdownManagement } from "./lockdown.ts"
+import { applyAntiNukeManagement } from "./antiNuke.ts"
+import { applyJailManagement } from "./jail.ts"
+import { applyRightsManagement } from "./rights.ts"
+import { applyFeedManagement } from "./feed.ts"
+import { applyCounterManagement } from "./counters.ts"
+import { applyReminderSettings } from "./remindersStore.ts"
+import { applyGiveawayManagement } from "./giveaways.ts"
+import { applyBoardManagement } from "./boards.ts"
 import type { ConfigurationChange } from "./configurationChange.ts"
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
@@ -71,8 +81,8 @@ import { ringWork } from "./workSignal.ts"
 import type { CleanupContext } from "@neonflux/contracts/cleanup"
 
 // Website member requests share the table and have their own workers, see rolePicker.ts and memberContent.ts
-const memberFamily = (family: string): family is "member" | "member-showcase" | "member-profile" =>
-    family === "member" || family === "member-showcase" || family === "member-profile"
+const memberFamily = (family: string): family is "member" | "member-showcase" | "member-profile" | "member-voice" =>
+    family === "member" || family === "member-showcase" || family === "member-profile" || family === "member-voice"
 function publicConfigurationJob(row: Doc<"dashboardConfigurationJobs">): DashboardConfigurationJob {
     return {
         id: row._id,
@@ -221,6 +231,7 @@ export const ready = serviceQuery({
                     q.neq(q.field("family"), "member"),
                     q.neq(q.field("family"), "member-showcase"),
                     q.neq(q.field("family"), "member-profile"),
+                    q.neq(q.field("family"), "member-voice"),
                 ),
             )
             .take(4)
@@ -357,6 +368,60 @@ async function apply(
             return applyYoutubeManagement(ctx, identity, operation as DashboardConfigurationOperationMap["youtube"])
         case "twitch":
             return applyTwitchManagement(ctx, identity, operation as DashboardConfigurationOperationMap["twitch"])
+        // A dashboard lockdown carries the plan the bot read and a restore what the bot did, see configurationNative.ts
+        case "lockdown":
+            return applyLockdownManagement(
+                ctx,
+                job.serverId,
+                job.actorId,
+                operation as Parameters<typeof applyLockdownManagement>[3],
+                "dashboard",
+            )
+        case "jail":
+            return applyJailManagement(
+                ctx,
+                job.serverId,
+                job.actorId,
+                operation as Parameters<typeof applyJailManagement>[3],
+            )
+        case "rights":
+            return applyRightsManagement(
+                ctx,
+                job.serverId,
+                job.actorId,
+                operation as Parameters<typeof applyRightsManagement>[3],
+            )
+        case "antinuke":
+            return applyAntiNukeManagement(
+                ctx,
+                job.serverId,
+                job.actorId,
+                operation as Parameters<typeof applyAntiNukeManagement>[3],
+            )
+        case "feeds":
+            return applyFeedManagement(ctx, identity, operation as DashboardConfigurationOperationMap["feeds"])
+        case "reminders":
+            return {
+                settings: await applyReminderSettings(
+                    ctx,
+                    job.serverId,
+                    (operation as DashboardConfigurationOperationMap["reminders"]).patch,
+                ),
+            }
+        // A start, end, reroll or cancel only records what is wanted, and the giveaway worker does its native work
+        case "giveaways":
+            return applyGiveawayManagement(
+                ctx,
+                identity,
+                operation as DashboardConfigurationOperationMap["giveaways"],
+                input.actor.roleIds,
+            )
+        case "counters":
+            return applyCounterManagement(ctx, identity, operation as DashboardConfigurationOperationMap["counters"])
+        case "boards":
+            return applyBoardManagement(ctx, identity, operation as DashboardConfigurationOperationMap["boards"])
+        case "commandrules":
+            return applyCommandRule(ctx, job.serverId, operation, now)
     }
 }
 /** A queued job's session while its permission grant holds. Otherwise the job fails and there is none */

@@ -18,6 +18,9 @@ import type { SchedulesAutomationContext } from "@neonflux/contracts/schedules"
 import type { SuggestionsCardContext } from "@neonflux/contracts/suggestions"
 import type { YoutubeDeliveryContext } from "@neonflux/contracts/youtube"
 import type { TwitchDeliveryContext } from "@neonflux/contracts/twitch"
+import type { FeedDeliveryContext } from "@neonflux/contracts/feeds"
+import type { BoardDeliveryContext } from "@neonflux/contracts/boards"
+import type { GiveawayDeliveryContext } from "@neonflux/contracts/giveaways"
 import { errors, format, isThreadChannel, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit } from "effect"
 import { randomUUID } from "node:crypto"
@@ -122,6 +125,9 @@ const consumerContextField = {
     "suggestion-card": "suggestionContext",
     youtube: "youtubeContext",
     twitch: "twitchContext",
+    feed: "feedContext",
+    board: "boardContext",
+    giveaway: "giveawayContext",
 } as const
 
 export function performPublishingGrant(
@@ -136,7 +142,10 @@ export function performPublishingGrant(
         | MilestonesDeliveryContext
         | SuggestionsCardContext
         | YoutubeDeliveryContext
-        | TwitchDeliveryContext,
+        | TwitchDeliveryContext
+        | FeedDeliveryContext
+        | BoardDeliveryContext
+        | GiveawayDeliveryContext,
         unknown
     >,
     dashboardAuthority?: () => Effect.Effect<
@@ -154,7 +163,9 @@ export function performPublishingGrant(
         const forum =
             grant.consumer?.type === "suggestion-card" || grant.consumer?.type === "event"
                 ? ("post" as const)
-                : grant.consumer?.type === "youtube" || grant.consumer?.type === "twitch"
+                : grant.consumer?.type === "youtube" ||
+                    grant.consumer?.type === "twitch" ||
+                    grant.consumer?.type === "feed"
                   ? ("forum" as const)
                   : false
         let dispatched = false
@@ -422,6 +433,9 @@ function postSource(post: PublishingPost, prefix: string) {
     if (p?.type === "showcase") return `Showcase #${p.showcaseNo}`
     if (p?.type === "youtube") return "YouTube alert"
     if (p?.type === "twitch") return "Twitch alert"
+    if (p?.type === "feed") return "Feed post"
+    if (p?.type === "board") return "Board post"
+    if (p?.type === "giveaway") return `The card of giveaway #${p.giveawayNo}`
     if (p?.type === "dashboard-role") return `Role panel ${p.panelName}`
     if (p?.type === "dashboard-message") return "Dashboard message"
     return post.attempt.draftName
@@ -677,10 +691,35 @@ export function handlePublishing(
                 )
                 return
             }
+            if (post.consumer?.type === "feed" && command.type === "forget") {
+                yield* reply(
+                    `Post #${post.postNo} is a feed post. NeonFlux forgets it on its own 30 days after it was found`,
+                )
+                return
+            }
+            if (post.consumer?.type === "giveaway" && command.type === "forget") {
+                yield* reply(
+                    `Post #${post.postNo} is the card of giveaway #${post.consumer.giveawayNo}. NeonFlux forgets it on its own 90 days after the giveaway ended`,
+                )
+                return
+            }
+            if (post.consumer?.type === "board" && command.type === "forget") {
+                yield* reply(
+                    `Post #${post.postNo} is a board post. NeonFlux forgets it on its own when it ends or its board is removed`,
+                )
+                return
+            }
             const schedule =
                 post.consumer?.type === "schedule" ? yield* scheduleName(post.consumer.scheduleNo) : undefined
             const event = post.consumer?.type === "event" ? yield* eventName(post.consumer.eventNo) : undefined
-            if (post.consumer && post.consumer.type !== "youtube" && post.consumer.type !== "twitch") {
+            if (
+                post.consumer &&
+                post.consumer.type !== "youtube" &&
+                post.consumer.type !== "twitch" &&
+                post.consumer.type !== "feed" &&
+                post.consumer.type !== "board" &&
+                post.consumer.type !== "giveaway"
+            ) {
                 yield* reply(
                     post.consumer.type === "schedule"
                         ? `Post #${post.postNo} belongs to schedule ${schedule}. Use ${code(`${prefix}publish schedule ${command.type} ${schedule}${command.type === "reconcile" ? ` ${post.postNo}` : ""}`)}${command.type === "forget" ? " once its posts are settled" : ""}`
@@ -763,6 +802,20 @@ export function handlePublishing(
                 }
                 if (tracked.post.consumer?.type === "twitch") {
                     yield* reply(`Post #${tracked.post.postNo} is a Twitch alert, which NeonFlux does not edit`)
+                    return
+                }
+                if (tracked.post.consumer?.type === "feed") {
+                    yield* reply(`Post #${tracked.post.postNo} is a feed post, which NeonFlux does not edit`)
+                    return
+                }
+                if (tracked.post.consumer?.type === "giveaway") {
+                    yield* reply(
+                        `Post #${tracked.post.postNo} is the card of a giveaway, which NeonFlux keeps up to date itself`,
+                    )
+                    return
+                }
+                if (tracked.post.consumer?.type === "board") {
+                    yield* reply(`Post #${tracked.post.postNo} is a board post, which NeonFlux keeps up to date itself`)
                     return
                 }
                 const schedule =

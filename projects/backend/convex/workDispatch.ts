@@ -7,6 +7,9 @@ import { eventSettings, lifecycle } from "./eventsStore.ts"
 import { suggestionSettings } from "./suggestionsStore.ts"
 import { publisherSettings } from "./schedulesStore.ts"
 import { readRolesSettings } from "./rolesStore.ts"
+import { readReminderSettings } from "./remindersStore.ts"
+import { readGiveawaySettings } from "./giveawaysStore.ts"
+import { readBoardSettings } from "./boardsStore.ts"
 import { fail } from "./validation.ts"
 
 export const WORK_KINDS = ServiceWorkKind.literals
@@ -43,7 +46,9 @@ const DASHBOARD_JOB_WORK: { [T in DashboardJobTable]: (row: Doc<T>) => ServiceDa
               ? "showcase"
               : row.family === "member-profile"
                 ? "profile"
-                : "configuration",
+                : row.family === "member-voice"
+                  ? "voice"
+                  : "configuration",
     dashboardMessageJobs: () => "messages",
     dashboardMetadataJobs: () => "metadata",
     dashboardRoleJobs: () => "roles",
@@ -109,6 +114,7 @@ function serverSettings(ctx: QueryCtx) {
         suggestions: (serverId: string) => once(`suggestions:${serverId}`, () => suggestionSettings(ctx, serverId)),
         publishing: (serverId: string) => once(`publishing:${serverId}`, () => publisherSettings(ctx, serverId)),
         roles: (serverId: string) => once(`roles:${serverId}`, () => readRolesSettings(ctx, serverId)),
+        boards: (serverId: string) => once(`boards:${serverId}`, () => readBoardSettings(ctx, serverId)),
         once,
     }
 }
@@ -142,6 +148,24 @@ async function scheduleWork(ctx: QueryCtx, row: Doc<"scheduleDeliveries">, now: 
     if (row.dueAt > now || row.nextCheckAt > now || row.claimedAt !== undefined) return false
     const attempt = row.attemptId ? await ctx.db.get(row.attemptId) : null
     return !attempt || (attempt.outcome === "pending" && attempt.dispatchedAt === undefined)
+}
+// Mirrors reminders work's claim: A claim that never reported becomes uncertain at any level, and a new send waits while the module is off or DEFCON is below 3
+const reminderWork = async (ctx: QueryCtx, row: Doc<"reminders">, _now: number, settings: Settings) =>
+    row.state === "claimed" ||
+    ((await settings.defcon(row.serverId)) === 3 &&
+        (await settings.once(`reminderSettings:${row.serverId}`, () => readReminderSettings(ctx, row.serverId)))
+            .enabled)
+// Mirrors giveaways work's list: A lost claim and a card past its giveaway's end are settled at any level, a cancelled card's edit waits only for DEFCON, and a draw or its
+// announcement also waits for the module. A new card also waits for publishing
+async function giveawayWork(ctx: QueryCtx, row: Doc<"giveaways">, now: number, settings: Settings) {
+    if (row.phase === "announcing" || row.phase === "cancelling") return true
+    if (row.phase === "post" && row.endsAt <= now) return true
+    if ((await settings.defcon(row.serverId)) !== 3) return false
+    if (row.phase === "cancel") return true
+    const enabled = (
+        await settings.once(`giveawaySettings:${row.serverId}`, () => readGiveawaySettings(ctx, row.serverId))
+    ).enabled
+    return enabled && (row.phase !== "post" || (await settings.publishing(row.serverId))?.enabled !== false)
 }
 const eventsEnabled = async (settings: Settings, serverId: string) =>
     (await settings.events(serverId))?.enabled === true && (await settings.defcon(serverId)) === 3
@@ -384,6 +408,77 @@ const WORK_SOURCES: readonly Source[] = [
         order: "nextCheckAt",
         gate: async (settings, serverId) =>
             (await settings.publishing(serverId))?.enabled !== false && (await settings.defcon(serverId)) === 3,
+    }),
+    // New feed posts wait while publishing is off or DEFCON is below 3
+    source({
+        kind: "feed",
+        key: "feedDeliveries",
+        table: "feedDeliveries",
+        index: "by_global_due",
+        prefix: [["state", "queued"]],
+        order: "nextCheckAt",
+        gate: async (settings, serverId) =>
+            (await settings.publishing(serverId))?.enabled !== false && (await settings.defcon(serverId)) === 3,
+    }),
+    // New board posts wait while the module or publishing is off or DEFCON is below 3. Removing a post asked for by its source's deletion or its
+    // author waits for nothing
+    source({
+        kind: "board",
+        key: "boardEntries.queued",
+        table: "boardEntries",
+        index: "by_global_due",
+        prefix: [["state", "queued"]],
+        order: "nextCheckAt",
+        gate: async (settings, serverId) =>
+            (await settings.publishing(serverId))?.enabled !== false &&
+            (await settings.defcon(serverId)) === 3 &&
+            (await settings.boards(serverId))?.enabled !== false,
+    }),
+    source({
+        kind: "board",
+        key: "boardEntries.remove",
+        table: "boardEntries",
+        index: "by_global_due",
+        prefix: [["state", "remove"]],
+        order: "nextCheckAt",
+    }),
+    // Reminders come due at their time, so a reminder fires within the dispatcher's delay
+    source({
+        kind: "reminders",
+        key: "reminders",
+        table: "reminders",
+        index: "by_global_due",
+        prefix: [["due", true]],
+        order: "nextCheckAt",
+        work: reminderWork,
+    }),
+    // A giveaway's card, its draw at its end time and its card edits
+    source({
+        kind: "giveaways",
+        key: "giveaways",
+        table: "giveaways",
+        index: "by_global_due",
+        prefix: [["due", true]],
+        order: "nextCheckAt",
+        work: giveawayWork,
+    }),
+    // A jail whose length ended is released at every DEFCON level, like a timeout that runs out
+    source({
+        kind: "jail",
+        key: "jailRecords",
+        table: "jailRecords",
+        index: "by_global_due",
+        prefix: [["timed", true]],
+        order: "nextCheckAt",
+    }),
+    // Lockdown writes run at every DEFCON level, since lifting one must stay possible. A claimed write due here never reported
+    source({
+        kind: "lockdown",
+        key: "lockdownChannels",
+        table: "lockdownChannels",
+        index: "by_global_due",
+        prefix: [["active", true]],
+        order: "nextCheckAt",
     }),
 ]
 

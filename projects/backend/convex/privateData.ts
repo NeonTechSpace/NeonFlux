@@ -14,6 +14,7 @@ import type {
     DashboardPrivateResult,
     DashboardPrivateView,
 } from "../dashboard-contracts.js"
+import { antiNukeIncidentPage } from "./antiNuke.ts"
 import { recordAudit } from "./auditLog.ts"
 import { privateSession } from "./dashboard.ts"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
@@ -137,6 +138,11 @@ async function readPrivateData(
                     : {}),
             }
         }
+        case "incidents":
+            return {
+                type: "incidents",
+                ...(await antiNukeIncidentPage(ctx, serverId, before(view.beforeIncidentNo), PRIVATE_PAGE_SIZE)),
+            }
         case "history": {
             const userId = requireId(view.userId)
             const rows = await ctx.db
@@ -187,6 +193,14 @@ function viewed(view: DashboardPrivateView, data: DashboardPrivateData) {
                         ? `Waiting appeals after appeal ${view.afterAppealNo}`
                         : "Oldest waiting appeals",
             }
+        case "incidents":
+            return {
+                setting: "Anti-nuke incidents",
+                summary:
+                    view.type === "incidents" && view.beforeIncidentNo
+                        ? `Incidents before incident ${view.beforeIncidentNo}`
+                        : "Newest incidents",
+            }
         case "history":
             return { setting: "Member history", summary: `Member ${data.userId}` }
     }
@@ -197,6 +211,7 @@ const viewValidator = v.union(
     v.object({ type: v.literal("case"), caseNo: v.number(), correctionsAfter: v.optional(v.number()) }),
     v.object({ type: v.literal("appeals"), beforeAppealNo: v.optional(v.number()) }),
     v.object({ type: v.literal("open-appeals"), afterAppealNo: v.optional(v.number()) }),
+    v.object({ type: v.literal("incidents"), beforeIncidentNo: v.optional(v.number()) }),
     v.object({ type: v.literal("history"), userId: v.string(), beforeCaseNo: v.optional(v.number()) }),
 )
 /** The viewer's passed check while it is fresh. Otherwise the answer that stands, or a new check the bot is asked for */

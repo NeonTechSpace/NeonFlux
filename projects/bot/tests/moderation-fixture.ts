@@ -144,20 +144,27 @@ export function platform(
         everyonePermissions?: bigint
         channelDeny?: bigint
         guild?: Record<string, unknown>
+        actorPosition?: number
+        targetPosition?: number
+        /** Roles of the server beyond the actor's, the bot's and the target's */
+        moreRoles?: { id: string; position: number }[]
     } = {},
 ) {
     const f = bot.fixtures
     const targetId = f.nextId()
     const dmId = f.nextId()
     const actorRole = f.role({
-        position: 10,
+        position: options.actorPosition ?? 10,
         permissions: (options.actorPermissions ?? Permissions.Administrator).toString(),
     })
     const botRole = f.role({
         position: 20,
         permissions: (options.botPermissions ?? Permissions.Administrator).toString(),
     })
-    const targetRole = f.role({ position: 1, permissions: (options.targetPermissions ?? 0n).toString() })
+    const targetRole = f.role({
+        position: options.targetPosition ?? 1,
+        permissions: (options.targetPermissions ?? 0n).toString(),
+    })
     const guild = f.guild({ owner_id: options.actorOwner === false ? f.nextId() : f.ids.user, ...options.guild })
     const self = bot.rest.respond("GET /users/@me", { body: f.botUser() })
     const guildRoute = bot.rest.respond("GET /guilds/:id", { body: guild })
@@ -166,6 +173,7 @@ export function platform(
         actorRole,
         botRole,
         targetRole,
+        ...(options.moreRoles ?? []).map((role) => f.role({ ...role, permissions: "0" })),
     ]
     const rolesRoute = bot.rest.respond("GET /guilds/:id/roles", { body: roles })
     const actor = bot.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, {

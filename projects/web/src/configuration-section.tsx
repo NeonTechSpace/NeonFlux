@@ -20,6 +20,7 @@ import { preserveRemovedDefinitions } from "./configuration-retained"
 import { ShowcaseMember } from "./showcase-member"
 import { ProfileMember } from "./profile-member"
 import { RolePickerMember } from "./role-picker-member"
+import { VoiceRoomMember } from "./voice-room-member"
 import { SavedMessageSend } from "./saved-message-send"
 
 const configurationSections = {
@@ -45,11 +46,21 @@ const configurationSections = {
     sidebar: { family: "sidebar", title: "Dashboard link" },
     memberlist: { family: "memberlist", title: "Member list order" },
     alerts: { family: "alerts", title: "Security alerts" },
+    lockdown: { family: "lockdown", title: "Server-wide lockdown" },
+    antinuke: { family: "antinuke", title: "Anti-nuke" },
+    jail: { family: "jail", title: "Jail" },
+    rights: { family: "rights", title: "Bot-only staff rights" },
     helpdesk: { family: "helpdesk", title: "Help desk" },
     showcase: { family: "showcase", title: "Showcases" },
     profile: { family: "profile", title: "Profiles" },
     youtube: { family: "youtube", title: "YouTube alerts" },
     twitch: { family: "twitch", title: "Twitch alerts" },
+    commandrules: { family: "commandrules", title: "Command rules" },
+    feeds: { family: "feeds", title: "Bluesky and X feeds" },
+    counters: { family: "counters", title: "Counter channels" },
+    boards: { family: "boards", title: "Boards" },
+    reminders: { family: "reminders", title: "Personal reminders" },
+    giveaways: { family: "giveaways", title: "Giveaways" },
 } satisfies Record<string, { family: DashboardConfigurationFamily; title: string }>
 type ConfigurationSectionId = keyof typeof configurationSections
 interface ConfigurationSectionProps {
@@ -96,6 +107,10 @@ const forms = lazyComponents<SectionFamily, Form>({
     memberlist: () => import("./memberlist-settings").then((module) => form(module.MemberListSettings)),
     temproles: () => import("./temporary-role-settings").then((module) => form(module.TemporaryRoleSettings)),
     alerts: () => import("./alerts-settings").then((module) => form(module.AlertsSettings)),
+    lockdown: () => import("./lockdown-settings").then((module) => form(module.LockdownSettings)),
+    antinuke: () => import("./antinuke-settings").then((module) => form(module.AntiNukeSettings)),
+    jail: () => import("./jail-settings").then((module) => form(module.JailSettings)),
+    rights: () => import("./rights-settings").then((module) => form(module.RightsSettings)),
     helpdesk: () => import("./helpdesk-settings").then((module) => form(module.HelpDeskSettings)),
     onboarding: () => import("./onboarding-checklist").then((module) => form(module.OnboardingSettings)),
     presets: () => import("./preset-settings").then((module) => form(module.PresetSettings)),
@@ -104,6 +119,12 @@ const forms = lazyComponents<SectionFamily, Form>({
     profile: () => import("./showcase-settings").then((module) => form(module.ProfileSettings)),
     youtube: () => import("./youtube-settings").then((module) => form(module.YoutubeSettings)),
     twitch: () => import("./twitch-settings").then((module) => form(module.TwitchSettings)),
+    commandrules: () => import("./command-rules-settings").then((module) => form(module.CommandRulesSettings)),
+    feeds: () => import("./feed-settings").then((module) => form(module.FeedSettings)),
+    counters: () => import("./counter-settings").then((module) => form(module.CounterSettings)),
+    boards: () => import("./board-settings").then((module) => form(module.BoardSettings)),
+    reminders: () => import("./reminder-settings").then((module) => form(module.ReminderSettingsSection)),
+    giveaways: () => import("./giveaway-settings").then((module) => form(module.GiveawaySettingsSection)),
 })
 /** Loads every configuration form ahead of use, for tests that render sections without waiting */
 export const preloadForms = forms.preload
@@ -221,6 +242,25 @@ function ManagerRolePicker(
                     serverId={props.serverId}
                     connected={props.connected}
                     title="Choose my roles"
+                />
+            )}
+        </details>
+    )
+}
+// The member page opens only on request, since it queues a read of the room by itself when none is recent
+function ManagerVoiceRoom(
+    props: Pick<ConfigurationSectionProps, "client" | "sessionToken" | "serverId" | "connected">,
+) {
+    const [open, setOpen] = useState(false)
+    return (
+        <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+            <summary>Control my voice room</summary>
+            {open && (
+                <VoiceRoomMember
+                    client={props.client}
+                    sessionToken={props.sessionToken}
+                    serverId={props.serverId}
+                    connected={props.connected}
                 />
             )}
         </details>
@@ -376,6 +416,14 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
                 />
             )}
             {/* Managers use the member page too, once the feature is on */}
+            {remote?.family === "voice" && remote.data.generators.length > 0 && (
+                <ManagerVoiceRoom
+                    client={client}
+                    sessionToken={sessionToken}
+                    serverId={serverId}
+                    connected={props.connected}
+                />
+            )}
             {remote?.family === "rolepicker" && remote.data.settings.enabled && (
                 <ManagerRolePicker
                     client={client}

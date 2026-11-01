@@ -1,0 +1,3246 @@
+[
+    {
+        "name": "admin-only-25",
+        "family": "admin-only",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "admins",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "role-deny-on-source-27",
+        "family": "role-deny-on-source",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "public-to-public-33",
+        "family": "public-to-public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["SendMessages"],
+                    "deny": []
+                },
+                {
+                    "id": "m4",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ReadMessageHistory"],
+                    "deny": []
+                },
+                {
+                    "id": "m4",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-base-server-44",
+        "family": "private-base-server",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "m7",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "role-deny-on-source-58",
+        "family": "role-deny-on-source",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-staff-38",
+        "family": "staff-to-staff",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "auditors",
+                "permissions": []
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel", "ManageMessages"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-18",
+        "family": "member-overwrite",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m1",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "role-deny-on-source-60",
+        "family": "role-deny-on-source",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "audience",
+                "permissions": ["ViewChannel"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-base-server-13",
+        "family": "private-base-server",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-17",
+        "family": "member-overwrite",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m1",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-staff-10",
+        "family": "staff-to-staff",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "public-to-public-04",
+        "family": "public-to-public",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "m4",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "admin-only-26",
+        "family": "admin-only",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-20",
+        "family": "member-overwrite",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "m2",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "m2",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-to-public-05",
+        "family": "private-to-public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-staff-07",
+        "family": "staff-to-staff",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "auditors",
+                "permissions": []
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel", "ManageMessages"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-47",
+        "family": "member-overwrite",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m1",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-51",
+        "family": "member-overwrite",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m3",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "role-deny-on-source-28",
+        "family": "role-deny-on-source",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-22",
+        "family": "member-overwrite",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m3",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m3",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-48",
+        "family": "member-overwrite",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m1",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-wider-staff-42",
+        "family": "staff-to-wider-staff",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "role-deny-on-source-57",
+        "family": "role-deny-on-source",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "admin-only-55",
+        "family": "admin-only",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "admins",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "public-to-public-32",
+        "family": "public-to-public",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-staff-09",
+        "family": "staff-to-staff",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "public-to-public-03",
+        "family": "public-to-public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["SendMessages"],
+                    "deny": []
+                },
+                {
+                    "id": "m4",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ReadMessageHistory"],
+                    "deny": []
+                },
+                {
+                    "id": "m4",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-staff-37",
+        "family": "staff-to-staff",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "auditors",
+                "permissions": []
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel", "ManageMessages"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-base-server-14",
+        "family": "private-base-server",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "m7",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-to-public-36",
+        "family": "private-to-public",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-19",
+        "family": "member-overwrite",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "m2",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-staff-39",
+        "family": "staff-to-staff",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-base-server-45",
+        "family": "private-base-server",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "readers",
+                "permissions": ["ViewChannel"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-to-public-35",
+        "family": "private-to-public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "role-deny-on-source-29",
+        "family": "role-deny-on-source",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "audience",
+                "permissions": ["ViewChannel"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "nsfw-53",
+        "family": "nsfw",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": true
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": true
+        }
+    },
+    {
+        "name": "public-to-public-31",
+        "family": "public-to-public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-base-server-46",
+        "family": "private-base-server",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "readers",
+                "permissions": ["ViewChannel"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-wider-staff-41",
+        "family": "staff-to-wider-staff",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "admins",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-base-server-16",
+        "family": "private-base-server",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "readers",
+                "permissions": ["ViewChannel"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "nsfw-23",
+        "family": "nsfw",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": true
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": true
+        }
+    },
+    {
+        "name": "public-to-public-34",
+        "family": "public-to-public",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m4",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-wider-staff-12",
+        "family": "staff-to-wider-staff",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-49",
+        "family": "member-overwrite",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m2",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "role-deny-on-source-30",
+        "family": "role-deny-on-source",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "audience",
+                "permissions": ["ViewChannel"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "public-to-public-02",
+        "family": "public-to-public",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-21",
+        "family": "member-overwrite",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m3",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-base-server-15",
+        "family": "private-base-server",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "readers",
+                "permissions": ["ViewChannel"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "public-to-public-01",
+        "family": "public-to-public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-base-server-43",
+        "family": "private-base-server",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-staff-40",
+        "family": "staff-to-staff",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "admin-only-56",
+        "family": "admin-only",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "role-deny-on-source-59",
+        "family": "role-deny-on-source",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "audience",
+                "permissions": ["ViewChannel"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-52",
+        "family": "member-overwrite",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m3",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m3",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "nsfw-24",
+        "family": "nsfw",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": true
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "private-to-public-06",
+        "family": "private-to-public",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "nsfw-54",
+        "family": "nsfw",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": true
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-wider-staff-11",
+        "family": "staff-to-wider-staff",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "admins",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "staff-to-staff-08",
+        "family": "staff-to-staff",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "auditors",
+                "permissions": []
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel", "ManageMessages"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "helpers",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "member-overwrite-50",
+        "family": "member-overwrite",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "helpers",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m2",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "m2",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    }
+]

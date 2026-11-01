@@ -1,4 +1,4 @@
-// Scores what has labeled eval cases: deceptive links in automod, lookalike names in security alerts and the bot's typo hints.
+// Scores what has labeled eval cases: deceptive links in automod, lookalike names in security alerts, the bot's typo hints, which feed posts go out and whether a board may repost.
 // Each set lists cases with the answer a careful moderator wants. The score is how many deceptive cases are caught and how
 // many harmless ones are flagged, per family. The held-out sets are only for scoring and are never used to tune a detector.
 // evals/baseline.json records which cases fail today, and evals.test.mjs fails when a case that passed starts to fail.
@@ -6,7 +6,10 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { deceptiveLink, protectedDomains } from "../backend/convex/moderationLinks.ts"
 import { namesLookAlike } from "../bot/src/alerts-names.ts"
+import { replayAntiNuke } from "../bot/src/antinuke-detector.ts"
 import { suggestCommand } from "../bot/src/help.ts"
+import { feedItemPosted } from "../backend/convex/feedProviders.ts"
+import { boardMayRepost } from "../bot/src/board-visibility.ts"
 
 const folder = new URL("../evals/", import.meta.url)
 const read = (name) => JSON.parse(readFileSync(new URL(name, folder), "utf8"))
@@ -27,6 +30,28 @@ export const detectors = {
         expected: (item) => item.hint,
         actual: (item) => commandHint(item),
     },
+    "anti-nuke": {
+        key: (item) => item.name,
+        expected: (item) => item.nuke,
+        actual: (item) => replayAntiNuke(item.events, item.actors).nuke,
+    },
+    // The same cases as anti-nuke with a second answer, so one file holds both labels. A detector reads another detector's folder with folder
+    lockdown: {
+        folder: "anti-nuke",
+        key: (item) => item.name,
+        expected: (item) => item.lockdown,
+        actual: (item) => replayAntiNuke(item.events, item.actors).lockdown,
+    },
+    "feed-posts": {
+        key: (item) => item.name,
+        expected: (item) => item.post,
+        actual: (item) => feedItemPosted(item.provider, item.account, item.item),
+    },
+    "board-visibility": {
+        key: (item) => item.name,
+        expected: (item) => item.repost,
+        actual: (item) => boardMayRepost(item.roles, item.source, item.board, true),
+    },
 }
 const hintAudiences = {
     member: new Set(["everyone"]),
@@ -42,14 +67,16 @@ function commandHint({ message, audience, custom, hint }) {
 }
 /** The sets present for a detector. The held-out set joins the repository only after a tuning round ends */
 export const sets = (detector) =>
-    ["train", "holdout"].filter((set) => existsSync(new URL(`${detector}/${set}.json`, folder)))
+    ["train", "holdout"].filter((set) =>
+        existsSync(new URL(`${detectors[detector].folder ?? detector}/${set}.json`, folder)),
+    )
 
 const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
 
 /** The results of every case of one detector and set */
 export function score(detector, set) {
-    const { key, expected, actual } = detectors[detector]
-    return read(`${detector}/${set}.json`).map((item) => ({
+    const { key, expected, actual, folder: from = detector } = detectors[detector]
+    return read(`${from}/${set}.json`).map((item) => ({
         key: key(item),
         family: item.family,
         expected: expected(item),

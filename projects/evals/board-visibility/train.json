@@ -1,0 +1,2402 @@
+[
+    {
+        "name": "Both channels open to everyone",
+        "family": "public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A read-only source that denies sending stays readable",
+        "family": "public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["SendMessages"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A read-only board that denies sending",
+        "family": "public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["SendMessages"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "An open source reposted to a board only mods read",
+        "family": "public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "Everyone has no base view and both channels show to members only by role",
+        "family": "public",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "members",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A mods-only source and an open board",
+        "family": "private-source",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "An admins-only source and an open board",
+        "family": "private-source",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A source denied to a role that reads the board",
+        "family": "private-source",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A source allowed to members role only and a board open to everyone",
+        "family": "private-source",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "members",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "members",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A source hidden from everyone, shown to vip and a board that also shows to mods",
+        "family": "private-source",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "vip",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "vip",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "vip",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A source with a role deny on a role granted view by the board",
+        "family": "private-source",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "vip",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "vip",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "vip",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "Source and board share one staff audience",
+        "family": "same-audience",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A board audience smaller than the source audience",
+        "family": "same-audience",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "vip",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "vip",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "vip",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A board audience larger than the source audience by one role",
+        "family": "same-audience",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "vip",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "vip",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "vip",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A board only administrators read",
+        "family": "same-audience",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A private source and a board nobody but admins read",
+        "family": "same-audience",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "Administrator role denied on the source never blocks",
+        "family": "administrator",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "admins",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "Administrator role granted on the board alone never blocks",
+        "family": "administrator",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "admins",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "Everyone holds Administrator on a server with a private source",
+        "family": "administrator",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["Administrator"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "An administrator allow in a channel overwrite grants nothing",
+        "family": "administrator",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["Administrator"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "The role's base view loses to the everyone overwrite on the source",
+        "family": "order",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "members",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "The role allow beats the everyone deny on the board",
+        "family": "order",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "The role allow beats the everyone deny on the source",
+        "family": "order",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A role denied on both channels blocks nothing",
+        "family": "order",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "An everyone allow on the source opens it despite no base view",
+        "family": "order",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": []
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "An everyone deny and allow in one overwrite lets the allow win",
+        "family": "order",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A role with its own deny and allow on the source lets the allow win",
+        "family": "order",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member allowed on the board and a source only mods read",
+        "family": "member-overwrite",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "500",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member allowed on the board and a source everyone reads",
+        "family": "member-overwrite",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "500",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member denied on the board changes nothing",
+        "family": "member-overwrite",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "500",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member overwrite on the board that does not touch view changes nothing",
+        "family": "member-overwrite",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "500",
+                    "type": "member",
+                    "allow": ["SendMessages"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member denied on the source can still read an open board",
+        "family": "member-overwrite",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "500",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member allowed on the source changes nothing for the board's readers",
+        "family": "member-overwrite",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "500",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member allowed on both but the source is not open to everyone",
+        "family": "member-overwrite",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "500",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "500",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "An nsfw source and an ordinary board",
+        "family": "nsfw",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": true
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "An nsfw source and an nsfw board",
+        "family": "nsfw",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": true
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": true
+        }
+    },
+    {
+        "name": "An ordinary source and an nsfw board",
+        "family": "nsfw",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": true
+        }
+    },
+    {
+        "name": "An nsfw source with a staff board that is not nsfw",
+        "family": "nsfw",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": true
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A private nsfw source and a public nsfw board",
+        "family": "nsfw",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": true
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": true
+        }
+    },
+    {
+        "name": "A source that denies reading its history to everyone",
+        "family": "history",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ReadMessageHistory"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A source that denies history to a role that reads the board",
+        "family": "history",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ReadMessageHistory"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A board that denies history still shows new posts to its readers",
+        "family": "history",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ReadMessageHistory"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member with one role denied on both and one allowed only on the board reads the board and not the source",
+        "family": "role-pairs",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "a",
+                "permissions": []
+            },
+            {
+                "id": "b",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "a",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "a",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "b",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member with one role denied on the source and one that alone opens a private board",
+        "family": "role-pairs",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "a",
+                "permissions": []
+            },
+            {
+                "id": "b",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "a",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "b",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "The second role also allows the source, so the pair reads both",
+        "family": "role-pairs",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "a",
+                "permissions": []
+            },
+            {
+                "id": "b",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "a",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "b",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "a",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "b",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A role denied on both and one with no overwrite stays off a denied board",
+        "family": "role-pairs",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "a",
+                "permissions": []
+            },
+            {
+                "id": "b",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "a",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "An administrator role in a pair never blocks",
+        "family": "role-pairs",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "a",
+                "permissions": []
+            },
+            {
+                "id": "b",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "b",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "b",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "Both roles are denied on the source and only one opens the board",
+        "family": "role-pairs",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "a",
+                "permissions": []
+            },
+            {
+                "id": "b",
+                "permissions": []
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "a",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "b",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "a",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "b",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "a",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A list that names history shows everyone lacks it, so the source cannot be read back",
+        "family": "history",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "regulars",
+                "permissions": ["ViewChannel", "ReadMessageHistory"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A list that names history shows everyone holds it",
+        "family": "history",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel", "ReadMessageHistory"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "An overwrite gives everyone the history their base role lacks",
+        "family": "history",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "regulars",
+                "permissions": ["ReadMessageHistory"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": ["ReadMessageHistory"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A role's own history keeps a private channel readable for its readers",
+        "family": "history",
+        "repost": true,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "regulars",
+                "permissions": ["ReadMessageHistory"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "regulars",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "regulars",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member denied history on the source can still read the board",
+        "family": "history",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "500",
+                    "type": "member",
+                    "allow": [],
+                    "deny": ["ReadMessageHistory"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A member allowed on the board when everyone lacks history on the source",
+        "family": "history",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ReadMessageHistory"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "500",
+                    "type": "member",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A board overwrite names a role the server list lacks",
+        "family": "unknown-role",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                },
+                {
+                    "id": "ghost",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    },
+    {
+        "name": "A source overwrite names a role the server list lacks, which a member could hold beside one that reads the board",
+        "family": "unknown-role",
+        "repost": false,
+        "roles": [
+            {
+                "id": "everyone",
+                "permissions": ["ViewChannel"]
+            },
+            {
+                "id": "mods",
+                "permissions": ["ManageMessages"]
+            },
+            {
+                "id": "admins",
+                "permissions": ["Administrator"]
+            }
+        ],
+        "source": {
+            "overwrites": [
+                {
+                    "id": "ghost",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                }
+            ],
+            "nsfw": false
+        },
+        "board": {
+            "overwrites": [
+                {
+                    "id": "everyone",
+                    "type": "role",
+                    "allow": [],
+                    "deny": ["ViewChannel"]
+                },
+                {
+                    "id": "mods",
+                    "type": "role",
+                    "allow": ["ViewChannel"],
+                    "deny": []
+                }
+            ],
+            "nsfw": false
+        }
+    }
+]

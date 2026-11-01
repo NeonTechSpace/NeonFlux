@@ -337,6 +337,16 @@ test("The owner's DM export reads every settings family, leveling, cases and app
         "profile",
         "youtube",
         "twitch",
+        "lockdown",
+        "antinuke",
+        "jail",
+        "rights",
+        "counters",
+        "feeds",
+        "boards",
+        "reminders",
+        "giveaways",
+        "commandrules",
     ])
     assert.deepEqual(file.settings.general, { prefix: "!", replyStyle: "text", nickname: null })
     // A server without log settings exports the defaults, where message events come from every channel

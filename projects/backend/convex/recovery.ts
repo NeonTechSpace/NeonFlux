@@ -19,6 +19,16 @@ import { ONBOARDING_ROLE_KEY } from "./onboardingDomain.ts"
 import { decode } from "./validation.ts"
 import { youtubeSource, youtubeSubscriptions } from "./youtubeStore.ts"
 import { twitchSource, twitchSubscriptions } from "./twitchStore.ts"
+import { lockdownChannelsIn, readLockdown } from "./lockdownStore.ts"
+import { readJailSettings } from "./jailStore.ts"
+import { JAIL_RECORD_LIMIT } from "@neonflux/contracts/jail"
+import { RIGHTS_SUSPENDED_COUNT_LIMIT } from "@neonflux/contracts/rights"
+import { feedDelivery, feedSource, feedSubscriptions } from "./feedStore.ts"
+import { feedProviderNames } from "@neonflux/contracts/feeds"
+import { readCounters } from "./countersStore.ts"
+import { counterCountProblemText } from "@neonflux/contracts/counters"
+import { giveawayRow } from "./giveawaysStore.ts"
+import { readBoards } from "./boardsStore.ts"
 
 // The recovery inbox: failed, stuck or uncertain work that a feature already records, the features that are on but cannot act and the
 // problems of the latest permission check. It adds no tracking of its own. Each source reads at most RECOVERY_SCAN rows through its
@@ -28,6 +38,8 @@ export const RECOVERY_SCAN = 50
 export const RECOVERY_PER_SOURCE = 10
 /** Failures that nothing can resolve anymore stay in the inbox this long, so it shows what needs attention now */
 export const RECOVERY_SETTLED_MS = 7 * 86400000
+// A jail this long past its end is one its release could not run
+const JAIL_RELEASE_LATE_MS = 5 * 60000
 
 type Work = Extract<RecoveryEntry, { kind: "work" }>
 const work = (source: RecoverySource, summary: string, next: string, at?: number): Work => ({
@@ -127,6 +139,46 @@ async function publishingEntry(ctx: QueryCtx, attempt: Doc<"publishingAttempts">
             attempt.createdAt,
         )
     }
+    if (consumer.type === "board") {
+        // A count update that failed is corrected by a later one, so only a post's unknown outcome needs staff
+        return work(
+            "boards",
+            `A board post: ${outcome}`,
+            unknown
+                ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed. NeonFlux never posts a message on a board twice`
+                : "!board list shows the boards",
+            attempt.createdAt,
+        )
+    }
+    if (consumer.type === "feed") {
+        // The post names itself by its opening words, read once from the server's own delivery row
+        const delivery = await feedDelivery(
+            ctx,
+            attempt.serverId,
+            consumer.provider,
+            consumer.accountId,
+            consumer.itemId,
+        )
+        return work(
+            "feeds",
+            `${feedProviderNames[consumer.provider]} post ${delivery ? delivery.title : "from a followed account"}: ${outcome}`,
+            unknown
+                ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed. NeonFlux never posts a feed post twice`
+                : "!feed status shows the followed accounts",
+            attempt.createdAt,
+        )
+    }
+    if (consumer.type === "giveaway") {
+        const row = await giveawayRow(ctx, attempt.serverId, consumer.giveawayNo)
+        return work(
+            "giveaways",
+            `Card of giveaway #${consumer.giveawayNo}${row ? ` for ${row.prize}` : ""}: ${outcome}`,
+            unknown
+                ? `!publish reconcile ${post}, or record what happened with !publish resolve ${post} sent <message-id> or !publish resolve ${post} failed. NeonFlux never posts a card twice`
+                : `!giveaway show ${consumer.giveawayNo}`,
+            attempt.createdAt,
+        )
+    }
     if (consumer.type === "twitch") {
         // The alert names its stream by title, read once from the server's own delivery row
         const delivery = await ctx.db
@@ -170,9 +222,11 @@ async function readPublishing(ctx: QueryCtx, serverId: string, now: number) {
                 .gt("createdAt", now - RECOVERY_SETTLED_MS),
         )
         .order("desc")
-        .take(RECOVERY_PER_SOURCE)
+        .take(RECOVERY_SCAN)
+    // A failed count update needs nothing from staff, since the next change corrects the card
+    const settled = failed.filter((attempt) => attempt.consumer?.type !== "board" || attempt.action !== "edit")
     return Promise.all(
-        newest([...unknown.filter((attempt) => attempt.unresolved), ...failed], (attempt) => attempt.createdAt).map(
+        newest([...unknown.filter((attempt) => attempt.unresolved), ...settled], (attempt) => attempt.createdAt).map(
             (attempt) => publishingEntry(ctx, attempt),
         ),
     )
@@ -540,6 +594,292 @@ async function readTwitch(ctx: QueryCtx, serverId: string) {
     }
     return entries
 }
+// Boards NeonFlux stopped, with the fix, and removed posts whose delete has an unknown outcome
+async function readBoardProblems(ctx: QueryCtx, serverId: string) {
+    const entries: Work[] = []
+    for (const row of await readBoards(ctx, serverId)) {
+        const again = `then turn it back on with !board set ${row.name} channel ${channel(row.channelId)}`
+        if (row.problem === "channel")
+            entries.push(
+                work(
+                    "boards",
+                    `Board ${row.name} is stopped: Its channel ${channel(row.channelId)} is gone or cannot hold posts`,
+                    `Choose a text or announcement channel with !board set ${row.name} channel #channel`,
+                    row.updatedAt,
+                ),
+            )
+        else if (row.problem === "permission")
+            entries.push(
+                work(
+                    "boards",
+                    `Board ${row.name} is stopped: NeonFlux cannot post in ${channel(row.channelId)}`,
+                    `Give NeonFlux View channel, Send messages and Embed links in that channel, ${again}`,
+                    row.updatedAt,
+                ),
+            )
+    }
+    const stale = await ctx.db
+        .query("boardEntries")
+        .withIndex("by_server_due", (q) =>
+            q
+                .eq("serverId", serverId)
+                .eq("state", "removing")
+                .lte("nextCheckAt", Date.now() - 60000),
+        )
+        .take(10)
+    for (const row of stale)
+        entries.push(
+            work(
+                "boards",
+                `A board post in ${channel(row.postChannelId ?? row.sourceChannelId)} may not have been removed: The delete's outcome is unknown`,
+                "Delete the post by hand if it is still there. NeonFlux does not try again",
+                row.nextCheckAt,
+            ),
+        )
+    return entries
+}
+// Counters NeonFlux turned off, with the fix
+async function readCounterProblems(ctx: QueryCtx, serverId: string) {
+    const entries: Work[] = []
+    for (const row of await readCounters(ctx, serverId)) {
+        const again = `then turn it back on with !counter set ${channel(row.channelId)} "${row.template}"`
+        if (row.problem === "channel")
+            entries.push(
+                work(
+                    "counters",
+                    `A counter is off: Its channel ${channel(row.channelId)} is gone`,
+                    `Remove it with !counter remove ${channel(row.channelId)} and add one for another channel`,
+                    row.updatedAt,
+                ),
+            )
+        else if (row.problem === "permission")
+            entries.push(
+                work(
+                    "counters",
+                    `A counter is off: NeonFlux cannot rename ${channel(row.channelId)}`,
+                    `Give NeonFlux View channel and Manage channels in that channel, ${again}`,
+                    row.updatedAt,
+                ),
+            )
+        else if (row.countProblem)
+            entries.push(
+                work(
+                    "counters",
+                    `A counter in ${channel(row.channelId)} cannot read its count, so the channel keeps its name`,
+                    counterCountProblemText(row.countProblem),
+                    row.updatedAt,
+                ),
+            )
+    }
+    return entries
+}
+
+// Giveaways with a problem. A card's post with an unknown outcome is already listed with the other posts
+const GIVEAWAY_PROBLEMS = {
+    channel: (no: number, where: string) =>
+        [
+            `Giveaway #${no} ended: Its channel ${where} is gone or cannot hold it`,
+            "Start it again in another channel",
+        ] as const,
+    card: (no: number, where: string) =>
+        [
+            `Giveaway #${no} ended: Its card in ${where} was deleted`,
+            `!giveaway show ${no} shows what was recorded`,
+        ] as const,
+    permission: (no: number, where: string) =>
+        [
+            `Giveaway #${no} cannot draw: NeonFlux cannot read its entries in ${where}`,
+            "Give NeonFlux View channel and Read message history there. It tries again on its own",
+        ] as const,
+    "post-late": (no: number, where: string) =>
+        [
+            `Giveaway #${no} ended unposted: Its end passed before its card could go out in ${where}`,
+            "Start it again once NeonFlux can post",
+        ] as const,
+    "post-failed": (no: number, where: string) =>
+        [
+            `Giveaway #${no} ended: Fluxer refused its card in ${where}`,
+            "Fix NeonFlux's permissions there and start it again",
+        ] as const,
+    "result-failed": (no: number, where: string) =>
+        [
+            `The card of giveaway #${no} in ${where} could not be updated`,
+            `!giveaway show ${no} names the outcome`,
+        ] as const,
+    "result-uncertain": (no: number, where: string) =>
+        [
+            `The update of giveaway #${no}'s card in ${where} is not confirmed`,
+            `!giveaway show ${no} reads the card. NeonFlux never updates it twice`,
+        ] as const,
+    reaction: (no: number, where: string) =>
+        [
+            `NeonFlux could not add the entry emoji to giveaway #${no} in ${where}`,
+            "Members can still add it, or give NeonFlux Add reactions there",
+        ] as const,
+}
+async function readGiveawayProblems(ctx: QueryCtx, serverId: string) {
+    const rows = await ctx.db
+        .query("giveaways")
+        .withIndex("by_problem", (q) => q.eq("serverId", serverId).gt("problemAt", 0))
+        .order("desc")
+        .take(RECOVERY_PER_SOURCE)
+    const entries: Work[] = []
+    for (const row of rows) {
+        if (!row.problem || row.problem === "post-uncertain") continue
+        const [what, fix] = GIVEAWAY_PROBLEMS[row.problem](row.giveawayNo, channel(row.channelId))
+        entries.push(work("giveaways", what, fix, row.problemAt))
+    }
+    return entries
+}
+
+// Followed accounts NeonFlux turned off, with the fix, and accounts it cannot read, including a change in a service's answers
+async function readFeeds(ctx: QueryCtx, serverId: string) {
+    const entries: Work[] = []
+    for (const row of await feedSubscriptions(ctx, serverId)) {
+        const source = await feedSource(ctx, row.provider, row.accountId),
+            service = feedProviderNames[row.provider],
+            name = source?.handle ?? source?.name ?? row.accountId
+        const again = `then turn the posts back on with !feed add ${row.provider} ${name} #channel`
+        if (row.problem === "channel")
+            entries.push(
+                work(
+                    "feeds",
+                    `${service} posts of ${name} are off: Their channel ${channel(row.channelId)} is gone or cannot hold posts`,
+                    `Choose a text, announcement or forum channel, ${again}`,
+                    row.updatedAt,
+                ),
+            )
+        else if (row.problem === "permission")
+            entries.push(
+                work(
+                    "feeds",
+                    `${service} posts of ${name} are off: NeonFlux cannot post in ${channel(row.channelId)}`,
+                    `Give NeonFlux View channel, Send messages and Embed links in that channel, ${again}`,
+                    row.updatedAt,
+                ),
+            )
+        else if (source?.lastError)
+            entries.push(
+                work(
+                    "feeds",
+                    `${service} posts of ${name} may be missed: ${source.lastError}`,
+                    source.stopped
+                        ? `Check the handle, then remove it and add the current one. !feed status ${name} shows the problem`
+                        : `NeonFlux tries again on its own, waiting longer after each failure. !feed status ${name} shows the latest state`,
+                ),
+            )
+    }
+    return entries
+}
+
+// Channels a lockdown could not lock or restore, or whose write has an unknown outcome
+async function readLockdownEntries(ctx: QueryCtx, serverId: string) {
+    const lockdown = await readLockdown(ctx, serverId)
+    if (!lockdown || lockdown.counts.uncertain + lockdown.counts.failed === 0) return []
+    const entries: Work[] = []
+    for (const state of ["uncertain", "failed"] as const)
+        for (const row of await lockdownChannelsIn(ctx, serverId, state).take(RECOVERY_PER_SOURCE)) {
+            const lock = row.phase === "lock",
+                ended = lock ? "active" : "lifted"
+            entries.push(
+                work(
+                    "lockdown",
+                    state === "uncertain"
+                        ? `NeonFlux could not confirm whether it ${lock ? "locked" : "restored"} ${channel(row.channelId)} in the lockdown`
+                        : `The lockdown could not ${lock ? "lock" : "restore"} ${channel(row.channelId)}`,
+                    state === "uncertain"
+                        ? "!lockdown status reads the channel and settles it, and NeonFlux never repeats the change on its own"
+                        : `Give NeonFlux Manage roles, then repeat !lockdown ${lock ? "on" : "off"} while the lockdown is ${ended}`,
+                    lockdown.startedAt,
+                ),
+            )
+        }
+    return entries
+}
+// Jails whose edit has an unknown outcome, ends that could not run, and channels the jail role could not be denied. Any manager reads this
+// inbox, so it names cases and not members
+async function readJailEntries(ctx: QueryCtx, serverId: string, now: number) {
+    const entries: Work[] = []
+    const rows = await ctx.db
+        .query("jailRecords")
+        .withIndex("by_server_user", (q) => q.eq("serverId", serverId))
+        .take(JAIL_RECORD_LIMIT)
+    for (const row of rows) {
+        if (entries.length >= RECOVERY_PER_SOURCE) break
+        if (row.state === "jail-uncertain" || row.state === "release-uncertain")
+            entries.push(
+                work(
+                    "jail",
+                    `NeonFlux could not confirm a ${row.state === "jail-uncertain" ? "jail" : "release"}`,
+                    `!mod recover ${row.state === "jail-uncertain" ? row.caseNo : (row.releaseCaseNo ?? row.caseNo)} reads the member and settles it, and NeonFlux never repeats the change on its own`,
+                    row.createdAt,
+                ),
+            )
+        else if (row.state === "active" && row.releaseAt !== undefined && row.releaseAt < now - JAIL_RELEASE_LATE_MS)
+            entries.push(
+                work(
+                    "jail",
+                    `The jail of case #${row.caseNo} ended, but NeonFlux could not release the member yet`,
+                    "Give NeonFlux Manage roles and move its role above the jail role. It tries again every 10 minutes",
+                    row.releaseAt,
+                ),
+            )
+    }
+    const setup = (await readJailSettings(ctx, serverId))?.setup
+    for (const problem of setup?.problems.slice(0, RECOVERY_PER_SOURCE) ?? [])
+        entries.push(
+            work(
+                "jail",
+                problem.state === "uncertain"
+                    ? `NeonFlux could not confirm the jail overwrite on ${channel(problem.channelId)}`
+                    : `NeonFlux could not write the jail overwrite on ${channel(problem.channelId)}`,
+                "Give NeonFlux Manage roles in that channel, then run !jail setup, which reads each channel first",
+                setup!.updatedAt,
+            ),
+        )
+    return entries
+}
+// How many members have their bot-only rights suspended, which only the server owner lifts. Any manager reads this inbox, so it names nobody
+async function readRightsEntries(ctx: QueryCtx, serverId: string) {
+    const rows = await ctx.db
+        .query("rightsSuspensions")
+        .withIndex("by_server_user", (q) => q.eq("serverId", serverId))
+        .take(RIGHTS_SUSPENDED_COUNT_LIMIT)
+    if (!rows.length) return []
+    return [
+        work(
+            "rights",
+            `${rows.length} ${rows.length === 1 ? "member's" : "members'"} bot-only rights are suspended, after a limit or anti-nuke`,
+            "Staff see who with !mod rights status. Check what happened, then the server owner can run !mod rights clear @member",
+            Math.max(...rows.map((row) => row.at)),
+        ),
+    ]
+}
+// Anti-nuke incidents whose native response has an unknown outcome or failed. A failed one means the account may still be acting
+async function readAntiNukeEntries(ctx: QueryCtx, serverId: string, now: number) {
+    const rows = [
+        ...(await ctx.db
+            .query("antiNukeIncidents")
+            .withIndex("by_server_outcome", (q) => q.eq("serverId", serverId).eq("outcome", "uncertain"))
+            .order("desc")
+            .take(RECOVERY_PER_SOURCE)),
+        ...(await ctx.db
+            .query("antiNukeIncidents")
+            .withIndex("by_server_outcome", (q) => q.eq("serverId", serverId).eq("outcome", "failed"))
+            .order("desc")
+            .take(RECOVERY_PER_SOURCE)),
+    ].filter((row) => row.outcome === "uncertain" || row.createdAt > now - RECOVERY_SETTLED_MS)
+    return rows.map((row) =>
+        work(
+            "antinuke",
+            row.outcome === "uncertain"
+                ? `Anti-nuke incident ${row.incidentNo}: NeonFlux could not confirm its response`
+                : `Anti-nuke incident ${row.incidentNo}: NeonFlux could not stop the account`,
+            `!antinuke incident ${row.incidentNo} reads the member and settles it. Check what they can still do`,
+            row.createdAt,
+        ),
+    )
+}
 
 async function readCurrent(ctx: QueryCtx, serverId: string, now: number) {
     // Custom commands and autoresponders start on, so having none yet is not a problem
@@ -615,6 +955,14 @@ export async function readRecoveryInbox(
         ...(await readBlockedDeliveries(ctx, serverId)),
         ...(await readYoutube(ctx, serverId)),
         ...(await readTwitch(ctx, serverId)),
+        ...(await readLockdownEntries(ctx, serverId)),
+        ...(await readAntiNukeEntries(ctx, serverId, now)),
+        ...(await readJailEntries(ctx, serverId, now)),
+        ...(await readRightsEntries(ctx, serverId)),
+        ...(await readFeeds(ctx, serverId)),
+        ...(await readCounterProblems(ctx, serverId)),
+        ...(await readGiveawayProblems(ctx, serverId)),
+        ...(await readBoardProblems(ctx, serverId)),
     ]
     const at = (entry: RecoveryEntry) =>
         entry.kind === "feature" ? Number.MAX_SAFE_INTEGER : (entry.at ?? Number.MAX_SAFE_INTEGER)

@@ -5,6 +5,10 @@ import type { PublishingKind } from "@neonflux/contracts/publishing-base"
 import type { DashboardEventCalendar, DashboardScheduleCalendar } from "@neonflux/backend/dashboard-contracts"
 import { FormInputError } from "./settings-form"
 
+/** A form whose action cannot be undone by accident stops until its box is ticked */
+export function confirmValue(value: string | boolean | undefined, action: string) {
+    if (!value) throw new FormInputError(`Confirm ${action}`)
+}
 export function numberValue(value: string | boolean | undefined, min: number, max: number, label: string): number {
     const parsed = typeof value === "string" && /^-?\d+$/.test(value.trim()) ? Number(value) : NaN
     if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max)

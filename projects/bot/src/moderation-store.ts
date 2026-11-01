@@ -32,6 +32,7 @@ import {
     type ModerationReconcileRequest,
     type ModerationWarningPenaltyRequest,
 } from "@neonflux/contracts/moderation"
+import { rightForAction } from "@neonflux/contracts/rights"
 import { Data, Effect, Schema } from "effect"
 import { createBackendRequest, failureFields, refusedReason } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
@@ -115,17 +116,18 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
                 const op = input.operation
                 // The grant must be the one this request created: same source, action, target, channel, messages and recovery
                 if (op.type === "action")
-                    return (
-                        result.type === "case" &&
-                        boundGrant(result, input.messageId) &&
-                        result.case.action === op.action.type &&
-                        result.case.targetId === op.action.targetId &&
-                        result.case.channelId === op.action.channelId &&
-                        result.case.linkedCaseNo === op.action.linkedCaseNo &&
-                        (!result.grant ||
-                            (equalIds(result.grant.messageIds ?? [], op.action.messageIds ?? []) &&
-                                (!op.action.recoveryId || result.grant.recoveryId === op.action.recoveryId)))
-                    )
+                    // A bot-only right over its limit answers with that right and sends nothing
+                    return result.type === "right-refused"
+                        ? result.right === rightForAction(op.action.type)
+                        : result.type === "case" &&
+                              boundGrant(result, input.messageId) &&
+                              result.case.action === op.action.type &&
+                              result.case.targetId === op.action.targetId &&
+                              result.case.channelId === op.action.channelId &&
+                              result.case.linkedCaseNo === op.action.linkedCaseNo &&
+                              (!result.grant ||
+                                  (equalIds(result.grant.messageIds ?? [], op.action.messageIds ?? []) &&
+                                      (!op.action.recoveryId || result.grant.recoveryId === op.action.recoveryId)))
                 if (op.type === "settings") return result.type === "settings"
                 if (op.type === "case-reason")
                     return result.type === "case" && !result.grant && result.case.caseNo === op.caseNo
@@ -177,6 +179,7 @@ export function createModerationStore(config: BackendConfig): ModerationStore {
                         result.type === "cases" &&
                         (!op.userId || result.cases.every((record) => record.targetId === op.userId))
                     )
+                if (op.type === "jail-record") return result.type === "jail-record"
                 const types = { "rule-list": "rules", "watchlist-list": "watchlist", "recovery-list": "recoveries" }
                 return result.type === types[op.type]
             }),

@@ -137,6 +137,12 @@ export async function memberFeatures(ctx: Read, serverId: string): Promise<Dashb
         ...((await rolePickerEnabled(ctx, serverId)) ? ["rolepicker" as const] : []),
         ...((await switchedOn(ctx, "showcaseSettings", serverId)) ? ["showcase" as const] : []),
         ...((await switchedOn(ctx, "profileSettings", serverId)) ? ["profile" as const] : []),
+        ...((await ctx.db
+            .query("voiceGenerators")
+            .withIndex("by_channel", (q) => q.eq("serverId", serverId))
+            .first())
+            ? ["voice" as const]
+            : []),
         ...((await privateDataRole(ctx, serverId)) !== null ? ["private" as const] : []),
     ]
 }

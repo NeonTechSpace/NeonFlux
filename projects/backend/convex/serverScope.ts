@@ -46,6 +46,9 @@ const nativeFacts = [
     "actorCanManage",
     "actorCanManageChannels",
     "botAuthorized",
+    "rightRoleIds",
+    "actorViewsChannel",
+    "targetRoleIds",
 ]
 
 // The bot names the server of every native read in originServerId or memberOriginServerId.

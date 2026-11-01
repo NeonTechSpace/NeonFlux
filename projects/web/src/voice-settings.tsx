@@ -128,6 +128,17 @@ export function VoiceSettings(props: ConfigSectionProps<"voice"> & { refreshCata
                 Leave the category empty for top-level rooms, the limit empty for no limit and the region empty for
                 automatic routing. {"{owner}"} becomes the room owner's name
             </p>
+            {values.panel !== undefined && (
+                <label>
+                    <input
+                        type="checkbox"
+                        checked={Boolean(values.panel)}
+                        disabled={disabled}
+                        onChange={(event) => edit("panel", event.target.checked)}
+                    />
+                    Post a controls card with reactions in each new room
+                </label>
+            )}
         </>
     )
     return (
@@ -193,6 +204,7 @@ export function VoiceSettings(props: ConfigSectionProps<"voice"> & { refreshCata
                                         template: generator.template,
                                         userLimit: generator.userLimit === null ? "" : String(generator.userLimit),
                                         region: generator.region ?? "",
+                                        panel: generator.panel !== false,
                                     },
                                 }}
                                 operation={(values) => {
@@ -212,6 +224,7 @@ export function VoiceSettings(props: ConfigSectionProps<"voice"> & { refreshCata
                                             template: templateValue(values.template),
                                             userLimit: limitValue(values.userLimit),
                                             region: regionValue(values.region),
+                                            panel: Boolean(values.panel),
                                         },
                                     }
                                 }}

@@ -37,14 +37,24 @@ import { createMemberListStore } from "./memberlist-store.ts"
 import { createPrivateDataStore } from "./private-data.ts"
 import { createTemporaryRoleStore } from "./temprole-store.ts"
 import { createAlertsStore } from "./alerts-store.ts"
+import { createAntiNukeStore } from "./antinuke-store.ts"
+import { createLockdownStore } from "./lockdown-store.ts"
+import { createJailStore } from "./jail-store.ts"
+import { createRightsStore } from "./rights-store.ts"
 import { createHelpDeskStore } from "./helpdesk-store.ts"
 import { createOnboardingStore } from "./onboarding-store.ts"
 import { createPresetStore } from "./preset-store.ts"
 import { createLfgStore } from "./lfg-store.ts"
 import { createYoutubeStore } from "./youtube-store.ts"
 import { createTwitchStore } from "./twitch-store.ts"
+import { createFeedStore } from "./feed-store.ts"
+import { createCounterStore } from "./counter-store.ts"
+import { createBoardStore } from "./board-store.ts"
+import { createReminderStore } from "./remind-store.ts"
+import { createGiveawayStore } from "./giveaway-store.ts"
 import { createShowcaseStore } from "./showcase-store.ts"
 import { createProfileStore } from "./profile-store.ts"
+import { createCommandRulesStore } from "./command-rules-store.ts"
 import { createStructureStore } from "./structure-store.ts"
 
 export class ServerScopeError extends Data.TaggedError("ServerScopeError")<{ readonly message: string }> {}
@@ -121,16 +131,26 @@ function createServerAdapters(config: BotConfig) {
         lfg: createLfgStore(backend),
         showcases: createShowcaseStore(backend),
         profiles: createProfileStore(backend),
+        commandRules: createCommandRulesStore(backend),
         setup: createSetupStore(backend),
         privateData: createPrivateDataStore(backend),
         sticky: createStickyStore(backend),
         sidebar: createSidebarStore(backend),
         memberList: createMemberListStore(backend),
         alerts: createAlertsStore(backend),
+        lockdown: createLockdownStore(backend),
+        antiNuke: createAntiNukeStore(backend),
+        jail: createJailStore(backend),
+        rights: createRightsStore(backend),
         helpDesk: createHelpDeskStore(backend),
         structure: createStructureStore(backend),
         youtube: createYoutubeStore(backend),
         twitch: createTwitchStore(backend),
+        feed: createFeedStore(backend),
+        counters: createCounterStore(backend),
+        boards: createBoardStore(backend),
+        reminders: createReminderStore(backend),
+        giveaways: createGiveawayStore(backend),
     }
 }
 

@@ -89,7 +89,14 @@ export function startMetadataLogsWorker(store: MetadataLogsStore, serverId: stri
         const report = createMetadataOperationReporter(store, serverId)
         const { wake } = yield* startSignalledWorker(
             Effect.suspend(() => processMetadataLogsPass(store, serverId, client, cursor, report)),
-            report("backend-failure"),
+            // A refused cursor would fail every later pass the same way, so the next pass starts a new walk
+            Effect.suspend(() => {
+                cursor = undefined
+                return Effect.andThen(
+                    Effect.logWarning("Metadata log posts could not be checked. The next check starts again"),
+                    report("backend-failure"),
+                )
+            }),
             (result) =>
                 Effect.sync(() => {
                     cursor = result.nextCursor

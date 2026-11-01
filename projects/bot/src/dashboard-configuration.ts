@@ -11,7 +11,7 @@ import { Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Schema } from "effect"
 import { isDeepStrictEqual } from "node:util"
 import type { BotConfig } from "./config.ts"
-import { createBackendRequest } from "./backend-http.ts"
+import { createBackendRequest, refusedReason } from "./backend-http.ts"
 import {
     readChannels,
     readSafetyAuthority,
@@ -37,6 +37,10 @@ import { rolePickerDisplay } from "./rolepicker-store.ts"
 import { prepareSidebarDashboardJob, sidebarJobFix } from "./sidebar-management.ts"
 import { prepareMemberListDashboardJob } from "./memberlist-management.ts"
 import { prepareAlertsDashboardJob } from "./alerts-management.ts"
+import { AntiNukeHandlingError, prepareAntiNukeDashboardJob } from "./antinuke-management.ts"
+import { createAntiNukeStore } from "./antinuke-store.ts"
+import { LockdownHandlingError, prepareLockdownDashboardJob } from "./lockdown-management.ts"
+import { JailDashboardError, prepareJailDashboardJob } from "./jail-management.ts"
 import { ticketPanelIndexes } from "./ticket-panels.ts"
 import { causeFix } from "./permission-fix.ts"
 import { readChannelParent } from "./channel-parents.ts"
@@ -166,7 +170,16 @@ function nativeProof(config: BotConfig, client: Client, job: D.DashboardConfigur
                 return yield* Effect.fail(new DashboardConfigurationError({ stage: "reference" }))
             references.push({ id: channelId, type: "channel", serverId, exists: true })
         }
-        const authority = yield* readSafetyAuthority(client, serverId, job.actorId)
+        // A lockdown needs what !lockdown needs of the same member, so the website promises no more than chat allows
+        const lockdownFamily = job.family === "lockdown"
+        const authority = yield* readSafetyAuthority(
+            client,
+            serverId,
+            job.actorId,
+            lockdownFamily ? { permission: Permissions.ManageRoles } : {},
+        )
+        if (lockdownFamily && !authority.nativePermissionAuthorized)
+            return yield* Effect.fail(new LockdownHandlingError({ problem: "A lockdown needs Manage roles" }))
         yield* readDashboardHumanIdentity(client, job.actorId)
         const self = yield* readNativeAccount(client)
         if (self?.id !== authority.botId || !nativeBotAccount(self))
@@ -214,21 +227,28 @@ const nativeFirst = (job: D.DashboardConfigurationReadyJob) =>
     job.family === "voice" ||
     job.family === "sidebar" ||
     job.family === "memberlist" ||
-    (job.family === "alerts" && job.operation.type === "invite-revoke")
+    (job.family === "alerts" && job.operation.type === "invite-revoke") ||
+    (job.family === "antinuke" && job.operation.type === "restore") ||
+    (job.family === "jail" && job.operation.type === "setup")
 
 /** The fix a failed job reports when the bot knows it */
 const tagFix = (cause: Cause.Cause<unknown>) =>
     causeFix(cause, undefined, (error) =>
         error instanceof DashboardConfigurationError && error.stage === "owner-admin"
             ? "Only the server owner or an Administrator can make this change"
-            : error instanceof SuggestionTagError
-              ? error.fix.replace(/<#\d+>/g, "the forum")
-              : sidebarJobFix(error),
+            : error instanceof JailDashboardError ||
+                error instanceof AntiNukeHandlingError ||
+                error instanceof LockdownHandlingError
+              ? error.problem
+              : error instanceof SuggestionTagError
+                ? error.fix.replace(/<#\d+>/g, "the forum")
+                : (sidebarJobFix(error) ?? refusedReason(error as { code?: string; reason?: string })),
     )
 export function processDashboardConfigurationPass(config: BotConfig, client: Client, publishing?: PublishingStore) {
     return Effect.gen(function* () {
-        if (!config.backend) return
-        const request = createBackendRequest(config.backend),
+        const backend = config.backend
+        if (!backend) return
+        const request = createBackendRequest(backend),
             serverId = config.serverId
         const ready = yield* request("/dashboard-configuration/ready", { serverId }).pipe(
             Effect.flatMap(
@@ -261,7 +281,16 @@ export function processDashboardConfigurationPass(config: BotConfig, client: Cli
                 // The member-list order lives only in Fluxer, so it is applied before the backend records the change
                 yield* prepareMemberListDashboardJob(client, serverId, job)
                 const alerts = yield* prepareAlertsDashboardJob(client, serverId, job)
-                const native = voice ?? sidebar ?? alerts
+                const lockdown = yield* prepareLockdownDashboardJob(client, serverId, job)
+                const antiNuke = yield* prepareAntiNukeDashboardJob(
+                    client,
+                    serverId,
+                    job,
+                    createAntiNukeStore(backend),
+                    input.actor,
+                )
+                const jail = yield* prepareJailDashboardJob(client, serverId, job)
+                const native = voice ?? sidebar ?? alerts ?? lockdown ?? antiNuke ?? jail
                 const result = yield* request(
                     "/dashboard-configuration/execute",
                     native?.context ? { ...input, context: native.context } : input,

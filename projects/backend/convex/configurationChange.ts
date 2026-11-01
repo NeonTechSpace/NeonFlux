@@ -5,6 +5,7 @@ import type { AuditActor } from "./validation.ts"
 import { bumpConfigurationRevision } from "./configurationRevision.ts"
 import { configurationData, type AuditFocus } from "./configurationSnapshot.ts"
 import { eventSettings } from "./eventsStore.ts"
+import { giveawaySettingsRow } from "./giveawaysStore.ts"
 import { scheduleSettings } from "./schedulesStore.ts"
 
 export type ConfigurationChange = {
@@ -47,6 +48,11 @@ async function auditFocus(
             return op.type === "create"
                 ? { schedules: [(await scheduleSettings(ctx, serverId))?.nextScheduleNo ?? 1] }
                 : {}
+        case "giveaways":
+            if (typeof op.giveawayNo === "number") return { giveaways: [op.giveawayNo] }
+            return {
+                giveaways: op.type === "start" ? [(await giveawaySettingsRow(ctx, serverId))?.nextGiveawayNo ?? 1] : [],
+            }
         case "tickets": {
             // A settings change names no category, so it reads none
             const name = text(op.name) ?? text(op.categoryName)

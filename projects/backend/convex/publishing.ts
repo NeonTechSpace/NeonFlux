@@ -55,6 +55,9 @@ import { dashboardMessagePublishingFence } from "./dashboardMessages.ts"
 import { protectedShowcasePost, showcasePublishingFence } from "./showcases.ts"
 import { syncYoutubePublishing, youtubePublishingFence } from "./youtubeStore.ts"
 import { syncTwitchPublishing, twitchPublishingFence } from "./twitchStore.ts"
+import { syncFeedPublishing, feedPublishingFence } from "./feedStore.ts"
+import { syncGiveawayPublishing, giveawayPublishingFence } from "./giveawaysStore.ts"
+import { syncBoardPublishing, boardPublishingFence } from "./boardsStore.ts"
 import { ringWork } from "./workSignal.ts"
 
 // Retained posts and attempts protect exact native IDs even for disabled consumers
@@ -256,6 +259,13 @@ export async function reservePublishing(
                 existing.consumer.cardGeneration !== input.consumer.cardGeneration
             )
                 fail(409, "Publishing suggestion consumer changed")
+        } else if (existing.consumer?.type === "board") {
+            if (
+                input.consumer?.type !== "board" ||
+                existing.consumer.boardId !== input.consumer.boardId ||
+                existing.consumer.messageId !== input.consumer.messageId
+            )
+                fail(409, "Publishing board consumer changed")
         } else if (
             existing.consumer &&
             (existing.consumer.type !== "event" ||
@@ -390,6 +400,9 @@ async function syncPublishing(
     else if (attempt.consumer?.type === "suggestion-card") await syncSuggestionPublishing(ctx, attempt, outcome)
     else if (attempt.consumer?.type === "youtube") await syncYoutubePublishing(ctx, attempt, outcome)
     else if (attempt.consumer?.type === "twitch") await syncTwitchPublishing(ctx, attempt, outcome)
+    else if (attempt.consumer?.type === "feed") await syncFeedPublishing(ctx, attempt, outcome)
+    else if (attempt.consumer?.type === "giveaway") await syncGiveawayPublishing(ctx, attempt, outcome)
+    else if (attempt.consumer?.type === "board") await syncBoardPublishing(ctx, attempt, outcome)
     if (outcome === "sent") await syncPanelPost(ctx, attempt)
 }
 // A confirmed edit of a reaction panel's posted message becomes the panel's posted text
@@ -642,6 +655,12 @@ export const dispatch = serviceMutation({
             fail(400, "Unexpected YouTube context")
         if ((attempt.consumer?.type === "twitch") !== (input.twitchContext !== undefined))
             fail(400, "Unexpected Twitch context")
+        if ((attempt.consumer?.type === "feed") !== (input.feedContext !== undefined))
+            fail(400, "Unexpected feed context")
+        if ((attempt.consumer?.type === "board") !== (input.boardContext !== undefined))
+            fail(400, "Unexpected board context")
+        if ((attempt.consumer?.type === "giveaway") !== (input.giveawayContext !== undefined))
+            fail(400, "Unexpected giveaway context")
         if (attempt.consumer?.type === "youtube") {
             if (
                 input.eventContext !== undefined ||
@@ -661,6 +680,36 @@ export const dispatch = serviceMutation({
             )
                 fail(400, "Unexpected publishing context")
             if (attempt.outcome !== "pending" || !(await twitchPublishingFence(ctx, attempt, input.twitchContext)))
+                return { claimed: false, ...response }
+        } else if (attempt.consumer?.type === "feed") {
+            if (
+                input.eventContext !== undefined ||
+                input.scheduleContext !== undefined ||
+                input.milestoneContext !== undefined ||
+                input.suggestionContext !== undefined
+            )
+                fail(400, "Unexpected publishing context")
+            if (attempt.outcome !== "pending" || !(await feedPublishingFence(ctx, attempt, input.feedContext)))
+                return { claimed: false, ...response }
+        } else if (attempt.consumer?.type === "board") {
+            if (
+                input.eventContext !== undefined ||
+                input.scheduleContext !== undefined ||
+                input.milestoneContext !== undefined ||
+                input.suggestionContext !== undefined
+            )
+                fail(400, "Unexpected publishing context")
+            if (attempt.outcome !== "pending" || !(await boardPublishingFence(ctx, attempt, input.boardContext)))
+                return { claimed: false, ...response }
+        } else if (attempt.consumer?.type === "giveaway") {
+            if (
+                input.eventContext !== undefined ||
+                input.scheduleContext !== undefined ||
+                input.milestoneContext !== undefined ||
+                input.suggestionContext !== undefined
+            )
+                fail(400, "Unexpected publishing context")
+            if (attempt.outcome !== "pending" || !(await giveawayPublishingFence(ctx, attempt, input.giveawayContext)))
                 return { claimed: false, ...response }
         } else if (attempt.consumer?.type === "suggestion-card") {
             if (
@@ -879,6 +928,10 @@ export async function reconcilePublishing(
                 })
                 await syncPanelPost(ctx, attempt)
             }
+            // A card read back after an unknown outcome lets its giveaway go on
+            if (intended) await syncGiveawayPublishing(ctx, attempt, "sent")
+            // A board post read back after an unknown outcome stands, or its edit is settled, so its record stays right and it is never posted twice
+            await syncBoardPublishing(ctx, attempt, "sent")
         } else if (attempt.resolution)
             await ctx.db.patch(attempt._id, { unresolved: true, resolution: undefined, expiresAt: undefined })
     }

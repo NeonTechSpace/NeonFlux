@@ -143,7 +143,7 @@ test("Generator settings keep the exact revision and only rename when the name c
         type: "generator-set",
         channelId: "501",
         expectedRevision: 3,
-        patch: { categoryId: "789", template: "Room of {owner}", userLimit: null, region: null },
+        patch: { categoryId: "789", template: "Room of {owner}", userLimit: null, region: null, panel: true },
     })
     cleanup()
     const renamed = setup({ generators: [generator], rooms: 2 }),
@@ -155,8 +155,25 @@ test("Generator settings keep the exact revision and only rename when the name c
         type: "generator-set",
         channelId: "501",
         expectedRevision: 3,
-        patch: { channelName: "Gaming", categoryId: "789", template: "{owner}'s room", userLimit: 12, region: null },
+        patch: {
+            channelName: "Gaming",
+            categoryId: "789",
+            template: "{owner}'s room",
+            userLimit: 12,
+            region: null,
+            panel: true,
+        },
     })
+    cleanup()
+    // The card can be turned off, and the add form has no such choice since new generators start with it on
+    const panel = setup({ generators: [{ ...generator, panel: false }], rooms: 0 }),
+        card = section(panel.ui, "Generator Join to create")
+    const box = card.getByLabelText(/Post a controls card/) as HTMLInputElement
+    assert.equal(box.checked, false)
+    assert.equal(section(panel.ui, "Add generator").queryByLabelText(/Post a controls card/) === null, true)
+    fireEvent.click(box)
+    await submit(card)
+    assert.deepEqual((panel.calls[0]?.operation as { patch: { panel: boolean } }).patch.panel, true)
 })
 
 test("Invalid templates never reach the queue, and a generator is removed on the first click", async () => {

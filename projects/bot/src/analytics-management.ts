@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { parseStatsCommand, statsHelp } from "./analytics-command.ts"
 import type { AnalyticsStore } from "./analytics-store.ts"
 import type { AnalyticsRecorder } from "./analytics-worker.ts"
-import { readServerManagerAuthority, replyPrefix, withPrefix } from "./general-settings.ts"
+import { managerReadFailed, readServerManagerAuthority, replyPrefix, withPrefix } from "./general-settings.ts"
 import { at, code, notSetUp, replyCard, type Card } from "./reply-style.ts"
 
 const number = (value: number) => value.toLocaleString("en-US")
@@ -65,8 +65,13 @@ export function handleStatsCommand(
             yield* respond(withPrefix(statsHelp, prefix))
             return
         }
-        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) {
-            yield* respond("Only the server owner or members with Manage community can use stats")
+        const manager = yield* readServerManagerAuthority(context.client, serverId, context.message.author.id)
+        if (!manager) {
+            yield* respond(
+                manager === undefined
+                    ? managerReadFailed
+                    : "Only the server owner or members with Manage community can use stats",
+            )
             return
         }
         if (command.type === "toggle") {

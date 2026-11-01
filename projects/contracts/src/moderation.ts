@@ -15,6 +15,7 @@ import {
     isId,
     origin,
 } from "./common.ts"
+import { BotRight } from "./rights.ts"
 import { ModerationActor, ModerationSource } from "./shared.ts"
 
 // Moderation, automod, security and DEFCON, see docs/BOT.md#moderation-protections-defcon-and-appeals
@@ -44,11 +45,14 @@ const UtcTime = Schema.String.check(
             /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value) && Number.isFinite(Date.parse(value)),
     ),
 )
-/** A case's source: the message that asked for it, join:<member>:<joined at> for a join, or warnings:<case> for the warning that reached the warning limit */
+/** A case's source: the message that asked for it, join:<member>:<joined at> for a join, warnings:<case> for the warning that reached the warning limit, or jail:<case> for the jail whose length ended */
 const SourceId = Schema.String.check(
     Schema.makeFilter(
         (value: string) =>
-            isId(value) || /^join:[1-9]\d{0,18}:\d{1,16}$/.test(value) || /^warnings:[1-9]\d{0,15}$/.test(value),
+            isId(value) ||
+            /^join:[1-9]\d{0,18}:\d{1,16}$/.test(value) ||
+            /^warnings:[1-9]\d{0,15}$/.test(value) ||
+            /^jail:[1-9]\d{0,15}$/.test(value),
     ),
 )
 const Slowmode = Int(0, 21600)
@@ -79,6 +83,8 @@ export const ModerationActionType = Schema.Literals([
     "unlock",
     "quarantine",
     "release",
+    "jail",
+    "unjail",
 ])
 export type ModerationActionType = typeof ModerationActionType.Type
 export const ModerationActionContext = Schema.Struct({
@@ -92,12 +98,18 @@ export const ModerationActionContext = Schema.Struct({
     currentOverwrite: Schema.optionalKey(PermissionOverwriteSnapshot),
     recoveryGeneration: Schema.optionalKey(Int(1)),
     currentSlowmodeSeconds: Schema.optionalKey(Slowmode),
-    botAuthorizedActions: Schema.optionalKey(List(ModerationActionType, 15)),
+    botAuthorizedActions: Schema.optionalKey(List(ModerationActionType, 16)),
     /** Decimal SendMessages and thread permission bits the bot holds server-wide. A lock owns SendMessages and only these thread bits,
      * because Fluxer lets a bot stop denying only permissions it holds. Absent means SendMessages only */
     botPostingPermissions: Schema.optionalKey(Bits),
     /** The target is a bot account, which gets no member notice */
     targetBot: Schema.optionalKey(Schema.Literal(true)),
+    /** The roles a member to jail holds now, which the jail stores before it replaces them */
+    targetRoleIds: Schema.optionalKey(Ids(1000)),
+    /** For an actor without the real permission: Their roles that rank below NeonFlux. A right counts only through one of these */
+    rightRoleIds: Schema.optionalKey(Ids(1000)),
+    /** For an actor without the real permission: They can view the channel the action names */
+    actorViewsChannel: Schema.optionalKey(Schema.Literal(true)),
 })
 export type ModerationActionContext = typeof ModerationActionContext.Type
 /** A ban lasts 60 seconds to two years, other durations one second to a year. The reason is optional and stored as empty text when left out */
@@ -257,6 +269,8 @@ export const ProviderObservation = Schema.Struct({
     memberPresent: Schema.optionalKey(Schema.Boolean),
     overwrite: Schema.optionalKey(PermissionOverwriteSnapshot),
     slowmodeSeconds: Schema.optionalKey(Slowmode),
+    /** The member's roles, which settle an uncertain jail or unjail. They are evidence for that check and are not kept */
+    roleIds: Schema.optionalKey(Ids(1000)),
 })
 export type ProviderObservation = typeof ProviderObservation.Type
 const Delivery = Schema.Literals(["none", "pending", "sent", "failed", "uncertain"])
@@ -265,8 +279,8 @@ export const ModerationCase = Schema.Struct({
     actionId: Token,
     sourceId: SourceId,
     action: ModerationActionType,
-    /** penalty is a case the warning limit opened by itself */
-    origin: Schema.Literals(["manual", "automod", "security", "penalty"]),
+    /** penalty is a case the warning limit opened by itself, and jail one a jail's end opened */
+    origin: Schema.Literals(["manual", "automod", "security", "penalty", "jail"]),
     incident: Schema.optionalKey(SecurityIncidentKind),
     actorId: Schema.optionalKey(Id),
     targetId: Schema.optionalKey(Id),
@@ -284,6 +298,8 @@ export const ModerationCase = Schema.Struct({
     /** How many times staff changed the reason or voided the case. case-history pages them */
     correctionCount: Int(),
     observation: Schema.optionalKey(ProviderObservation),
+    /** The actor had no real permission for this and acted through this bot-only right */
+    viaRight: Schema.optionalKey(BotRight),
 })
 export type ModerationCase = typeof ModerationCase.Type
 export const ModerationCorrection = Schema.Struct({
@@ -323,6 +339,14 @@ export const ModerationActionGrant = Schema.Struct({
         ),
     ),
     recoveryId: Schema.optionalKey(Token),
+    /** The backend let the actor act through this right, from the roles that held it. The bot reads the actor once more before it acts */
+    viaRight: Schema.optionalKey(BotRight),
+    rightRoleIds: Schema.optionalKey(Ids(1000)),
+    /** A first jail: The one role the member ends up with, and the roles they must hold now. A later jail of the same member carries neither and writes nothing */
+    jailRoleId: Schema.optionalKey(Id),
+    expectedRoleIds: Schema.optionalKey(Ids(1000)),
+    /** An unjail: The stored roles. The bot leaves out those deleted meanwhile or ranked above NeonFlux, and names them */
+    restoreRoleIds: Schema.optionalKey(Ids(1000)),
 })
 export type ModerationActionGrant = typeof ModerationActionGrant.Type
 export const StaffLogGrant = Schema.Struct({
@@ -393,6 +417,13 @@ export const ModerationManageResult = Schema.Union([
     managed({ type: Schema.Literal("watchlist-removed"), userId: Id }),
     managed({ type: Schema.Literal("erased"), cases: Int(), appeals: Int() }),
     managed({ type: Schema.Literal("private-role"), roleId: Schema.NullOr(Id) }),
+    /** A bot-only right went over a limit, so nothing was done. Going over the member's own limit also suspends their rights */
+    managed({
+        type: Schema.Literal("right-refused"),
+        reason: Schema.Literals(["limit", "ceiling"]),
+        right: BotRight,
+        admitted: Schema.Boolean,
+    }),
 ])
 export type ModerationManageResult = typeof ModerationManageResult.Type
 export const ModerationQueryOperation = Schema.Union([
@@ -411,6 +442,8 @@ export const ModerationQueryOperation = Schema.Union([
     op("recovery-target", { targetId: Id }),
     op("recovery-channel", { channelId: Id }),
     op("recovery-case", caseNo),
+    /** The roles a jailed member would get back, so the bot can check the actor outranks them before an unjail */
+    op("jail-record", { targetId: Id }),
 ])
 export type ModerationQueryOperation = typeof ModerationQueryOperation.Type
 export const ModerationQueryRequest = Schema.Struct({
@@ -423,6 +456,9 @@ export const ModerationQueryRequest = Schema.Struct({
      * there only when each is a staff role of the read
      */
     staffChannelRoleIds: Schema.optionalKey(UniqueRoleIds),
+    /** The same reads as an action's context, for the one read a reversal through a bot-only right needs first */
+    rightRoleIds: Schema.optionalKey(Ids(1000)),
+    actorViewsChannel: Schema.optionalKey(Schema.Literal(true)),
     operation: ModerationQueryOperation,
 })
 export type ModerationQueryRequest = typeof ModerationQueryRequest.Type
@@ -463,6 +499,7 @@ export const ModerationQueryResult = Schema.Union([
         nextAfter: Schema.optionalKey(Schema.Finite),
     }),
     Schema.Struct({ type: Schema.Literal("recovery"), recovery: SecurityRecovery }),
+    Schema.Struct({ type: Schema.Literal("jail-record"), roleIds: Ids(1000) }),
 ])
 export type ModerationQueryResult = typeof ModerationQueryResult.Type
 const gateFields = { actor: ModerationActor, command: Schema.Literals(["public", "staff", "critical", "appeal"]) }
@@ -574,7 +611,7 @@ export const ModerationNoticeGrant = Schema.Struct({
     noticeId: Token,
     caseNo: Int(1),
     targetId: Id,
-    action: Schema.Literals(["warn", "timeout", "kick", "ban"]),
+    action: Schema.Literals(["warn", "timeout", "kick", "ban", "jail", "unjail"]),
     reason: Str(512),
     durationSeconds: Schema.optionalKey(Int(1, 63072000)),
     timeoutUntil: Schema.optionalKey(UtcTime),
@@ -585,6 +622,8 @@ export type ModerationNoticeGrant = typeof ModerationNoticeGrant.Type
 export const ModerationDispatchResult = Schema.Struct({
     recorded: Schema.Boolean,
     notice: Schema.optionalKey(ModerationNoticeGrant),
+    /** The bot-only right this grant relied on was turned off, revoked or suspended since it was reserved, so nothing may be sent */
+    rightWithdrawn: Schema.optionalKey(Schema.Literal(true)),
 })
 export type ModerationDispatchResult = typeof ModerationDispatchResult.Type
 export const ModerationOutcomeResult = Schema.Struct({
@@ -593,6 +632,8 @@ export const ModerationOutcomeResult = Schema.Struct({
     notice: Schema.optionalKey(ModerationNoticeGrant),
     /** This warning reached the server's warning limit, so the bot reads the member fresh and sends a warning penalty request */
     warningPenaltyDue: Schema.optionalKey(Schema.Literal(true)),
+    /** A dispatch claim's answer, see ModerationDispatchResult */
+    rightWithdrawn: Schema.optionalKey(Schema.Literal(true)),
 })
 export type ModerationOutcomeResult = typeof ModerationOutcomeResult.Type
 /** The bot's fresh read of a member whose warning reached the limit. The backend counts again, so a repeated request or a later warning finds nothing due */
@@ -634,7 +675,12 @@ export const ModerationReconcileRequest = Schema.Struct({
     observation: ProviderObservation,
 })
 export type ModerationReconcileRequest = typeof ModerationReconcileRequest.Type
-export const ModerationReconcileResult = Schema.Struct({ recorded: Schema.Boolean, case: ModerationCase })
+/** jailHeld says, for a jail or unjail case, whether the bot should now hold the member as jailed */
+export const ModerationReconcileResult = Schema.Struct({
+    recorded: Schema.Boolean,
+    case: ModerationCase,
+    jailHeld: Schema.optionalKey(Schema.Boolean),
+})
 export type ModerationReconcileResult = typeof ModerationReconcileResult.Type
 export const ModerationObserveRequest = Schema.Struct({ serverId: Id })
 export type ModerationObserveRequest = typeof ModerationObserveRequest.Type

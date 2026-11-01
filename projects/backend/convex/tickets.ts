@@ -24,6 +24,7 @@ import {
 } from "@neonflux/contracts/tickets"
 import type { Doc } from "./_generated/dataModel.js"
 import type { QueryCtx, MutationCtx } from "./_generated/server.js"
+import { jailHolds } from "./jailStore.ts"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
 import { internal } from "./_generated/api.js"
 import { releaseUnknownCreateSlot } from "./ticketLifecycle.ts"
@@ -60,6 +61,7 @@ import {
     checkTicketGeneration,
     ownedChannelMatches,
     rejectExtraSend,
+    refuseJailedPublicTicket,
     rejectTicketAudience,
     reserveTicket,
     ticketAttemptBlocks,
@@ -424,6 +426,12 @@ export const manage = serviceMutation({
         if (op.type === "reopen") {
             enabled(state)
             aliveBodies(ticket)
+            // Reopening gives the requester back their member overwrite, which beats the jail role
+            if (
+                ticket.category.visibility !== "private" &&
+                (await jailHolds(ctx, identity.serverId, ticket.requesterId))
+            )
+                fail(409, "A public ticket stays closed while its requester is jailed", "REFUSED")
         }
         if (ticket.transition && ticket.transition !== op.type) fail(409, "Ticket transition incomplete")
         if (!ticket.transition) {
@@ -489,6 +497,7 @@ export const intake = serviceMutation({
             if (!category.enabled) fail(409, "That ticket category is off. Staff can turn it on", "REFUSED")
             if (category.revision !== op.expectedCategoryRevision)
                 fail(409, "That ticket category just changed. Open the ticket again", "REFUSED")
+            await refuseJailedPublicTicket(ctx, identity.serverId, context.actor.userId, category.visibility)
             const own = await ctx.db
                 .query("ticketIntakes")
                 .withIndex("by_user_live", (q) =>
@@ -563,6 +572,7 @@ export const intake = serviceMutation({
                 "This ticket category changed or was turned off. Cancel this request and open a new ticket",
                 "REFUSED",
             )
+        await refuseJailedPublicTicket(ctx, identity.serverId, context.actor.userId, draft.category.visibility)
         if (op.visibility !== draft.category.visibility)
             fail(
                 409,

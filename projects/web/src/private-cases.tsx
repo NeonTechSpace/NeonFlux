@@ -2,6 +2,7 @@ import type { Appeal } from "@neonflux/contracts/appeal"
 import type { ModerationCase } from "@neonflux/contracts/moderation"
 import type { DashboardPrivateResult, DashboardPrivateView } from "@neonflux/backend/dashboard-contracts"
 import { useEffect, useState } from "react"
+import { AntiNukeIncidents } from "./antinuke-incidents"
 import { dashboardApi } from "./dashboard-api"
 import type { SectionProps } from "./dashboard-sections"
 import { useLiveQuery } from "./live-query"
@@ -23,6 +24,8 @@ function reversal(row: ModerationCase) {
             return `!mod untimeout ${member} case ${row.caseNo}`
         case "quarantine":
             return `!security release ${member} case ${row.caseNo}`
+        case "jail":
+            return `!mod unjail ${member} case ${row.caseNo}`
         case "warn":
             return `!mod void ${row.caseNo}`
         default:
@@ -95,6 +98,8 @@ export function PrivateCasesSection({
         }
     }, [Boolean(access.data), JSON.stringify(view), answerKey, attempt])
     const open = (next: DashboardPrivateView) => {
+        // The view already open has nothing to load and no step to go back to
+        if (JSON.stringify(next) === JSON.stringify(view)) return
         setTrail([...trail, view])
         setResult(undefined)
         setView(next)
@@ -107,6 +112,8 @@ export function PrivateCasesSection({
     const top = (next: DashboardPrivateView) => {
         setTrail([])
         setResult(undefined)
+        // The same view again changes nothing the load follows, so it asks to load again
+        if (JSON.stringify(next) === JSON.stringify(view)) setAttempt(attempt + 1)
         setView(next)
     }
     const memberValid = /^[1-9]\d{0,18}$/.test(member)
@@ -195,12 +202,15 @@ export function PrivateCasesSection({
                     <button type="button" className="secondary" onClick={() => top({ type: "open-appeals" })}>
                         Waiting appeals
                     </button>
+                    <button type="button" className="secondary" onClick={() => top({ type: "incidents" })}>
+                        Anti-nuke incidents
+                    </button>
                 </div>
             </div>
             <p className="muted">
-                Moderation cases, appeals and member history. Only the server owner and members with the private data
-                role can view them. NeonFlux checks your roles with Fluxer before you view them, at most every two
-                minutes, and the audit log records every view
+                Moderation cases, appeals, member history and anti-nuke incidents. Only the server owner and members
+                with the private data role can view them. NeonFlux checks your roles with Fluxer before you view them,
+                at most every two minutes, and the audit log records every view
             </p>
             <form
                 className="inline-field"
@@ -255,6 +265,15 @@ export function PrivateCasesSection({
             {data?.type === "appeals" && appealRows(data.appeals)}
             {data?.type === "open-appeals" &&
                 (data.appeals.length ? appealRows(data.appeals) : <p className="muted">No appeals wait for review</p>)}
+            {data?.type === "incidents" && (
+                <AntiNukeIncidents
+                    client={client}
+                    sessionToken={sessionToken}
+                    serverId={serverId}
+                    incidents={data.incidents}
+                    changed={() => setAttempt(attempt + 1)}
+                />
+            )}
             {data?.type === "history" && (
                 <>
                     <h3>Member {data.userId}</h3>
@@ -312,6 +331,15 @@ export function PrivateCasesSection({
                         onClick={() => open({ type: "cases", beforeCaseNo: data.nextBeforeCaseNo! })}
                     >
                         Older cases
+                    </button>
+                )}
+                {data?.type === "incidents" && data.nextBeforeIncidentNo && (
+                    <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => open({ type: "incidents", beforeIncidentNo: data.nextBeforeIncidentNo! })}
+                    >
+                        Older incidents
                     </button>
                 )}
                 {data?.type === "history" && data.nextBeforeCaseNo && (

@@ -5,7 +5,11 @@ import { PublishingAttempt, PublishingContent, PublishingGrant } from "./publish
 import { civilIntent } from "./civil.ts"
 import { DashboardPublishingContext, PublishingConfigurationOperation } from "./publishing.ts"
 import { AlertsDashboardContext, AlertsDashboardOperation } from "./alerts.ts"
+import { AntiNukeDashboardContext, AntiNukeDashboardOperation } from "./anti-nuke.ts"
+import { JailDashboardContext, JailDashboardOperation } from "./jail.ts"
+import { LockdownDashboardContext, LockdownDashboardOperation } from "./lockdown.ts"
 import { CleanupContext, CleanupManageOperation, CleanupPolicyDeleteOperation } from "./cleanup.ts"
+import { CommandRuleOperation } from "./command-rules.ts"
 import {
     EventsCalendar,
     EventsConfigurationOperation,
@@ -27,6 +31,7 @@ import { OnboardingOperation } from "./onboarding.ts"
 import { PresetName } from "./presets.ts"
 import { ProfileOperation } from "./profiles.ts"
 import { ResponseAutoOperation, ResponseAutoSave, ResponseCustomOperation, ResponseCustomSave } from "./responses.ts"
+import { RightsOperation } from "./rights.ts"
 import { RolePickerManageRequest, RolePickerOperation } from "./role-picker.ts"
 import { RolesManageOperation, RolesManageResult, RolesMappingsInput } from "./roles.ts"
 import { SchedulesCalendar, SchedulesContext, SchedulesManageOperation } from "./schedules.ts"
@@ -39,6 +44,11 @@ import { TicketConfigurationOperation, TicketContext, TicketPanel } from "./tick
 import { VoiceDashboardContext, VoiceManageOperation } from "./voice.ts"
 import { YoutubeOperation } from "./youtube.ts"
 import { TwitchOperation } from "./twitch.ts"
+import { CounterOperation } from "./counters.ts"
+import { BoardOperation } from "./boards.ts"
+import { FeedOperation } from "./feeds.ts"
+import { ReminderSettingsPatch } from "./reminders.ts"
+import { GiveawayOperation } from "./giveaways.ts"
 
 // Website jobs the bot carries out with fresh native evidence: configuration changes, messages, role panels and logging settings,
 // see docs/BACKEND.md#dashboard-and-web-verification. Configuration jobs reuse each family's chat operations wherever the website makes the same change
@@ -92,6 +102,16 @@ export const DashboardConfigurationFamily = Schema.Literals([
     "profile",
     "youtube",
     "twitch",
+    "lockdown",
+    "antinuke",
+    "jail",
+    "rights",
+    "counters",
+    "feeds",
+    "boards",
+    "reminders",
+    "giveaways",
+    "commandrules",
 ])
 export type DashboardConfigurationFamily = typeof DashboardConfigurationFamily.Type
 /** A calendar as the website asks for it. The bot resolves its dates when it carries out the job */
@@ -236,6 +256,16 @@ export const DashboardConfigurationOperationMap = {
     profile: Schema.Union([ProfileOperation.members[0], accessSet]),
     youtube: YoutubeOperation,
     twitch: TwitchOperation,
+    lockdown: LockdownDashboardOperation,
+    antinuke: AntiNukeDashboardOperation,
+    jail: JailDashboardOperation,
+    rights: RightsOperation,
+    counters: CounterOperation,
+    feeds: FeedOperation,
+    boards: BoardOperation,
+    reminders: op("settings", { patch: ReminderSettingsPatch }),
+    giveaways: GiveawayOperation,
+    commandrules: CommandRuleOperation,
 } satisfies Record<DashboardConfigurationFamily, Schema.Top>
 export type DashboardConfigurationOperationMap = {
     [K in DashboardConfigurationFamily]: (typeof DashboardConfigurationOperationMap)[K]["Type"]
@@ -312,7 +342,15 @@ export type DashboardConfigurationExecuteRequest = Schema.Struct.Type<typeof exe
 export const DashboardConfigurationExecuteInput = Schema.Struct({
     ...executeFields,
     context: optional(
-        Schema.Union([...proofs, VoiceDashboardContext, SidebarDashboardContext, AlertsDashboardContext]),
+        Schema.Union([
+            ...proofs,
+            VoiceDashboardContext,
+            SidebarDashboardContext,
+            AlertsDashboardContext,
+            LockdownDashboardContext,
+            AntiNukeDashboardContext,
+            JailDashboardContext,
+        ]),
     ),
 })
 export type DashboardConfigurationExecuteInput = typeof DashboardConfigurationExecuteInput.Type

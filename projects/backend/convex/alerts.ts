@@ -159,6 +159,7 @@ async function recordAction(ctx: MutationCtx, row: Doc<"alertActions">, outcome:
         changedFields: [alertActions[row.action].record, outcome, ...(row.permissions ?? [])],
         count: 1,
         outcome: "observed",
+        ...(row.targetName ? { details: { webhookName: row.targetName } } : {}),
     }
     return (await admitMetadata(ctx, row.serverId, metadataEvent(event, true))).admitted
 }
@@ -193,6 +194,7 @@ export const claimAction = serviceMutation({
             key: input.key,
             action: input.action,
             targetId: input.targetId,
+            ...(input.targetName ? { targetName: input.targetName } : {}),
             ...(input.permissions ? { permissions: input.permissions } : {}),
             outcome: "pending",
             createdAt: now,

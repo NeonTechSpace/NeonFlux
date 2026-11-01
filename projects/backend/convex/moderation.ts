@@ -41,6 +41,7 @@ import {
     BATCH,
     CORRECTION_BATCH,
     gateFor,
+    privateRead,
     DAY,
     lockMask,
     retentionUntil,
@@ -69,9 +70,11 @@ import { protectedStaffRoles } from "./rolesStore.ts"
 import { metadataCoreReceipt, metadataSettingsEvent } from "./metadataLogsStore.ts"
 import { metadataChangedFields } from "./metadataLogsDomain.ts"
 import { ringWork } from "./workSignal.ts"
+import { jailHolds, readJailRecord, readJailSettings, settleJail } from "./jailStore.ts"
+import { rightFor, RIGHTS_SUSPENDED, rightStillStands, spendRight } from "./rightsStore.ts"
 
 function criticalOperation(op: ModerationManageOperation) {
-    if (op.type === "action") return ["release", "unlock", "untimeout", "unban"].includes(op.action.type)
+    if (op.type === "action") return ["release", "unlock", "untimeout", "unban", "unjail"].includes(op.action.type)
     // Lowering DEFCON or switching protections off stays available in a lockdown
     const switches = [
         "manualModerationEnabled",
@@ -99,26 +102,14 @@ function scopeFor(type: string): StaffClass {
             ? "cases"
             : "moderation"
 }
-// Case and watchlist reads answer in a DM the bot verified, or in a server channel it read fresh that only Administrators and
-// staff roles of this read can view, so the answer never reaches a member the backend would refuse it
-function privateRead(
-    input: { privateChannelVerified?: boolean; staffChannelRoleIds?: readonly string[] },
-    settings: ModerationSettings,
-    scope: StaffClass,
-) {
-    if (
-        input.privateChannelVerified !== true &&
-        !input.staffChannelRoleIds?.every((id) => settings.staffRoleIds[scope].includes(id))
-    )
-        fail(403, "Private or staff channel required")
-}
 /** The member's notice of a warning, timeout, kick or ban, marked pending so it is sent at most once. Bot accounts get none */
 async function memberNotice(
     ctx: MutationCtx,
     row: Doc<"moderationCases">,
     timeoutUntil?: string | null,
 ): Promise<ModerationNoticeGrant | undefined> {
-    if (!row.targetId || row.targetBot || !["warn", "timeout", "kick", "ban"].includes(row.action)) return undefined
+    if (!row.targetId || row.targetBot || !["warn", "timeout", "kick", "ban", "jail", "unjail"].includes(row.action))
+        return undefined
     await ctx.db.patch(row._id, { notificationOutcome: "pending" })
     const settings = config(await readSettings(ctx, row.serverId))
     return {
@@ -129,7 +120,8 @@ async function memberNotice(
         reason: row.reason,
         ...(row.grant?.durationSeconds ? { durationSeconds: row.grant.durationSeconds } : {}),
         ...(timeoutUntil ? { timeoutUntil } : {}),
-        appeals: settings.appealsEnabled,
+        // A release has nothing to appeal
+        appeals: settings.appealsEnabled && row.action !== "unjail",
     }
 }
 function recoveryScope(row: { origin: string; action: string }): StaffClass {
@@ -144,12 +136,18 @@ export const manage = serviceMutation({
         const input = decode(ModerationManageRequest, request)
         const now = Date.now()
         const identity = source(input, now)
-        const who = actor(input.actor)
+        const read = actor(input.actor)
         const op = input.operation
         const type = op.type
         const current = await state(ctx, identity.serverId)
         const settings = config(current)
         const critical = criticalOperation(op)
+        // An actor without the real permission may pass this one native check through a stored right, and every other check below still applies
+        const via =
+            op.type === "action"
+                ? await rightFor(ctx, identity.serverId, read, op.action.type, op.context, !!op.action.channelId)
+                : undefined
+        const who = via ? { ...read, nativePermissionAuthorized: true } : read
         if (type === "settings") {
             if (!administrator(who)) fail(403, "Administrator permission required")
             if (settings.defcon === 1 && !critical) fail(403, "DEFCON restriction")
@@ -198,6 +196,7 @@ export const manage = serviceMutation({
             return result
         }
         if (op.type === "action") {
+            if (via?.suspended) fail(403, RIGHTS_SUSPENDED, "REFUSED")
             const action = {
                 ...op.action,
                 ...(op.action.messageIds ? { messageIds: [...new Set(op.action.messageIds)] } : {}),
@@ -212,6 +211,9 @@ export const manage = serviceMutation({
                 )
                     fail(409, "Linked case target mismatch")
             }
+            // Going over a limit commits its record and suspension, so it answers instead of throwing
+            const refused = via && (await spendRight(ctx, identity.serverId, who.userId, via, now))
+            if (refused) return { duplicate: false, type: "right-refused", right: via.right, ...refused }
             const result = await reserveAction(ctx, {
                 serverId: identity.serverId,
                 sourceId: identity.messageId,
@@ -221,6 +223,7 @@ export const manage = serviceMutation({
                 context: op.context,
                 origin: "manual",
                 now,
+                ...(via ? { via: { right: via.right, roleIds: via.roleIds } } : {}),
             })
             return { duplicate: false, type: "case", ...result }
         }
@@ -305,9 +308,23 @@ export const query = serviceQuery({
     handler: async (ctx, { request }): Promise<ModerationQueryResult> => {
         const input = decode(ModerationQueryRequest, request)
         const serverId = input.serverId
-        const who = actor(input.actor)
+        const read = actor(input.actor)
         const op = input.operation
         const settings = config(await readSettings(ctx, serverId))
+        // An unlock, a release or an unjail needs one read of what it reverses before the action, so its right passes for that read too
+        const reversal =
+            op.type === "recovery-channel"
+                ? "unlock"
+                : op.type === "recovery-target"
+                  ? "release"
+                  : op.type === "jail-record"
+                    ? "unjail"
+                    : undefined
+        const via = reversal
+            ? await rightFor(ctx, serverId, read, reversal, input, op.type === "recovery-channel")
+            : undefined
+        if (via?.suspended) fail(403, RIGHTS_SUSPENDED, "REFUSED")
+        const who = via ? { ...read, nativePermissionAuthorized: true } : read
         const type = op.type
         if (op.type === "recovery-case") {
             const row = await caseByNo(ctx, serverId, op.caseNo)
@@ -340,6 +357,11 @@ export const query = serviceQuery({
             }
         }
         if (type.startsWith("case-") || type.startsWith("watchlist-")) privateRead(input, settings, scopeFor(type))
+        if (op.type === "jail-record") {
+            const record = await readJailRecord(ctx, serverId, op.targetId)
+            if (!record) fail(404, "That member isn't jailed", "REFUSED")
+            return { type: "jail-record", roleIds: record.roleIds }
+        }
         const page = "page" in op ? (op.page ?? 1) : 1
         if (op.type === "case-show") return { type: "case", case: publicCase(await caseByNo(ctx, serverId, op.caseNo)) }
         if (op.type === "case-history") {
@@ -484,6 +506,8 @@ export const outcome = serviceMutation({
         // A kick or ban notice is claimed with the dispatch and sent before the action, while the member can still be reached
         if ("dispatch" in input) {
             if (row.outcome !== "pending" || row.dispatched) fail(409, "Action changed")
+            // A right turned off, revoked or suspended since the reservation stops an action nothing was sent for yet
+            if (!(await rightStillStands(ctx, row))) return { recorded: false, rightWithdrawn: true }
             await ctx.db.patch(row._id, { dispatched: true })
             const notice = row.action === "kick" || row.action === "ban" ? await memberNotice(ctx, row) : undefined
             return { recorded: false, ...(notice ? { notice } : {}) }
@@ -499,6 +523,7 @@ export const outcome = serviceMutation({
             warningPenaltyDue?: true
         } = { recorded: true }
         await ctx.db.patch(row._id, { outcome: input.outcome })
+        await settleJail(ctx, row, input.outcome, Date.now())
         if (row.recoveryId) {
             const recovery = await ctx.db.get(row.recoveryId)
             if (recovery && recovery.generation === row.caseNo) {
@@ -569,7 +594,7 @@ export const outcome = serviceMutation({
             }
         }
         // A warning or timeout notice follows the action, since the member stays in the server
-        if ((row.action === "warn" || row.action === "timeout") && input.outcome === "succeeded") {
+        if (["warn", "timeout", "jail", "unjail"].includes(row.action) && input.outcome === "succeeded") {
             const notice = await memberNotice(ctx, row, input.timeoutUntil)
             if (notice) result.notice = notice
         }
@@ -682,7 +707,12 @@ export const reconcile = serviceMutation({
         authorize(who, settings, scope, true)
         privateRead(input, settings, scope)
         // The read server and member are evidence for this check only and are not kept
-        const { originServerId: _origin, memberUserId: _member, ...observation } = input.observation
+        const {
+            originServerId: _origin,
+            memberUserId: _member,
+            roleIds: observedRoles,
+            ...observation
+        } = input.observation
         const observedAt = observation.observedAt
         if (observedAt < row.createdAt) fail(400, "Invalid request")
         fresh(observedAt, now)
@@ -715,9 +745,45 @@ export const reconcile = serviceMutation({
                     await ctx.db.patch(recovery._id, { knownDeadline: Date.parse(observation.banExpiresAt) })
             }
         }
-        return { recorded: true, case: publicCase((await ctx.db.get(row._id))!) }
+        const jailHeld = await reconcileJail(ctx, row, input.observation.memberPresent, observedRoles)
+        return {
+            recorded: true,
+            case: publicCase((await ctx.db.get(row._id))!),
+            ...(jailHeld !== undefined ? { jailHeld } : {}),
+        }
     },
 })
+/**
+ * Settles an uncertain jail or unjail from the member as the bot read them, without sending anything. A member who holds the jail role is
+ * jailed, one who does not is not, and a member who left is jailed when the jail was in doubt, since their stored roles are all that is
+ * left, and released when the release was in doubt, since that is what staff asked for. Answers whether the bot should hold the member
+ */
+async function reconcileJail(
+    ctx: MutationCtx,
+    row: Doc<"moderationCases">,
+    present: boolean | undefined,
+    roleIds: readonly string[] | undefined,
+) {
+    if (!row.targetId || (row.action !== "jail" && row.action !== "unjail")) return undefined
+    const record = await readJailRecord(ctx, row.serverId, row.targetId)
+    if (!record) return false
+    const doubt =
+        (row.action === "jail" && record.state === "jail-uncertain" && record.caseNo === row.caseNo) ||
+        (row.action === "unjail" && record.state === "release-uncertain" && record.releaseCaseNo === row.caseNo)
+    if (!doubt) return record.state === "active" ? true : undefined
+    const roleId = (await readJailSettings(ctx, row.serverId))?.roleId
+    const jailed = present === false ? row.action === "jail" : roleId !== undefined && !!roleIds?.includes(roleId)
+    if (!jailed) {
+        await ctx.db.delete(record._id)
+        return false
+    }
+    await ctx.db.patch(record._id, {
+        state: "active",
+        releaseCaseNo: undefined,
+        ...(record.releaseAt !== undefined ? { timed: true as const, nextCheckAt: record.releaseAt } : {}),
+    })
+    return true
+}
 
 // The bot sends the server. A continuation also carries the startup cutoff
 const ObserveRequest = Schema.Struct({ ...ModerationObserveRequest.fields, cutoff: Schema.optionalKey(Millis) })
@@ -739,6 +805,7 @@ export const observe = serviceMutation({
             .take(BATCH)
         for (const row of rows) {
             await ctx.db.patch(row._id, { outcome: "uncertain" })
+            await settleJail(ctx, row, "uncertain", now)
             const recovery = row.recoveryId ? await ctx.db.get(row.recoveryId) : null
             if (recovery?.generation === row.caseNo) await ctx.db.patch(recovery._id, { status: "uncertain" })
         }
@@ -835,8 +902,11 @@ export async function cleanupModeration(ctx: MutationCtx, now: number) {
             await ctx.db.patch(row._id, { expiresAt: until })
             continue
         }
-        // A live recovery snapshot or appeal keeps its case readable
-        if (row.recoveryId && (await ctx.db.get(row.recoveryId))) {
+        // A live recovery snapshot, jail or appeal keeps its case readable
+        if (
+            (row.recoveryId && (await ctx.db.get(row.recoveryId))) ||
+            (row.action === "jail" && row.targetId && (await jailHolds(ctx, row.serverId, row.targetId)))
+        ) {
             await ctx.db.patch(row._id, { expiresAt: now + DAY })
             continue
         }

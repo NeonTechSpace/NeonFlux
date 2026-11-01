@@ -1,3 +1,4 @@
+import { DashboardOverviewSection } from "@neonflux/contracts/setup"
 import assert from "node:assert/strict"
 import { afterEach, beforeEach, mock, test } from "node:test"
 import { api } from "../convex/_generated/api.js"
@@ -150,7 +151,7 @@ test("the bot reads every feature's state and the roles each enabled feature ass
         sections: { id: string; state: string }[]
         managedRoles: unknown[]
     }
-    assert.equal(status.sections.length, 30)
+    assert.equal(status.sections.length, DashboardOverviewSection.literals.length)
     assert.deepEqual(
         status.sections.find((row) => row.id === "alerts"),
         { id: "alerts", state: "off" },

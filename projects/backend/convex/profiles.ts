@@ -21,6 +21,7 @@ import {
     type ProfileState,
 } from "@neonflux/contracts/profiles"
 import type { DashboardMemberQueueResult, DashboardProfileMember } from "../dashboard-contracts.js"
+import { jailHolds } from "./jailStore.ts"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
 import { memberSession } from "./dashboard.ts"
 import { configurationRevision } from "./configurationRevision.ts"
@@ -271,6 +272,8 @@ export const apply = serviceMutation({
         if (!(await readProfileSettings(ctx, serverId)).enabled) return finish("Profiles are turned off in this server")
         if (!accessAllowed(await readAccess(ctx, serverId, PROFILE_FEATURE), member))
             return finish("You cannot use profiles in this server")
+        if (await jailHolds(ctx, serverId, member.userId))
+            return finish("You cannot change your profile while you are jailed")
         const { type, ...content } = job.operation as ProfileMemberOperation
         const rule = await blockingContentRule(ctx, serverId, profileText(content), member.roleIds)
         if (rule)

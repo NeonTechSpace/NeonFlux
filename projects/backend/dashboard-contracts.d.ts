@@ -16,8 +16,8 @@ export interface DashboardWebConfig {
     websiteUrl: string | null
     clientId: string
 }
-/** Member features a server offers on the website: the role picker, showcases and profiles while they are on, and private cases once the server names a private data role */
-export type DashboardMemberFeature = "rolepicker" | "showcase" | "profile" | "private"
+/** Member features a server offers on the website: the role picker, showcases and profiles while they are on, the voice room page while it has a generator, and private cases once the server names a private data role */
+export type DashboardMemberFeature = "rolepicker" | "showcase" | "profile" | "voice" | "private"
 /**
  * The viewer's latest access check for private cases. The bot answers it with its own Fluxer read: the viewer passes as the server owner
  * or while holding the private data role. A passed check serves views until validUntil. queued waits for the bot, and failed means the bot
@@ -40,6 +40,7 @@ export type DashboardPrivateView =
     | { type: "case"; caseNo: number; correctionsAfter?: number }
     | { type: "appeals"; beforeAppealNo?: number }
     | { type: "open-appeals"; afterAppealNo?: number }
+    | { type: "incidents"; beforeIncidentNo?: number }
     | { type: "history"; userId: string; beforeCaseNo?: number }
 /** Lists are newest first in pages of 25, and a next number continues with older entries. Waiting appeals are oldest first and continue with newer ones. An erased case or appeal keeps only its erasure marker */
 export type DashboardPrivateData =
@@ -53,6 +54,7 @@ export type DashboardPrivateData =
       }
     | { type: "appeals"; appeals: Appeal[]; nextBeforeAppealNo?: number }
     | { type: "open-appeals"; appeals: Appeal[]; nextAfterAppealNo?: number }
+    | { type: "incidents"; incidents: AntiNukeIncident[]; nextBeforeIncidentNo?: number }
     | { type: "history"; userId: string; cases: ModerationCase[]; nextBeforeCaseNo?: number; appeals: Appeal[] }
 /** checking waits for a live check, which DashboardPrivateAccess reports. refused and failed repeat the latest check's answer */
 export type DashboardPrivateResult =
@@ -310,6 +312,7 @@ import type {
 import type { OnboardingSettings } from "@neonflux/contracts/onboarding"
 import type { PresetPlan } from "@neonflux/contracts/presets"
 import type { Profile, ProfileJob, ProfileSettings } from "@neonflux/contracts/profiles"
+import type { CommandRulesState } from "@neonflux/contracts/command-rules"
 import type { PublishingDraft, PublishingSettings } from "@neonflux/contracts/publishing"
 import type { ResponseDefinition } from "@neonflux/contracts/responses"
 import type {
@@ -328,9 +331,18 @@ import type { StickyMessage } from "@neonflux/contracts/sticky"
 import type { SuggestionsSettings } from "@neonflux/contracts/suggestions"
 import type { TemporaryRoleGrant, TemporaryRoleSettings } from "@neonflux/contracts/temporary-roles"
 import type { TicketCategory, TicketSettings } from "@neonflux/contracts/tickets"
-import type { VoiceGenerator } from "@neonflux/contracts/voice"
+import type { VoiceGenerator, VoiceJob, VoiceRoom } from "@neonflux/contracts/voice"
 import type { YoutubeView } from "@neonflux/contracts/youtube"
 import type { TwitchView } from "@neonflux/contracts/twitch"
+import type { LockdownStatus } from "@neonflux/contracts/lockdown"
+import type { AntiNukeIncident, AntiNukeView } from "@neonflux/contracts/anti-nuke"
+import type { JailView } from "@neonflux/contracts/jail"
+import type { RightsView } from "@neonflux/contracts/rights"
+import type { CounterView } from "@neonflux/contracts/counters"
+import type { BoardView } from "@neonflux/contracts/boards"
+import type { FeedView } from "@neonflux/contracts/feeds"
+import type { ReminderSettings } from "@neonflux/contracts/reminders"
+import type { GiveawayView } from "@neonflux/contracts/giveaways"
 
 export interface DashboardConfigurationDataMap {
     responses: { settings: { customEnabled: boolean; autoEnabled: boolean }; definitions: ResponseDefinition[] }
@@ -372,6 +384,17 @@ export interface DashboardConfigurationDataMap {
     profile: { settings: ProfileSettings; access: MemberAccessLists }
     youtube: YoutubeView
     twitch: TwitchView
+    lockdown: LockdownStatus
+    antinuke: AntiNukeView
+    jail: JailView
+    rights: RightsView
+    counters: CounterView
+    boards: BoardView
+    feeds: FeedView
+    reminders: { settings: ReminderSettings }
+    giveaways: GiveawayView
+    /** rules holds at most COMMAND_RULE_LIMIT rules, one per command */
+    commandrules: CommandRulesState
 }
 export type DashboardConfigurationCollection =
     "definitions" | "rules" | "watchlist" | "drafts" | "categories" | "routes" | "policies" | "events" | "schedules"
@@ -451,6 +474,12 @@ export interface DashboardProfileMember {
     profile: Profile | null
     birthday: { show: boolean } | null
     requests: ProfileJob[]
+}
+/** The member view of temporary voice rooms: The rooms the member owns, as the bot last read them, and recent requests, newest first */
+export interface DashboardVoiceMember {
+    serverId: string
+    rooms: VoiceRoom[]
+    requests: VoiceJob[]
 }
 export interface DashboardMemberQueueResult {
     jobId: string

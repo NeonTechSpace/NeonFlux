@@ -35,7 +35,7 @@ const eligible = (row: { action: string; outcome: string; erased: boolean; voide
     !row.erased &&
     !row.voided &&
     row.outcome !== "failed" &&
-    ["warn", "kick", "ban", "timeout", "quarantine"].includes(row.action)
+    ["warn", "kick", "ban", "timeout", "quarantine", "jail"].includes(row.action)
 export const member = serviceMutation({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<AppealMemberResult> => {
@@ -72,7 +72,7 @@ export const member = serviceMutation({
             const next = rows.length > 10 ? selected.at(-1)!.caseNo : scanned >= 200 ? lastScanned : undefined
             const cases = selected.map((row) => ({
                 caseNo: row.caseNo,
-                action: row.action as "warn" | "kick" | "ban" | "timeout" | "quarantine",
+                action: row.action as "warn" | "kick" | "ban" | "timeout" | "quarantine" | "jail",
                 createdAt: row.createdAt,
                 outcome: row.outcome as "pending" | "succeeded" | "failed" | "uncertain",
                 reason: row.reason,
@@ -104,7 +104,7 @@ export const member = serviceMutation({
             if (!eligible(row))
                 fail(
                     409,
-                    "That case cannot be appealed. Only a warning, kick, ban, timeout or quarantine that took effect and was not voided can",
+                    "That case cannot be appealed. Only a warning, kick, ban, timeout, quarantine or jail that took effect and was not voided can",
                     "REFUSED",
                 )
             const prior = await ctx.db

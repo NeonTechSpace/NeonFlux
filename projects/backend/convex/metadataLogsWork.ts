@@ -22,7 +22,7 @@ import {
 } from "./metadataLogsStore.ts"
 import { readSettings } from "./moderationStore.ts"
 import { ringWork } from "./workSignal.ts"
-import { cursor, decode, fail, requireId, integer } from "./validation.ts"
+import { decode, fail, requireId, integer } from "./validation.ts"
 
 export const METADATA_ATTEMPTS = 3
 async function saveAttempt(
@@ -135,10 +135,16 @@ export const work = serviceMutation({
             now = Date.now()
         if (op.type === "discover") {
             const settings = await deliverySettings(ctx, serverId)
+            // Convex accepts a cursor only for the query that made it, so every page of a walk reads up to the time its first page
+            // did. A record due later waits for the next walk. A cursor of another form starts a new walk
+            const walk = /^(\d+):(.+)$/s.exec(op.cursor ?? ""),
+                throughAt = walk ? Math.min(Number(walk[1]), now) : now
             const page = await ctx.db
                 .query("metadataLogRecords")
-                .withIndex("by_work", (q) => q.eq("serverId", serverId).eq("actionable", true).lte("nextCheckAt", now))
-                .paginate({ numItems: 20, cursor: cursor(op.cursor) })
+                .withIndex("by_work", (q) =>
+                    q.eq("serverId", serverId).eq("actionable", true).lte("nextCheckAt", throughAt),
+                )
+                .paginate({ numItems: 20, cursor: walk ? walk[2]! : null })
             const records = []
             for (const record of page.page) {
                 const row = await settleMetadataReservation(ctx, record)
@@ -164,11 +170,19 @@ export const work = serviceMutation({
                     else await ctx.db.patch(row._id, { nextCheckAt: row.expiresAt })
                 }
             }
-            return { type: "work", records, ...(!page.isDone ? { nextCursor: page.continueCursor } : {}) }
+            return {
+                type: "work",
+                records,
+                ...(!page.isDone ? { nextCursor: `${throughAt}:${page.continueCursor}` } : {}),
+            }
         }
         if (op.type === "messages") {
             const settings = publicMetadataSettings(await readMetadataSettings(ctx, serverId))
-            return { type: "messages", logged: settings.enabled && metadataMessagesRouted(settings) }
+            return {
+                type: "messages",
+                logged: settings.enabled && metadataMessagesRouted(settings),
+                webhookPosts: settings.webhookPosts,
+            }
         }
         const binding = metadataBinding(op.binding),
             row = await metadataBoundRecord(ctx, serverId, binding),

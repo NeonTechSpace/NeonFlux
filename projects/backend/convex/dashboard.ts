@@ -140,7 +140,9 @@ export async function memberSession(
                 ? "Role picker unavailable"
                 : feature === "showcase"
                   ? "Showcases unavailable"
-                  : "Profiles unavailable",
+                  : feature === "voice"
+                    ? "Voice rooms unavailable"
+                    : "Profiles unavailable",
         )
     return found
 }

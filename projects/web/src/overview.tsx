@@ -33,6 +33,10 @@ export function problemText(problem: SetupProblem) {
             : `Safety: @${problem.role.name} gives ${permissions} to ${problem.members} members. Remove ${them} from the role, or keep ${them} on a role only trusted staff hold`
     if (problem.kind === "staff-permissions")
         return `Safety: The ${problem.staffClass} staff role @${problem.role.name} lacks ${permissions}, so its members cannot run the ${staffCommands[problem.staffClass]} commands that need ${them}. Grant ${them} to the role, or choose other ${problem.staffClass} staff roles in ${sectionNames.moderation}`
+    if (problem.kind === "antinuke-rank")
+        return `Safety: Anti-nuke cannot stop members holding ${list(problem.roles.map((role) => `@${role.name}`))}, which rank at or above the NeonFlux role. Move the NeonFlux role above them`
+    if (problem.kind === "rights-limits")
+        return `Safety: Bot-only staff rights are on with limits above the default for ${list(problem.rights)}. A hacked staff account can do that much through NeonFlux before it is stopped. Lower them in ${sectionNames.rights}`
     if (problem.kind === "verification-bypass")
         return (
             `Safety: Fluxer skips its verification level for members who have any role, so ${list(problem.features.map((id) => sectionNames[id]))} let${problem.features.length > 1 ? "" : "s"} members past it. ` +

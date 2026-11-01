@@ -17,12 +17,19 @@ import { ShowcaseOperation } from "@neonflux/contracts/showcases"
 import { dashboardSidebarOperation } from "./sidebarDomain.ts"
 import { temporaryRoleConfigurationOperation } from "./temporaryRolesStore.ts"
 import { alertsOperation } from "./alertsDomain.ts"
+import { antiNukeOperation } from "./antiNukeDomain.ts"
+import { lockdownOperation } from "./lockdownDomain.ts"
+import { jailOperation } from "./jailDomain.ts"
+import { rightsOperation } from "./rightsDomain.ts"
 import { helpDeskOperation } from "./helpDeskDomain.ts"
 import { onboardingOperation } from "./onboardingDomain.ts"
 import { showcaseOperation } from "./showcasesDomain.ts"
 import { profileOperation } from "./profilesDomain.ts"
 import { youtubeOperation } from "./youtubeDomain.ts"
 import { twitchOperation } from "./twitchDomain.ts"
+import { feedOperation } from "./feedDomain.ts"
+import { boardOperation } from "./boardsDomain.ts"
+import { counterOperation } from "./countersDomain.ts"
 
 export const CONFIGURATION_OPERATION_LENGTH = 524288
 export function configurationOperation<F extends DashboardConfigurationFamily>(
@@ -52,6 +59,14 @@ function operation(family: DashboardConfigurationFamily, value: unknown) {
             return temporaryRoleConfigurationOperation(value)
         case "alerts":
             return alertsOperation(value)
+        case "lockdown":
+            return lockdownOperation(value)
+        case "antinuke":
+            return antiNukeOperation(value)
+        case "jail":
+            return jailOperation(value)
+        case "rights":
+            return rightsOperation(value)
         case "helpdesk":
             return helpDeskOperation(decode(HelpDeskOperation, value))
         case "showcase":
@@ -62,6 +77,12 @@ function operation(family: DashboardConfigurationFamily, value: unknown) {
             return youtubeOperation(value)
         case "twitch":
             return twitchOperation(value)
+        case "feeds":
+            return feedOperation(value)
+        case "boards":
+            return boardOperation(value)
+        case "counters":
+            return counterOperation(value)
         case "onboarding": {
             const op = onboardingOperation(decode(OnboardingOperation, value))
             if (op.type === "step-add" || op.type === "step-remove") fail(400, "Unsupported configuration operation")
@@ -95,12 +116,28 @@ function operation(family: DashboardConfigurationFamily, value: unknown) {
             return decode(DashboardConfigurationOperationMap[family], value)
     }
 }
-type Critical = { type: string; enabled?: unknown; patch?: Record<string, unknown>; mappings?: unknown[] }
+type Critical = {
+    type: string
+    enabled?: unknown
+    patch?: Record<string, unknown>
+    mappings?: unknown[]
+    mode?: unknown
+}
 // Takes a stored operation, which configurationOperation decoded when it was queued
 export function configurationCritical(family: DashboardConfigurationFamily, value: unknown) {
     const op = (family === "responses" ? (value as { operation: unknown }).operation : value) as Critical,
         patch = Object.entries(op.patch ?? {})
     if (family === "leveling" && op.type === "mappings" && op.mappings?.length === 0) return true
+    // Lifting a lockdown, reading its uncertain channels, turning anti-nuke down and giving roles back stay reachable at DEFCON 1
+    if (family === "lockdown" && (op.type === "off" || op.type === "settle")) return true
+    if (
+        family === "antinuke" &&
+        (op.type === "restore" || op.type === "settle" || (op.type === "mode" && op.mode === "dry-run"))
+    )
+        return true
+    // Taking bot-only rights away and turning jail off stay reachable at DEFCON 1
+    if (family === "rights" && (op.type === "revoke" || (op.type === "module" && op.enabled === false))) return true
+    if (family === "jail" && op.type === "module" && op.enabled === false) return true
     if (
         op.type === "settings" &&
         op.patch !== undefined &&

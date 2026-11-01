@@ -154,6 +154,9 @@ const voiceStore = (rooms: readonly VoiceRoom[]): VoiceStore => ({
     query: () => Effect.sync(() => ({ type: "state", generators: [generator], rooms: [...rooms] })),
     manage: () => Effect.die("unused"),
     rooms: (input) => Effect.succeed({ type: "forgotten", room: input.operation.type === "forget", generator: false }),
+    memberReady: () => Effect.die("unused"),
+    memberStart: () => Effect.die("unused"),
+    memberFinish: () => Effect.die("unused"),
 })
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>

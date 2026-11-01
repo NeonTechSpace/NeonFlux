@@ -153,7 +153,7 @@ test("an attachment name cut at its limit never splits an emoji", () => {
     assert.equal(previous?.attachments?.[0]?.name, "a".repeat(255))
 })
 
-test("a server that keeps message text keeps none of another bot's, a webhook's or the system's, while still tracking their edits", () => {
+test("a server that keeps message text keeps none of another bot's or the system's, while still tracking their edits", () => {
     const revisions = createMessageRevisions()
     revisions.keepText("1", true)
     const attachments = [{ id: "9", filename: "synthetic.png", url: "https://example.invalid/a.png", size: 1 }]
@@ -166,11 +166,10 @@ test("a server that keeps message text keeps none of another bot's, a webhook's 
             ...(webhookId ? { webhookId } : {}),
         })
     revisions.created(posted("40", { isBot: true }))
-    revisions.created(posted("41", {}, "77"))
     revisions.created(posted("42", { isSystem: true }))
     revisions.created(posted("43", {}))
     assert.equal(revisions.changed(posted("40", { isBot: true })).needed, false)
-    for (const id of ["40", "41", "42"]) {
+    for (const id of ["40", "42"]) {
         const gone = revisions.deleted(id)!
         assert.deepEqual([gone.text, gone.attachments, gone.authorBot], [undefined, undefined, true])
     }

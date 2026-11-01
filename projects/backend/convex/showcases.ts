@@ -24,6 +24,7 @@ import {
     type ShowcaseState,
 } from "@neonflux/contracts/showcases"
 import type { DashboardMemberQueueResult, DashboardShowcaseMember } from "../dashboard-contracts.js"
+import { jailHolds } from "./jailStore.ts"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
 import { memberSession } from "./dashboard.ts"
 import { configurationRevision } from "./configurationRevision.ts"
@@ -361,6 +362,8 @@ export const start = serviceMutation({
             return finish("You cannot post showcases in this server")
         if (member.timeoutUntil !== null && Date.parse(member.timeoutUntil) > now)
             return finish("You cannot post showcases while you are timed out")
+        if (await jailHolds(ctx, serverId, member.userId))
+            return finish("You cannot post or change showcases while you are jailed")
         const channelId = row?.channelId ?? settings.channelId
         if (!channelId) return finish("No showcase channel is set yet. Ask a server manager to choose one")
         const content = { title: op.title, text: op.text, links: op.links }

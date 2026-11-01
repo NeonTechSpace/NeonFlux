@@ -184,4 +184,23 @@ test("Metadata log destinations and switches are projected into backups as the s
     const { allChannels: _absent, ...older } = listed
     await f.backend.run((ctx) => replaceMetadataConfiguration(ctx, "1", older))
     assert.equal((await settings()).allChannels, false)
+    // The webhook posts switch travels with the backup, and an older backup leaves it off
+    await f.backend.run((ctx) => replaceMetadataConfiguration(ctx, "1", { ...listed, webhookPosts: true }))
+    assert.equal((await settings()).webhookPosts, true)
+    assert.equal(
+        valueOf(
+            projectBackupConfig(
+                "metadata",
+                await f.backend.run((ctx) =>
+                    ctx.db
+                        .query("metadataLogSettings")
+                        .withIndex("by_server", (q) => q.eq("serverId", "1"))
+                        .unique(),
+                ),
+            ),
+        ).webhookPosts,
+        true,
+    )
+    await f.backend.run((ctx) => replaceMetadataConfiguration(ctx, "1", older))
+    assert.equal((await settings()).webhookPosts, false)
 })

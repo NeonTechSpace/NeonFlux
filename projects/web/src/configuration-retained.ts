@@ -29,9 +29,14 @@ const unpaged: Partial<Record<DashboardConfigurationFamily, List[]>> = {
     temproles: [inSettings("roles", (row) => `role:${row.roleId}`)],
     helpdesk: [top("answers", (answer) => `answer:${answer.name}`)],
     sticky: [top("stickies", (sticky) => `sticky:${sticky.channelId}`)],
+    commandrules: [top("rules", (rule) => `rule:${rule.command}`)],
     voice: [top("generators", (generator) => `generator:${generator.channelId}`)],
     youtube: [top("subscriptions", (row) => `youtube:${row.youtubeChannelId}`)],
     twitch: [top("subscriptions", (row) => `twitch:${row.twitchChannelId}`)],
+    feeds: [top("subscriptions", (row) => `feed:${row.provider}:${row.accountId}`)],
+    counters: [top("counters", (row) => `counter:${row.channelId}`)],
+    boards: [top("boards", (row) => `board:${row.name}`)],
+    giveaways: [top("giveaways", (row) => `giveaway:${row.giveawayNo}`)],
 }
 
 /** Adds the rows that left the snapshot back while keep says one of their forms holds an unsaved edit */

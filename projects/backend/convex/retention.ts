@@ -12,6 +12,7 @@ import { cleanupLeveling } from "./levelingCleanup.ts"
 import { cleanupMetadataLogs } from "./metadataLogsRetention.ts"
 import { cleanupMilestones } from "./milestonesCleanup.ts"
 import { cleanupModeration } from "./moderation.ts"
+import { cleanupRights } from "./rights.ts"
 import { cleanupPublishing } from "./publishing.ts"
 import { cleanupResponses } from "./responses.ts"
 import { retentionPass, type RetentionPass, type RetentionResult } from "./retentionStore.ts"
@@ -21,6 +22,10 @@ import { cleanupSuggestions } from "./suggestionsCleanup.ts"
 import { cleanupTickets, scheduleTicketPurges } from "./ticketLifecycle.ts"
 import { cleanupYoutube } from "./youtubeStore.ts"
 import { cleanupTwitch } from "./twitchStore.ts"
+import { cleanupFeeds } from "./feedStore.ts"
+import { cleanupReminders } from "./remindersStore.ts"
+import { cleanupGiveaways } from "./giveawaysStore.ts"
+import { cleanupBoards } from "./boardsStore.ts"
 
 // Retention runs as one chain of runs. The cron starts a run every ten minutes, so an idle deployment costs 144 runs a
 // day. A run repeats each module's pass while it fills a batch, within a read budget, and a run that spends its budget
@@ -40,6 +45,7 @@ export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["cleanup", cleanupCleanupMetadata],
     ["responses", cleanupResponses],
     ["moderation", cleanupModeration],
+    ["rights", cleanupRights],
     ["publishing", cleanupPublishing],
     ["roles", cleanupRoles],
     ["greetings", cleanupGreetings],
@@ -51,6 +57,10 @@ export const RETENTION_PASSES: readonly (readonly [string, RetentionPass])[] = [
     ["suggestions", cleanupSuggestions],
     ["youtube", cleanupYoutube],
     ["twitch", cleanupTwitch],
+    ["feeds", cleanupFeeds],
+    ["reminders", cleanupReminders],
+    ["giveaways", cleanupGiveaways],
+    ["boards", cleanupBoards],
     ["alerts", cleanupAlertActions],
     ["auditLog", cleanupAuditLog],
     ["dashboardSessions", cleanupDashboardSessions],

@@ -1,6 +1,6 @@
 import {
     MetadataConfigurationOperation,
-    metadataEventTypes,
+    metadataTypes,
     sameMetadataLogBinding,
     type MetadataLogsBinding,
     type MetadataLogsContext,
@@ -82,6 +82,7 @@ export function publicMetadataSettings(row: Doc<"metadataLogSettings"> | null): 
         eventRoutes: row?.eventRoutes ?? [],
         // A new server starts with every channel, and an older row without the choice keeps its list
         allChannels: row ? (row.allChannels ?? false) : true,
+        webhookPosts: row?.webhookPosts ?? false,
         messageChannelIds: row?.messageChannelIds ?? [],
         excludedChannelIds: row?.excludedChannelIds ?? [],
         retained: row?.retained ?? 0,
@@ -285,18 +286,19 @@ const recordMember = (event: MetadataLogsEvent) =>
             (event.category === "audit" && event.auditAction! >= 20 && event.auditAction! <= 27)
           ? event.resourceIds[0]
           : undefined
-const MESSAGE_EVENT_TYPES = metadataEventTypes.filter((type) => type.startsWith("message-"))
-/** Whether some channel's message events go to a log channel, by the module's channel choice and its message routes */
+/** Whether some channel's message events go to a log channel, by the module's channel choice and its message routes. What webhooks post counts only while its switch is on */
 export const metadataMessagesRouted = (state: {
     allChannels?: boolean
+    webhookPosts?: boolean
     messageChannelIds: readonly string[]
     routes: readonly { category: string; enabled: boolean }[]
     eventRoutes: readonly { eventType: string; enabled: boolean }[]
 }) =>
     (state.allChannels || state.messageChannelIds.length > 0) &&
     // Each message event follows its own override, or the messages category without one
-    MESSAGE_EVENT_TYPES.some(
+    metadataTypes.messages.some(
         (type) =>
+            (type !== "webhook-message-create" || state.webhookPosts) &&
             (state.eventRoutes.find((r) => r.eventType === type) ?? state.routes.find((r) => r.category === "messages"))
                 ?.enabled,
     )
@@ -324,6 +326,9 @@ export async function admitMetadata(
     // Message records hold member text, which is kept only when it is posted
     if (event.category === "messages" && !metadataMessagesRouted(state))
         return { admitted: false, duplicate: false, reason: "messages-off" }
+    // A webhook post that the bot sent before its switch turned off
+    if (event.type === "webhook-message-create" && !state.webhookPosts)
+        return { admitted: false, duplicate: false, reason: "excluded" }
     if (event.category === "messages" && event.channelId) {
         // A message in a thread counts as in its parent channel too, so a ticket's or log destination's threads stay private
         const channels = event.parentChannelId ? [event.channelId, event.parentChannelId] : [event.channelId]
@@ -568,7 +573,8 @@ export function metadataConfigurationCritical(op: MetadataConfigurationOperation
     return (
         op.type === "clear" ||
         op.type === "event-clear" ||
-        ((op.type === "module" || op.type === "route" || op.type === "event-route") && !op.enabled)
+        ((op.type === "module" || op.type === "route" || op.type === "event-route" || op.type === "webhook-posts") &&
+            !op.enabled)
     )
 }
 
@@ -596,12 +602,15 @@ async function applyMetadata(ctx: MutationCtx, serverId: string, operation: unkn
         state = await metadataState(ctx, serverId),
         configRevision = integer(state.configRevision + 1, 1, Number.MAX_SAFE_INTEGER)
     const changedFields: string[] = []
-    if (op.type === "module" || op.type === "channels") {
+    if (op.type === "module" || op.type === "channels" || op.type === "webhook-posts") {
         if (state.revision !== op.expectedRevision) fail(409, "Metadata module revision changed")
         const revision = metadataNumber(state.revision + 1)
         if (op.type === "module") {
             await ctx.db.patch(state._id, { enabled: op.enabled, revision, configRevision })
             changedFields.push("enabled")
+        } else if (op.type === "webhook-posts") {
+            await ctx.db.patch(state._id, { webhookPosts: op.enabled, revision, configRevision })
+            changedFields.push("webhookPosts")
         } else {
             await ctx.db.patch(state._id, {
                 allChannels: op.allChannels ?? false,
@@ -683,7 +692,10 @@ async function applyMetadata(ctx: MutationCtx, serverId: string, operation: unkn
 export async function replaceMetadataConfiguration(
     ctx: MutationCtx,
     serverId: string,
-    next: Pick<Doc<"metadataLogSettings">, "enabled" | "allChannels" | "messageChannelIds" | "excludedChannelIds"> & {
+    next: Pick<
+        Doc<"metadataLogSettings">,
+        "enabled" | "allChannels" | "webhookPosts" | "messageChannelIds" | "excludedChannelIds"
+    > & {
         routes: Omit<Doc<"metadataLogSettings">["routes"][number], "revision">[]
         eventRoutes: Omit<Doc<"metadataLogSettings">["eventRoutes"][number], "revision">[]
     },
@@ -704,8 +716,18 @@ export async function replaceMetadataConfiguration(
     })
     // A backup made before the every-channel choice existed lists its channels
     const channelsChanged =
-        canonicalJson([state.allChannels ?? false, state.messageChannelIds, state.excludedChannelIds]) !==
-        canonicalJson([next.allChannels ?? false, next.messageChannelIds, next.excludedChannelIds])
+        canonicalJson([
+            state.allChannels ?? false,
+            state.webhookPosts ?? false,
+            state.messageChannelIds,
+            state.excludedChannelIds,
+        ]) !==
+        canonicalJson([
+            next.allChannels ?? false,
+            next.webhookPosts ?? false,
+            next.messageChannelIds,
+            next.excludedChannelIds,
+        ])
     await ctx.db.patch(state._id, {
         enabled: next.enabled,
         revision:
@@ -715,6 +737,8 @@ export async function replaceMetadataConfiguration(
         eventRoutes,
         // An archive from before the every-channel choice leaves the row without it, which reads as listed mode
         allChannels: next.allChannels,
+        // An archive from before the webhook posts switch leaves it off
+        webhookPosts: next.webhookPosts,
         messageChannelIds: next.messageChannelIds,
         excludedChannelIds: next.excludedChannelIds,
     })

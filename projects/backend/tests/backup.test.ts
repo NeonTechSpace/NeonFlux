@@ -1,3 +1,4 @@
+import { defaultAntiNukeSettings } from "@neonflux/contracts/anti-nuke"
 import assert from "node:assert/strict"
 import { test, type TestContext } from "node:test"
 import {
@@ -1582,6 +1583,14 @@ async function samples(): Promise<Record<Family, Sample>> {
             ["completionRoleId", "delivery", "enabled", "steps"],
             true,
         ),
+        commandRule: pair(
+            "commandRule",
+            "rank",
+            { command: "rank", channelIds: ["30"], roleIds: [] },
+            { command: "rank", channelIds: ["31"], roleIds: ["40"] },
+            ["channelIds", "roleIds"],
+            false,
+        ),
         sticky: pair(
             "sticky",
             "30",
@@ -1589,6 +1598,22 @@ async function samples(): Promise<Record<Family, Sample>> {
             { channelId: "30", content: "Two", intervalSeconds: 60 },
             ["content", "intervalSeconds"],
             false,
+        ),
+        lockdown: pair(
+            "lockdown",
+            "lockdown",
+            { exemptChannelIds: ["30"] },
+            { exemptChannelIds: ["31"] },
+            ["exemptChannelIds"],
+            false,
+        ),
+        antinuke: pair(
+            "antinuke",
+            "antinuke",
+            { ...defaultAntiNukeSettings(), trustedIds: ["21"] },
+            { ...defaultAntiNukeSettings(), enabled: true, response: "ban", trustedIds: ["22"] },
+            ["enabled", "response", "trustedIds"],
+            true,
         ),
         alerts: pair(
             "alerts",
@@ -1657,6 +1682,48 @@ async function samples(): Promise<Record<Family, Sample>> {
             "synthetic",
             { twitchChannelId: "synthetic", channelId: "30" },
             { twitchChannelId: "synthetic", channelId: "31" },
+            ["channelId"],
+            false,
+        ),
+        counters: pair("counters", "counters", { enabled: false }, { enabled: true }, ["enabled"], true),
+        counter: pair(
+            "counter",
+            "30",
+            { channelId: "30", kind: "members", template: "Members: {count}" },
+            { channelId: "30", kind: "role", roleId: "40", template: "Staff: {count}" },
+            ["kind", "roleId", "template"],
+            false,
+        ),
+        boards: pair("boards", "boards", { enabled: false }, { enabled: true }, ["enabled"], true),
+        board: pair(
+            "board",
+            "stars",
+            {
+                name: "stars",
+                emoji: "⭐",
+                channelId: "30",
+                threshold: 3,
+                selfReactions: false,
+                bots: false,
+                ignoredChannelIds: [],
+            },
+            {
+                name: "stars",
+                emoji: "⭐",
+                channelId: "31",
+                threshold: 5,
+                selfReactions: true,
+                bots: false,
+                ignoredChannelIds: [],
+            },
+            ["channelId", "selfReactions", "threshold"],
+            false,
+        ),
+        feeds: pair(
+            "feeds",
+            "bluesky_did_plc_syntheticaaaaaaaaaaaaaaa",
+            { provider: "bluesky", accountId: "did:plc:syntheticaaaaaaaaaaaaaaa", channelId: "30" },
+            { provider: "bluesky", accountId: "did:plc:syntheticaaaaaaaaaaaaaaa", channelId: "31" },
             ["channelId"],
             false,
         ),
@@ -1853,6 +1920,26 @@ test("A milestone route that was cleared is restored from an archive that held i
     const restored = await r.restore(sample)
     assert.deepEqual([restored.items[0]!.disposition, restored.applied[0]!.state], ["create", "created"])
     assert.deepEqual(normalized(await r.projected(sample)), normalized(sample))
+})
+
+test("A generator with its controls card off restores as archived, and a change to the card alone counts as a difference", async (t) => {
+    const r = await restoration(t)
+    const fields = { channelId: "33", categoryId: null, template: "Room", userLimit: null, region: null },
+        off = { family: "voiceGenerator", sourceId: "33", value: { ...fields, panel: false } } as BackupConfigObject,
+        on = { family: "voiceGenerator", sourceId: "33", value: fields } as BackupConfigObject
+    const created = await r.restore(off)
+    assert.deepEqual([created.items[0]!.disposition, created.applied[0]!.state], ["create", "created"])
+    assert.deepEqual(normalized(await r.projected(off)), normalized(off))
+    const turnedOn = await r.restore(on)
+    assert.deepEqual(
+        [turnedOn.items[0]!.disposition, turnedOn.applied[0]!.state, turnedOn.items[0]!.changed],
+        ["update", "updated", ["panel"]],
+    )
+    assert.deepEqual(normalized(await r.projected(on)), normalized(on))
+    const turnedOff = await r.restore(off)
+    assert.deepEqual([turnedOff.items[0]!.disposition, turnedOff.items[0]!.changed], ["update", ["panel"]])
+    assert.deepEqual(normalized(await r.projected(off)), normalized(off))
+    assert.equal((await r.restore(off)).items[0]!.disposition, "skip")
 })
 
 test("Every configuration family restores through its feature: created, updated, switched off and settled as identical", async (t) => {

@@ -432,3 +432,31 @@ test("A send that fails removes the new showcase and names the fix", async () =>
     assert.equal(job.error, "The showcase could not be posted. Grant Send messages to the NeonFlux role")
     assert.deepEqual((await f.view()).showcases, [])
 })
+
+test("A jailed member cannot post or edit a showcase on the website, and can still delete their own", async () => {
+    const f = await fixture()
+    await f.manage({ type: "settings", enabled: true, channelId: "40" })
+    const posted = await f.ask({ type: "create", ...content })
+    await f.deliver((await f.start(posted)).grant!, "sent")
+    await f.complete(posted)
+    await f.t.run((ctx) =>
+        ctx.db.insert("jailRecords", {
+            serverId: "10",
+            userId: "20",
+            state: "active",
+            roleIds: [],
+            caseNo: 1,
+            createdAt: now,
+        }),
+    )
+    const created = await f.start(await f.ask({ type: "create", ...content }))
+    assert.equal(created.grant, undefined)
+    assert.match(created.job?.error ?? "", /while you are jailed/)
+    const edited = await f.start(await f.ask({ type: "edit", showcaseNo: 1, title: "Out", text: "Out", links: [] }))
+    assert.equal(edited.grant, undefined)
+    assert.match(edited.job?.error ?? "", /while you are jailed/)
+    assert.deepEqual((await f.start(await f.ask({ type: "delete", showcaseNo: 1 }))).remove, {
+        channelId: "40",
+        messageId: "500",
+    })
+})

@@ -2,6 +2,7 @@ import { Schema } from "effect"
 import {
     Id,
     Ids,
+    Name,
     Int,
     IsoTime,
     List,
@@ -23,7 +24,10 @@ import {
     SchedulesContentSource,
 } from "./publishing-base.ts"
 import { MemberAccessLists } from "./shared.ts"
+import { feedAccountToken, FeedAccountKey, FeedProvider } from "./feeds.ts"
 import { AlertSettings } from "./alerts.ts"
+import { AntiNukeSettings } from "./anti-nuke.ts"
+import { LockdownSettings } from "./lockdown.ts"
 import { CLEANUP_POLICY_LIMIT, CleanupPolicy } from "./cleanup.ts"
 import type { DashboardConfigurationFamily } from "./dashboard.ts"
 import { EventsDefinition } from "./events.ts"
@@ -36,10 +40,13 @@ import { OnboardingSettings } from "./onboarding.ts"
 import { ProfileSettings } from "./profiles.ts"
 import { ROLE_PICKER_MENUS, RolePickerMenu } from "./role-picker.ts"
 import { SchedulesCalendar } from "./schedules.ts"
+import { CounterKind, CounterTemplate } from "./counters.ts"
+import { BoardEmoji, BoardThreshold, BOARD_IGNORE_LIMIT } from "./boards.ts"
 import { ShowcaseSettings } from "./showcases.ts"
 import { StickyMessage } from "./sticky.ts"
 import { TemporaryRoleSettings } from "./temporary-roles.ts"
 import { VoiceGenerator } from "./voice.ts"
+import { CommandRule } from "./command-rules.ts"
 import {
     METADATA_CHANNEL_LIMIT,
     MetadataLogsEventRoute,
@@ -300,6 +307,8 @@ const values = {
         eventRoutes: List(Schema.Struct(metadataEventRoute), metadataEventSelectors.length),
         // Absent in a backup made before the every-channel choice existed, which lists its channels
         allChannels: Schema.optionalKey(Schema.Boolean),
+        // Absent in a backup made before the webhook posts switch existed, which leaves it off
+        webhookPosts: Schema.optionalKey(Schema.Boolean),
         messageChannelIds: Ids(METADATA_CHANNEL_LIMIT),
         excludedChannelIds: Ids(METADATA_CHANNEL_LIMIT),
     }).check(
@@ -335,7 +344,7 @@ const values = {
     }),
     analytics: enabled,
     voiceGenerator: Schema.Struct(
-        pick(VoiceGenerator.fields, "channelId", "categoryId", "template", "userLimit", "region"),
+        pick(VoiceGenerator.fields, "channelId", "categoryId", "template", "userLimit", "region", "panel"),
     ),
     lfg: LfgSettings,
     rolepicker: Schema.Struct({
@@ -349,7 +358,10 @@ const values = {
     onboarding: OnboardingSettings,
     /** A sticky message posts in its channel again once members write there */
     sticky: Schema.Struct(pick(StickyMessage.fields, "channelId", "content", "intervalSeconds")),
+    commandRule: Schema.Struct(pick(CommandRule.fields, "command", "channelIds", "roleIds")),
     alerts: AlertSettings,
+    lockdown: LockdownSettings,
+    antinuke: AntiNukeSettings,
     helpdesk: Schema.Struct(helpdesk),
     helpdeskAnswer: Schema.Struct(pick(HelpDeskAnswer.fields, "name", "title", "content")),
     showcase: ShowcaseSettings,
@@ -362,6 +374,31 @@ const values = {
     /** A Twitch follow. EventSub secrets and tokens stay out, and a restore follows the stable broadcaster again */
     twitch: Schema.Struct({
         twitchChannelId: PublishingTwitchConsumer.fields.twitchChannelId,
+        channelId: Id,
+    }),
+    counters: enabled,
+    /** A counter channel. A restore turns it back on, and its next check renames the channel */
+    counter: Schema.Struct({
+        channelId: Id,
+        kind: CounterKind,
+        roleId: optional(Id),
+        template: CounterTemplate,
+    }).check(Schema.makeFilter((v) => (v.kind === "role") === (v.roleId !== undefined))),
+    boards: enabled,
+    /** One board's settings. A restore turns it back on and keeps the record of its posts */
+    board: Schema.Struct({
+        name: Name,
+        emoji: BoardEmoji,
+        channelId: Id,
+        threshold: BoardThreshold,
+        selfReactions: Schema.Boolean,
+        bots: Schema.Boolean,
+        ignoredChannelIds: Ids(BOARD_IGNORE_LIMIT).check(Schema.isUnique()),
+    }),
+    /** A followed feed account. A restore follows it again and its first read records the newest post, so nothing old is posted */
+    feeds: Schema.Struct({
+        provider: FeedProvider,
+        accountId: FeedAccountKey,
         channelId: Id,
     }),
 }
@@ -404,13 +441,21 @@ const configObjects = Schema.Union([
     entry("temproles"),
     entry("onboarding"),
     entry("sticky"),
+    entry("commandRule"),
     entry("alerts"),
+    entry("lockdown"),
+    entry("antinuke"),
     entry("helpdesk"),
     entry("helpdeskAnswer"),
     entry("showcase"),
     entry("profile"),
     entry("youtube"),
     entry("twitch"),
+    entry("counters"),
+    entry("counter"),
+    entry("boards"),
+    entry("board"),
+    entry("feeds"),
 ])
 /**
  * What names a configuration object within its family: a response, draft or template by kind and name, a rule, panel, ticket category, event,
@@ -434,13 +479,20 @@ export function backupConfigIdentity(object: typeof configObjects.Type) {
         case "cleanupPolicy":
         case "voiceGenerator":
         case "sticky":
+        case "counter":
             return object.value.channelId
         case "access":
             return object.value.feature
+        case "commandRule":
+            return object.value.command
         case "youtube":
             return object.value.youtubeChannelId
         case "twitch":
             return object.value.twitchChannelId
+        case "feeds":
+            return feedAccountToken(object.value.provider, object.value.accountId)
+        case "board":
+            return object.value.name
         default:
             return object.family
     }
@@ -469,9 +521,20 @@ export const BACKUP_DASHBOARD_COVERAGE: Record<
     rolepicker: ["rolepicker", "access"],
     temproles: ["temproles"],
     sticky: ["sticky"],
+    commandrules: ["commandRule"],
     sidebar: { excluded: "The dashboard link is a native link channel that !sidebar makes again" },
     memberlist: { excluded: "The member list order is the role order, which Fluxer keeps" },
     alerts: ["alerts"],
+    lockdown: ["lockdown"],
+    antinuke: ["antinuke"],
+    jail: {
+        excluded:
+            "The jail role and channel are made again with !jail setup, and jailed members are moderation records",
+    },
+    rights: {
+        excluded:
+            "A backup restored by a hacked owner or from an old archive must not hand out moderation rights, so the owner grants them again by hand",
+    },
     helpdesk: ["helpdesk", "helpdeskAnswer"],
     onboarding: ["onboarding"],
     presets: { excluded: "Presets are computed from the other settings and store nothing of their own" },
@@ -480,6 +543,13 @@ export const BACKUP_DASHBOARD_COVERAGE: Record<
     profile: ["profile", "access"],
     youtube: ["youtube"],
     twitch: ["twitch"],
+    counters: ["counters", "counter"],
+    feeds: ["feeds"],
+    boards: ["boards", "board"],
+    reminders: {
+        excluded: "The switch and the limit are quick to set again, and members' reminders are their own data",
+    },
+    giveaways: { excluded: "The switch and the role are quick to set again, and giveaways are live state" },
 }
 export const BackupConfigObject = configObjects.check(
     Schema.makeFilter((object) => object.sourceId === backupConfigIdentity(object)),

@@ -29,9 +29,18 @@ import { readShowcaseSettings } from "./showcases.ts"
 import { readProfileSettings } from "./profiles.ts"
 import { youtubeSubscriptions } from "./youtubeStore.ts"
 import { twitchSubscriptions } from "./twitchStore.ts"
+import { feedSubscriptions } from "./feedStore.ts"
+import { readReminderSettings } from "./remindersStore.ts"
+import { readGiveawaySettings } from "./giveawaysStore.ts"
+import { boardView } from "./boardsStore.ts"
+import { counterView } from "./countersStore.ts"
 import { decode } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 import { publicAlerts, readAlerts } from "./alerts.ts"
+import { readAntiNuke } from "./antiNuke.ts"
+import { readLockdown } from "./lockdownStore.ts"
+import { publicJailSettings, readJailSettings } from "./jailStore.ts"
+import { publicRights, readRights } from "./rightsStore.ts"
 import { alertActions, type AlertAction } from "@neonflux/contracts/alerts"
 import { alertKinds } from "./alertsDomain.ts"
 import { metadataTypes } from "./metadataLogsDomain.ts"
@@ -142,9 +151,24 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
     const showcases = await readShowcaseSettings(ctx, serverId),
         profiles = await readProfileSettings(ctx, serverId),
         youtube = await youtubeSubscriptions(ctx, serverId),
-        twitch = await twitchSubscriptions(ctx, serverId)
+        twitch = await twitchSubscriptions(ctx, serverId),
+        feeds = await feedSubscriptions(ctx, serverId),
+        boards = await boardView(ctx, serverId),
+        counters = await counterView(ctx, serverId)
+    const lockdown = await readLockdown(ctx, serverId)
+    const jail = publicJailSettings(await readJailSettings(ctx, serverId)),
+        rights = publicRights(await readRights(ctx, serverId))
     const routed = (routes: Array<{ enabled: boolean; channelId?: string }>) =>
         routes.some((route) => route.enabled && route.channelId)
+    const securityRouted = Boolean(
+        logs?.enabled &&
+        (routed(logs.routes.filter((route) => route.category === "security")) ||
+            routed(
+                logs.eventRoutes.filter((route) =>
+                    (metadataTypes.security as readonly string[]).includes(route.eventType),
+                ),
+            )),
+    )
     return [
         { id: "custom", state: state(responses?.customEnabled ?? true, await definition("custom")) },
         { id: "auto", state: state(responses?.autoEnabled ?? true, await definition("auto")) },
@@ -259,15 +283,7 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
             id: "alerts",
             state: state(
                 alertKinds.some((kind) => alerts[kind]),
-                Boolean(
-                    logs?.enabled &&
-                    (routed(logs.routes.filter((route) => route.category === "security")) ||
-                        routed(
-                            logs.eventRoutes.filter((route) =>
-                                (metadataTypes.security as readonly string[]).includes(route.eventType),
-                            ),
-                        )),
-                ),
+                securityRouted,
             ),
         },
         {
@@ -289,12 +305,55 @@ export async function readSetupSections(ctx: QueryCtx, serverId: string): Promis
                 youtube.some((row) => row.enabled),
             ),
         },
+        // A lockdown is on from its start until every channel it holds was restored
+        {
+            id: "lockdown",
+            state: state(!!lockdown && lockdown.state !== "ended"),
+        },
+        // Its incidents need somewhere to reach staff: The staff log, or the metadata log's security category
+        {
+            id: "antinuke",
+            state: state(
+                (await readAntiNuke(ctx, serverId))?.enabled ?? false,
+                moderation.logChannelId !== null || securityRouted,
+            ),
+        },
+        // Jail needs its role and channel, which a setup makes. Rights need a role that holds one
+        { id: "jail", state: state(jail.enabled, !!jail.roleId && !!jail.channelId) },
+        { id: "rights", state: state(rights.enabled, rights.grants.length > 0) },
         // Twitch alerts are on while a server follows a channel, and need setup when NeonFlux turned every followed channel off
         {
             id: "twitch",
             state: state(
                 twitch.length > 0,
                 twitch.some((row) => row.enabled),
+            ),
+        },
+        // Feeds are on while a server follows an account, and need setup when NeonFlux turned every followed account off
+        {
+            id: "feeds",
+            state: state(
+                feeds.length > 0,
+                feeds.some((row) => row.enabled),
+            ),
+        },
+        // Boards are on while a server has one, and need setup when NeonFlux stopped every board
+        {
+            id: "boards",
+            state: state(
+                boards.enabled && boards.boards.length > 0,
+                boards.boards.some((row) => !row.problem),
+            ),
+        },
+        // Reminders and giveaways need no setup, so they are on while their switches are
+        { id: "reminders", state: state((await readReminderSettings(ctx, serverId)).enabled) },
+        { id: "giveaways", state: state((await readGiveawaySettings(ctx, serverId)).enabled) },
+        // Counters are on while a server has one, and need setup when NeonFlux turned every counter off
+        {
+            id: "counters",
+            state: state(
+                counters.enabled && counters.counters.length > 0,
+                counters.counters.some((row) => row.enabled),
             ),
         },
     ]
@@ -378,10 +437,12 @@ export const status = serviceQuery({
         const actions = (Object.keys(alertActions) as AlertAction[]).filter(
             (action) => alerts[action] && alerts[alertActions[action].alert],
         )
+        const rightsNow = publicRights(await readRights(ctx, serverId))
         return {
             sections: await readSetupSections(ctx, serverId),
             managedRoles: await managedRoles(ctx, serverId),
             staffRoleIds: moderationConfig(await readModeration(ctx, serverId)).staffRoleIds,
+            ...(rightsNow.enabled ? { rights: rightsNow } : {}),
             threadFeatures: events?.threads ? ["events"] : [],
             ...(actions.length ? { alertActions: actions } : {}),
         }

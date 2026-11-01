@@ -1,5 +1,6 @@
 import { SERVER_ROLES, STRUCTURE_CHANNELS, hasText, isName } from "@neonflux/contracts/common"
 import { AutomodRuleType } from "@neonflux/contracts/moderation"
+import { rightsCritical } from "@neonflux/contracts/rights"
 import type { AppealMemberRequest, AppealStaffRequest } from "@neonflux/contracts/appeal"
 import type {
     AutomodAction,
@@ -14,6 +15,7 @@ import { commands } from "@neontechspace/fluxerly/effect"
 import type { Types } from "effect"
 import { argument, durationSeconds, freeText, wholeNumber } from "./command-arguments.ts"
 import type { SettingsView } from "./moderation-format.ts"
+import { parseRightsCommand, rightsHelpAll, type RightsCommand } from "./rights-command.ts"
 
 export const safetyNames = ["mod", "logs", "automod", "security", "defcon", "appeal"] as const
 export type SafetyName = (typeof safetyNames)[number]
@@ -33,6 +35,8 @@ export type SafetyCommand =
     | { kind: "member-appeal"; operation: AppealMemberRequest["operation"]; page?: SafetyPage }
     | { kind: "staff-appeal"; operation: AppealStaffRequest["operation"]; page?: SafetyPage }
     | { kind: "help"; name: SafetyName }
+    /** !mod rights, which holds its own request */
+    | { kind: "rights"; command: RightsCommand }
 export type SafetyParse = SafetyCommand | { error: string }
 
 /** Mentions or IDs, apart or split by commas, up to as many channels or roles as a server can have */
@@ -152,6 +156,9 @@ export function safetyHelp(name: SafetyName) {
 export const safetyHelpAll = {
     mod: [
         "!mod untimeout @user [reason]: End a timeout",
+        "!mod jail @user [length] [reason]: Take a member's roles and keep them in the jail channel",
+        "!mod unjail @user [reason]: Give a jailed member's roles back",
+        ...rightsHelpAll,
         "!mod slowmode #channel <0-21600> [reason]: Seconds between messages, 0 to clear",
         "!mod <action> @user case <number> [reason]: Link an action to an earlier case",
         "!mod reason <case> <new reason>: Correct a case's reason",
@@ -401,6 +408,10 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         }
     }
     if (name === "mod") {
+        if (verb === "rights") {
+            const rights = parseRightsCommand(args.slice(1))
+            return "error" in rights ? rights : { kind: "rights", command: rights }
+        }
         if (verb === "module" && args.length === 2 && bool(args[1]) !== undefined)
             return settings({ manualModerationEnabled: bool(args[1])! })
         if (verb === "status" && args.length === 1) return query({ type: "settings" })
@@ -469,34 +480,35 @@ export function parseSafetyCommand(name: SafetyName, args: readonly string[]): S
         const selected = verb as ModerationActionType
         const supported =
             name === "mod"
-                ? ["warn", "kick", "ban", "unban", "timeout", "untimeout"]
+                ? ["warn", "kick", "ban", "unban", "timeout", "untimeout", "jail", "unjail"]
                 : ["quarantine", "release", "lock", "unlock"]
         if (!supported.includes(selected)) return error
         const id = commands.parseArgument(
             args[1],
             ["lock", "unlock"].includes(selected) ? argument.channel : argument.user,
         )
-        const timed = selected === "ban" || selected === "timeout" || selected === "quarantine"
+        const optionalLength = selected === "ban" || selected === "jail"
+        const timed = optionalLength || selected === "timeout" || selected === "quarantine"
         const seconds = timed ? durationSeconds(args[2], 1, selected === "ban" ? 63072000 : 31536000) : undefined
         const needsDuration =
-            selected === "timeout" || selected === "quarantine" || (selected === "ban" && seconds !== undefined)
+            selected === "timeout" || selected === "quarantine" || (optionalLength && seconds !== undefined)
         // case and a number before the reason link an earlier case
         const from = needsDuration ? 3 : 2
         const linkedCaseNo =
             args[from] === "case" ? commands.parseArgument(args[from + 1], argument.positive) : undefined
         const reasonText = freeText(args, linkedCaseNo ? from + 2 : from)
         const reason = actionReason(reasonText)
-        // A ban is temporary when the word after the member is a length. Otherwise its reason, after any case link, must start
-        // with a letter, since anything else may be a length written in a way that is not read, and a permanent ban is not the way
+        // A ban or jail is temporary when the word after the member is a length. Otherwise its reason, after any case link, must start
+        // with a letter, since anything else may be a length written in a way that is not read, and a permanent one is not the way
         // to find out. A length further into the reason is not read
         const refusedLength =
-            selected === "ban" &&
+            optionalLength &&
             seconds === undefined &&
             reasonText.trim() !== "" &&
             !/^\p{L}/u.test(reasonText.trimStart())
-        if (refusedLength || (selected === "ban" && seconds !== undefined && seconds < 60))
+        if (refusedLength || (optionalLength && seconds !== undefined && seconds < 60))
             return {
-                error: `${error.error}. A ban length is a whole number with s, m, h, d or w, from 1m to 730d, such as 7d or 1h30m. A reason starts with a letter, so to begin with a number write a word first, such as \`after 3 strikes\``,
+                error: `${error.error}. A ${selected} length is a whole number with s, m, h, d or w, from 1m to ${selected === "ban" ? "730d" : "365d"}, such as 7d or 1h30m. A reason starts with a letter, so to begin with a number write a word first, such as \`after 3 strikes\``,
             }
         if (!id || reason === undefined || (needsDuration && !seconds)) return error
         return {
@@ -522,7 +534,10 @@ export function safetyGateClass(name: SafetyName, command: SafetyParse): "staff"
         ("kind" in command &&
             (command.kind === "recover" ||
                 (command.kind === "action" &&
-                    ["unlock", "release", "untimeout", "unban"].includes(command.action.type)) ||
+                    ["unlock", "release", "untimeout", "unban", "unjail"].includes(command.action.type)) ||
+                // Taking rights away and reading them stay reachable for an Administrator at DEFCON 1
+                (command.kind === "rights" &&
+                    (command.command.type === "status" || rightsCritical(command.command.operation))) ||
                 (command.kind === "query" &&
                     (command.operation.type === "settings" || command.operation.type === "recovery-list")) ||
                 (command.kind === "manage" &&

@@ -436,6 +436,44 @@ test("invite logs name the code, the channel, the creator and missing limits", a
     )
 })
 
+test("a dangerous role set by a member update alerts like one added by a role update, and an update without roles does not", async () => {
+    await run({ privileges: true }, (bot, native, _alerts, metadata) =>
+        Effect.gen(function* () {
+            yield* audit(bot, "7301", 24, memberId, [{ key: "roles", old_value: [], new_value: [native.modRole.id] }])
+            yield* audit(bot, "7302", 24, memberId, [{ key: "nick", old_value: "a", new_value: "b" }])
+            yield* bot.idle()
+            assert.deepEqual(
+                metadata.events.map((event) => [event.type, event.changedFields[0]]),
+                [["privilege-change", "member-roles"]],
+            )
+        }),
+    )
+})
+
+test("a webhook alert and its action's claim show the webhook's escaped name, and a failed read shows the ID", async () => {
+    await run({ webhooks: true, deleteWebhooks: true }, (bot, _native, alerts, metadata) =>
+        Effect.gen(function* () {
+            yield* audit(bot, "7101", 50, "9101", [{ key: "name", new_value: "Synthetic *Feed*" }])
+            bot.rest.respond("GET /webhooks/9102", { status: 403 })
+            yield* audit(bot, "7102", 51, "9102")
+            yield* bot.idle()
+            assert.deepEqual(
+                metadata.events
+                    .filter((event) => event.type === "webhook-change")
+                    .map((event) => [event.resourceIds[0], event.details?.webhookName]),
+                [
+                    ["9101", "Synthetic \\*Feed\\*"],
+                    ["9102", undefined],
+                ],
+            )
+            assert.deepEqual(
+                alerts.claims.map((claim) => [claim.targetId, claim.targetName]),
+                [["9101", "Synthetic \\*Feed\\*"]],
+            )
+        }),
+    )
+})
+
 test("privilege and webhook alerts come from audit entries and name the actor the entry names", async () => {
     await run({ privileges: true, webhooks: true, expectedWebhookIds: ["9002"] }, (bot, native, _alerts, metadata) =>
         Effect.gen(function* () {

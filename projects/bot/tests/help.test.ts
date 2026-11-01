@@ -37,6 +37,14 @@ import { voiceHelp, voiceHelpAll } from "../src/voice-command.ts"
 import { greetingsHelp, greetingsHelpAll } from "../src/welcome-command.ts"
 import { youtubeHelp } from "../src/youtube-command.ts"
 import { twitchHelp } from "../src/twitch-command.ts"
+import { lockdownHelp } from "../src/lockdown-command.ts"
+import { antinukeHelp } from "../src/antinuke-command.ts"
+import { jailHelp } from "../src/jail-command.ts"
+import { feedHelp } from "../src/feed-command.ts"
+import { counterHelp } from "../src/counter-command.ts"
+import { remindHelp } from "../src/remind-command.ts"
+import { giveawayHelp } from "../src/giveaway-command.ts"
+import { boardHelp } from "../src/board-command.ts"
 import { withPrefix, type GeneralSettingsStore } from "../src/general-settings.ts"
 import type { ResponseStore } from "../src/responses-store.ts"
 import { platform } from "./moderation-fixture.ts"
@@ -139,6 +147,14 @@ const commandHelps: Record<string, string> = {
     sticky: stickyHelp,
     youtube: youtubeHelp,
     twitch: twitchHelp,
+    lockdown: lockdownHelp,
+    antinuke: antinukeHelp,
+    jail: jailHelp,
+    feed: feedHelp,
+    counter: counterHelp,
+    remind: remindHelp,
+    giveaway: giveawayHelp,
+    board: boardHelp,
     alerts: alertsHelp,
     invites: invitesHelp,
     stats: statsHelp,
@@ -182,11 +198,11 @@ test("help lists the groups a member can use, and a group, feature or command na
                     [
                         "Commands you can use",
                         "Send `?help <group>` to see its commands, such as `?help basics`",
-                        "Basics: Ping, help, away status, prefix and reply style",
+                        "Basics: Ping, help, away status, reminders, prefix and reply style",
                         "Moderation: Cases, automatic rules, raid protection, logs and alerts",
-                        "Roles: Role panels, verification, newcomer roles and the member list",
-                        "Support: Tickets, the help desk and suggestions",
-                        "Community: Levels, events, birthdays, showcases and profiles",
+                        "Roles: Role panels, verification, newcomer roles, the member list and counters",
+                        "Support: Tickets, the help desk, suggestions and boards",
+                        "Community: Levels, events, birthdays, showcases, profiles and feeds",
                         "Voice: Temporary voice rooms and finding a group",
                     ].join("\n"),
                 ])
@@ -201,7 +217,10 @@ test("help lists the groups a member can use, and a group, feature or command na
                 for (const topic of ["support", "tickets", "ticket", "helpdesk"])
                     assert.deepEqual(yield* say(`?help ${topic}`), [support], topic)
                 assert.deepEqual(yield* say("?help general"), yield* say("?help basics"))
-                assert.doesNotMatch((yield* say("?help basics"))[0]!, /Add help/)
+                assert.match(
+                    (yield* say("?help basics"))[0]!,
+                    /Add help to a command to see how to use it, such as `\?remind help`/,
+                )
                 assert.deepEqual(yield* say("?help backup"), ["None of the Setup commands are available to you here"])
                 // An unknown topic gets one line with the closest topic the member can open, or the way back to the groups
                 assert.deepEqual(yield* say("?help suport"), ["No help matches that. Did you mean `?help support`?"])

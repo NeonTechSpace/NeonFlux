@@ -1,3 +1,4 @@
+import { DashboardOverviewSection } from "@neonflux/contracts/setup"
 import assert from "node:assert/strict"
 import { test, beforeEach, afterEach, mock } from "node:test"
 import { ConvexError } from "convex/values"
@@ -1443,7 +1444,7 @@ test("The overview reports each feature as on, needing setup or off", async () =
             (await t.query(api.dashboardViews.overview, args)).sections.map((section) => [section.id, section.state]),
         )
     const fresh = await states()
-    assert.equal(Object.keys(fresh).length, 30)
+    assert.equal(Object.keys(fresh).length, DashboardOverviewSection.literals.length)
     assert.deepEqual(
         {
             custom: fresh.custom,
@@ -1461,6 +1462,9 @@ test("The overview reports each feature as on, needing setup or off", async () =
             lfg: fresh.lfg,
             youtube: fresh.youtube,
             twitch: fresh.twitch,
+            feeds: fresh.feeds,
+            counters: fresh.counters,
+            boards: fresh.boards,
         },
         {
             custom: "setup",
@@ -1478,6 +1482,9 @@ test("The overview reports each feature as on, needing setup or off", async () =
             lfg: "off",
             youtube: "off",
             twitch: "off",
+            feeds: "off",
+            counters: "off",
+            boards: "off",
         },
     )
     await t.run(async (ctx) => {

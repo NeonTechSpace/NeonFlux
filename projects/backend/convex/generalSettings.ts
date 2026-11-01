@@ -14,6 +14,7 @@ import {
     type GeneralNicknameRecordResult,
     type GeneralNicknameSetResult,
 } from "@neonflux/contracts/general"
+import { readCommandRules } from "./commandRules.ts"
 import { configurationRevision } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
 import { auditChanges, describeChange, recordAudit } from "./auditLog.ts"
@@ -116,11 +117,13 @@ export const get = serviceQuery({
     args: { request: v.any() },
     handler: async (ctx, { request }): Promise<GeneralGetResult> => {
         const { serverId } = decode(GeneralGetRequest, request),
-            row = await readGeneral(ctx, serverId)
+            row = await readGeneral(ctx, serverId),
+            commandRules = await readCommandRules(ctx, serverId)
         return {
             ...generalView(row),
             revision: row?.revision ?? 0,
             nickname: publicNickname(row, await configurationRevision(ctx, serverId, "nickname")),
+            ...(commandRules.length ? { commandRules } : {}),
         }
     },
 })

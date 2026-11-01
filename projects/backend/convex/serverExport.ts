@@ -21,6 +21,8 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import type { Doc } from "./_generated/dataModel.js"
 import type { YoutubeView } from "@neonflux/contracts/youtube"
 import type { TwitchView } from "@neonflux/contracts/twitch"
+import type { FeedView } from "@neonflux/contracts/feeds"
+import type { BoardView } from "@neonflux/contracts/boards"
 import type {
     DashboardConfigurationCursors,
     DashboardConfigurationFamily,
@@ -60,6 +62,12 @@ const LIVE_STATE: Partial<Record<DashboardConfigurationFamily, string[]>> = {
     lfg: ["generators", "open"],
     youtube: ["configured"],
     twitch: ["configured"],
+    lockdown: ["lockdown"],
+    antinuke: ["incidentCount", "unconfirmedCount"],
+    jail: ["setup", "count"],
+    rights: ["suspendedCount"],
+    feeds: ["xConfigured", "xPaused"],
+    giveaways: ["giveaways"],
 }
 const FAMILIES = [
     "general",
@@ -159,9 +167,11 @@ async function settingsPage(
         }
     }
     if (family === "logs") {
-        const { enabled, routes, eventRoutes, allChannels, messageChannelIds, excludedChannelIds } =
+        const { enabled, routes, eventRoutes, allChannels, webhookPosts, messageChannelIds, excludedChannelIds } =
             publicMetadataSettings(await readMetadataSettings(ctx, serverId))
-        return { data: { enabled, routes, eventRoutes, allChannels, messageChannelIds, excludedChannelIds } }
+        return {
+            data: { enabled, routes, eventRoutes, allChannels, webhookPosts, messageChannelIds, excludedChannelIds },
+        }
     }
     const { data, nextCursors } = await configurationData(
         ctx,
@@ -183,6 +193,11 @@ async function settingsPage(
     // A followed Twitch channel's status is live state too
     if (family === "twitch")
         view.subscriptions = (data as TwitchView).subscriptions.map(({ status, ...subscription }) => subscription)
+    // How many posts a board keeps a record of is live state too
+    if (family === "boards") view.boards = (data as BoardView).boards.map(({ posted, ...board }) => board)
+    // A followed account's status is live state too
+    if (family === "feeds")
+        view.subscriptions = (data as FeedView).subscriptions.map(({ status, ...subscription }) => subscription)
     const continuing = Object.fromEntries(
         Object.entries(nextCursors).filter(([key]) => !cursors || Object.hasOwn(cursors, key)),
     )

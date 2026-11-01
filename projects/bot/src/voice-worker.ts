@@ -1,5 +1,11 @@
 import { visibleText } from "@neonflux/contracts/common"
-import { VOICE_GENERATOR_LIMIT, VOICE_ROOM_LIMIT, type VoiceGenerator, type VoiceRoom } from "@neonflux/contracts/voice"
+import {
+    VOICE_GENERATOR_LIMIT,
+    VOICE_ROOM_LIMIT,
+    type VoiceGenerator,
+    type VoiceRoom,
+    type VoiceRoomView,
+} from "@neonflux/contracts/voice"
 import {
     format,
     errors,
@@ -13,6 +19,7 @@ import { contained, forkContained, warnFailure } from "./contained.ts"
 import { VoiceStoreError, type VoiceStore } from "./voice-store.ts"
 import { clip, duration } from "./reply-style.ts"
 import { readAuthenticatedBotId } from "./safety-permissions.ts"
+import { postVoicePanel, voiceRoomPage } from "./voice-panel.ts"
 
 /** Rooms stay for this long after they become empty. A member who is mid-join can be invisible for up to 30 seconds */
 export const voiceGraceMs = 45000
@@ -77,9 +84,16 @@ export const voiceRuntimes = new Map<string, VoiceRuntime>()
  * a fresh voice snapshot, and nothing is deleted while it is unsynced. A resume replays the missed events, so it keeps the tracker
  * and a due deletion only waits for the shard to be connected. Timers live in memory, so idle servers make no backend calls
  */
-export function createVoiceRuntime(store: VoiceStore, serverId: string) {
+export function createVoiceRuntime(store: VoiceStore, serverId: string, websiteUrl?: string) {
     const generators = new Map<string, VoiceGenerator>(),
         rooms = new Map<string, VoiceRoom>()
+    // Which room each controls card belongs to, so a reaction on any other message costs no read at all. It fills with the rooms when they load,
+    // which happens on the first voice event, so a server with no live rooms never reads it
+    const panels = new Map<string, string>()
+    const keepRoom = (room: VoiceRoom) => {
+        rooms.set(room.channelId, room)
+        if (room.panelMessageId) panels.set(room.panelMessageId, room.channelId)
+    }
     // Each connection with the receipt of the event that set it, and the receipt of each leave since the last snapshot
     const connections = new Map<string, { userId: string; channelId: string; receipt: number }>(),
         left = new Map<string, number>()
@@ -126,7 +140,7 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
         generators.clear()
         for (const generator of state.generators) generators.set(generator.channelId, generator)
         // Only this process changes room records, so rooms it already knows are kept
-        for (const room of state.rooms) rooms.set(room.channelId, room)
+        for (const room of state.rooms) keepRoom(room)
         loaded = true
     })
     const ensureLoaded = Effect.gen(function* () {
@@ -141,6 +155,8 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
         Effect.gen(function* () {
             timers.delete(channelId)
             firstGrace.delete(channelId)
+            const panelMessageId = rooms.get(channelId)?.panelMessageId
+            if (panelMessageId) panels.delete(panelMessageId)
             const room = rooms.delete(channelId),
                 generator = generators.delete(channelId)
             if (room || generator)
@@ -221,6 +237,51 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
             )
         })
 
+    /** Records a room's fresh state. The change itself already happened in Fluxer, so a failure here only leaves its website page behind */
+    const updateRoom = (
+        channelId: string,
+        change: { panelMessageId?: string; view?: VoiceRoomView; heldAllow?: string; lockGrants?: string[] },
+    ) =>
+        contained(
+            store.rooms({ serverId, operation: { type: "update", channelId, ...change } }).pipe(
+                Effect.map((result) => {
+                    if (result.type === "updated" && result.room) keepRoom(result.room)
+                }),
+            ),
+            "A temporary voice room's state could not be recorded",
+        )
+    /** Posts a room's controls card and replaces the one it had. A card whose outcome is unknown is never sent again by itself */
+    const postPanel = (channelId: string) =>
+        Effect.gen(function* () {
+            const native = client!,
+                earlier = rooms.get(channelId)?.panelMessageId
+            const { messageId, react } = yield* postVoicePanel(
+                native,
+                serverId,
+                channelId,
+                voiceRoomPage(websiteUrl, serverId),
+            )
+            // In memory before the reactions, so a member who reacts at once is heard
+            panels.set(messageId, channelId)
+            yield* react
+            yield* updateRoom(channelId, { panelMessageId: messageId })
+            if (earlier) {
+                panels.delete(earlier)
+                yield* native.messages.delete({ id: earlier, channelId }, { timeoutMs: 5000 }).pipe(Effect.ignore)
+            }
+        })
+    /** The card every new room gets unless its generator turned it off */
+    const welcomePanel = (room: VoiceRoom) =>
+        ensureLoaded.pipe(
+            Effect.flatMap(() =>
+                generators.get(room.generatorChannelId)?.panel === false
+                    ? Effect.void
+                    : contained(
+                          postPanel(room.channelId),
+                          "A temporary voice room's controls card could not be posted",
+                      ),
+            ),
+        )
     const notice = (generator: VoiceGenerator, userId: string, text: string) =>
         contained(
             client!.messages.send(generator.channelId, {
@@ -312,6 +373,7 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
                 rooms.set(created.id, recorded.room)
                 yield* reconcile(created.id)
                 yield* move(state, created.id, generator)
+                yield* welcomePanel(recorded.room)
             }).pipe(
                 Effect.ensuring(
                     Effect.sync(() => {
@@ -433,14 +495,18 @@ export function createVoiceRuntime(store: VoiceStore, serverId: string) {
         },
         /** A room the backend gave a new owner. This process keeps its own room records, so it records the change here */
         setRoom: (room: VoiceRoom) => {
-            rooms.set(room.channelId, room)
+            keepRoom(room)
         },
+        /** The room whose controls card this message is. Reads only memory */
+        panelRoom: (messageId: string) => panels.get(messageId),
+        postPanel,
+        updateRoom,
         /** A room another feature created and recorded, such as a group room. It follows the room rules, after a first wait of graceMs */
         adopt: (room: VoiceRoom, graceMs: number) =>
             Effect.suspend(() => {
                 rooms.set(room.channelId, room)
                 firstGrace.set(room.channelId, graceMs)
-                return reconcile(room.channelId)
+                return reconcile(room.channelId).pipe(Effect.andThen(welcomePanel(room)))
             }),
         /** The backend's record of a room, or null when it has none, for a feature that lost the answer to recording it */
         recordedRoom: (channelId: string) =>

@@ -20,6 +20,7 @@ import { currentXp, readLeveling, readProfile } from "./levelingStore.ts"
 import { levelForXp } from "./levelingDomain.ts"
 import { pickerMenu } from "./rolePickerStore.ts"
 import { memberRecoveries } from "./moderationStore.ts"
+import { jailHolds } from "./jailStore.ts"
 import { TEMPORARY_ROLE_KEY, temporaryRoleDesired } from "./temporaryRolesStore.ts"
 import { ONBOARDING_ROLE_KEY } from "./onboardingDomain.ts"
 import { onboardingRoleDesired } from "./onboardingStore.ts"
@@ -63,6 +64,8 @@ export async function participationProtection(
     if (recoveries.cases.some((action) => action?.action === "quarantine"))
         fail(403, "Quarantine blocks role participation", "MEMBER_NOT_READY")
     if (recoveries.count > 10) fail(403, "Role participation unavailable", "MEMBER_NOT_READY")
+    // Stored roles come back with the unjail, and no feature may hand a jailed member another way out
+    if (await jailHolds(ctx, serverId, userId)) fail(403, "Jail blocks role participation", "MEMBER_NOT_READY")
     return policy
 }
 export async function participationAvailability(ctx: RolesRead, serverId: string, member: RolesMemberContext) {

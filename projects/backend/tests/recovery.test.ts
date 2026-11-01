@@ -162,6 +162,28 @@ test("the recovery inbox collects open and recent problems from each source, cur
             createdAt: now - 2.75 * hour,
             consumer: { type: "suggestion-card", suggestionNo: 6, cardGeneration: 2, desiredRevision: 3 },
         })
+        await insertDocument(ctx, "feedSources", "10", {
+            provider: "bluesky",
+            accountId: "did:plc:syntheticaaaaaaaaaaaaaaa",
+            handle: "news.example.test",
+        })
+        await insertDocument(ctx, "feedSubscriptions", "10", {
+            provider: "bluesky",
+            accountId: "did:plc:syntheticaaaaaaaaaaaaaaa",
+            channelId: "56",
+            enabled: false,
+            problem: "permission",
+            updatedAt: now - 6.6 * hour,
+        })
+        await insertDocument(ctx, "counters", "10", {
+            channelId: "58",
+            kind: "role",
+            roleId: "40",
+            template: "Staff: {count}",
+            enabled: true,
+            countProblem: "twoFactor",
+            updatedAt: now - 6.7 * hour,
+        })
         await insertDocument(ctx, "twitchSources", "10", { twitchChannelId: "12345", title: "Synthetic Streamer" })
         await insertDocument(ctx, "twitchSubscriptions", "10", {
             twitchChannelId: "12345",
@@ -169,6 +191,55 @@ test("the recovery inbox collects open and recent problems from each source, cur
             enabled: false,
             problem: "permission",
             updatedAt: now - 6.5 * hour,
+        })
+        await insertDocument(ctx, "counters", "10", {
+            channelId: "57",
+            kind: "members",
+            template: "Members: {count}",
+            enabled: false,
+            problem: "permission",
+            updatedAt: now - 6.6 * hour,
+        })
+        await insertDocument(ctx, "giveaways", "10", {
+            giveawayNo: 3,
+            channelId: "62",
+            problem: "permission",
+            problemAt: now - 6.605 * hour,
+        })
+        await insertDocument(ctx, "boards", "10", {
+            name: "stars",
+            emoji: "⭐",
+            channelId: "59",
+            threshold: 3,
+            problem: "permission",
+            updatedAt: now - 6.61 * hour,
+        })
+        await insertDocument(ctx, "lockdowns", "10", {
+            state: "active",
+            startedAt: now - 6.76 * hour,
+            counts: { queued: 0, writing: 0, locked: 0, uncertain: 1, failed: 0, skipped: 0, restored: 0 },
+        })
+        await insertDocument(ctx, "lockdownChannels", "10", {
+            channelId: "58",
+            phase: "lock",
+            state: "uncertain",
+        })
+        await insertDocument(ctx, "antiNukeIncidents", "10", {
+            incidentNo: 2,
+            actorId: "37",
+            outcome: "uncertain",
+            createdAt: now - 6.77 * hour,
+        })
+        await insertDocument(ctx, "jailRecords", "10", {
+            userId: "38",
+            state: "jail-uncertain",
+            caseNo: 91,
+            createdAt: now - 6.78 * hour,
+        })
+        await insertDocument(ctx, "rightsSuspensions", "10", {
+            userId: "39",
+            reason: "limit",
+            at: now - 6.79 * hour,
         })
         // A YouTube alert names its video by title, never by ID
         await insertDocument(ctx, "youtubeDeliveries", "10", {
@@ -300,6 +371,8 @@ test("the recovery inbox collects open and recent problems from each source, cur
         // The channel that is off leaves YouTube alerts needing a step
         "feature: youtube",
         "feature: twitch",
+        "feature: feeds",
+        "feature: boards",
         "defcon: DEFCON 1 is active, so NeonFlux pauses automatic posts and other automation | !defcon status, then !defcon set 3 once the threat has passed",
         "logs: Metadata logs: 1 delivery failed and 2 have an unknown outcome. Security alerts are delivered the same way | !logs events list, then !logs delivery show <record> or !logs delivery reconcile <record>",
         "cleanup: Cleanup in <#52> stopped: NeonFlux could not read the channel's messages | Give NeonFlux View channel, Read message history and Manage messages in that channel. It checks again on its own",
@@ -318,7 +391,16 @@ test("the recovery inbox collects open and recent problems from each source, cur
         "tickets: Ticket #3: NeonFlux could not confirm whether its channel was created | !ticket reconcile 3, or !ticket abandon 3 if no channel was created",
         "milestones: Birthday post for <@35> is waiting: NeonFlux cannot post in <#53> | Give NeonFlux View channel, Send messages and Embed links in that channel. It tries again on its own",
         "twitch: Twitch alerts for Synthetic Streamer are off: NeonFlux cannot post in <#55> | Give NeonFlux View channel, Send messages and Embed links in that channel, then turn the alerts back on with !twitch add Synthetic Streamer #channel",
+        "feeds: Bluesky posts of news.example.test are off: NeonFlux cannot post in <#56> | Give NeonFlux View channel, Send messages and Embed links in that channel, then turn the posts back on with !feed add bluesky news.example.test #channel",
+        'counters: A counter is off: NeonFlux cannot rename <#57> | Give NeonFlux View channel and Manage channels in that channel, then turn it back on with !counter set <#57> "Members: {count}"',
+        "giveaways: Giveaway #3 cannot draw: NeonFlux cannot read its entries in <#62> | Give NeonFlux View channel and Read message history there. It tries again on its own",
+        "boards: Board stars is stopped: NeonFlux cannot post in <#59> | Give NeonFlux View channel, Send messages and Embed links in that channel, then turn it back on with !board set stars channel <#59>",
+        "counters: A counter in <#58> cannot read its count, so the channel keeps its name | Fluxer refuses NeonFlux's member search while this server requires two-factor authentication for moderation. Give NeonFlux Manage nicknames instead of its moderation permissions, or remove that requirement",
         "youtube: YouTube alerts for Synthetic Channel are off: NeonFlux cannot post in <#54> | Give NeonFlux View channel, Send messages and Embed links in that channel, then turn the alerts back on with !youtube add Synthetic Channel #channel",
+        "lockdown: NeonFlux could not confirm whether it locked <#58> in the lockdown | !lockdown status reads the channel and settles it, and NeonFlux never repeats the change on its own",
+        "antinuke: Anti-nuke incident 2: NeonFlux could not confirm its response | !antinuke incident 2 reads the member and settles it. Check what they can still do",
+        "jail: NeonFlux could not confirm a jail | !mod recover 91 reads the member and settles it, and NeonFlux never repeats the change on its own",
+        "rights: 1 member's bot-only rights are suspended, after a limit or anti-nuke | Staff see who with !mod rights status. Check what happened, then the server owner can run !mod rights clear @member",
         "roles: <@33>: NeonFlux could not confirm whether it gave <@&42> | !autorole reconcile <@33>",
         "removals: Panel colors: Taking back its roles stopped at a role change that needs a check | Continue with !roles next colors, or !roles delete colors to finish a deletion",
         "roles: <@34>: NeonFlux could not confirm whether it gave <@&43> | NeonFlux never repeats the completion role. Check the member's roles in Fluxer and give the role by hand if it is missing",

@@ -16,6 +16,7 @@ import { cleanupSettings, publicCleanupPolicy, publicCleanupSettings } from "./c
 import { eventResume, eventSettings, publicEvent } from "./eventsStore.ts"
 import { scheduleSettings, publicSchedule, upcomingSchedule } from "./schedulesStore.ts"
 import { publicVoiceGenerator, readVoiceGenerators, readVoiceRooms } from "./voice.ts"
+import { readCommandRules } from "./commandRules.ts"
 import { decode, fail } from "./validation.ts"
 import { publicNickname, readGeneral } from "./generalSettings.ts"
 import { configurationRevision } from "./configurationRevision.ts"
@@ -27,6 +28,10 @@ import { publicSidebarLink, readSidebarLink } from "./sidebar.ts"
 import { publicTemporaryGrant, readTemporaryRoleSettings } from "./temporaryRolesStore.ts"
 import { lfgView } from "./lfg.ts"
 import { publicAlerts, publicInviteList, readAlerts } from "./alerts.ts"
+import { antiNukeView } from "./antiNuke.ts"
+import { jailView } from "./jailStore.ts"
+import { rightsView } from "./rights.ts"
+import { lockdownStatus } from "./lockdownStore.ts"
 import { publicHelpDesk, publicHelpDeskAnswer, readHelpDesk, readHelpDeskAnswers } from "./helpDesk.ts"
 import { readOnboarding } from "./onboardingStore.ts"
 import { recentOnboarded } from "./analytics.ts"
@@ -37,6 +42,12 @@ import { readProfileSettings } from "./profiles.ts"
 import { PROFILE_FEATURE } from "./profilesDomain.ts"
 import { youtubeView } from "./youtubeStore.ts"
 import { twitchView } from "./twitchStore.ts"
+import { feedView } from "./feedStore.ts"
+import { boardView } from "./boardsStore.ts"
+import { counterView } from "./countersStore.ts"
+import { readReminderSettings } from "./remindersStore.ts"
+import type { GiveawayView } from "@neonflux/contracts/giveaways"
+import { giveawayAuditView, giveawayView } from "./giveawaysStore.ts"
 
 // Website page cursors, one per list. configurationCursorKey checks each against its server, family and list
 const Cursors = Schema.Struct(
@@ -58,6 +69,7 @@ export type AuditFocus = {
     events?: number[]
     schedules?: number[]
     ticketCategories?: string[]
+    giveaways?: number[]
 }
 // The rows of the given keys that exist, read one by one through the list's own index
 async function keyed<K, T>(keys: readonly K[], read: (key: K) => Promise<T | null>): Promise<T[]> {
@@ -373,6 +385,9 @@ export async function configurationData(
                 rooms: (await readVoiceRooms(ctx, serverId)).length,
             }
             break
+        case "commandrules":
+            data = { rules: await readCommandRules(ctx, serverId) }
+            break
         case "rolepicker":
             data = {
                 settings: await readRolePicker(ctx, serverId),
@@ -439,6 +454,36 @@ export async function configurationData(
             break
         case "twitch":
             data = await twitchView(ctx, serverId)
+            break
+        case "lockdown":
+            data = await lockdownStatus(ctx, serverId)
+            break
+        case "antinuke":
+            data = await antiNukeView(ctx, serverId)
+            break
+        case "jail":
+            data = await jailView(ctx, serverId)
+            break
+        case "rights":
+            data = await rightsView(ctx, serverId)
+            break
+        case "feeds":
+            data = await feedView(ctx, serverId)
+            break
+        case "reminders":
+            data = { settings: await readReminderSettings(ctx, serverId) }
+            break
+        case "giveaways":
+            // Only the audit log and the export read this whole, and neither is a dashboard view
+            data = whole
+                ? ((await giveawayAuditView(ctx, serverId, focus.giveaways ?? [])) as unknown as GiveawayView)
+                : await giveawayView(ctx, serverId)
+            break
+        case "counters":
+            data = await counterView(ctx, serverId)
+            break
+        case "boards":
+            data = await boardView(ctx, serverId)
             break
     }
     return { data, nextCursors }

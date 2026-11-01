@@ -3,6 +3,7 @@ import { afterEach, test } from "node:test"
 import { JSDOM } from "jsdom"
 import { createElement } from "react"
 import type { DashboardMetadataOperation, DashboardMetadataSnapshot } from "@neonflux/backend/dashboard-contracts"
+import { metadataEventSelectors } from "@neonflux/contracts/metadata-logs"
 import { LogSettings } from "../src/log-settings.tsx"
 import type { LogSettingsProps } from "../src/log-settings.tsx"
 // Tests edit copies of contract values, whose shared types are read-only
@@ -36,6 +37,7 @@ function snapshot(): DeepMutable<DashboardMetadataSnapshot> {
             })),
             eventRoutes: [],
             allChannels: false,
+            webhookPosts: false,
             messageChannelIds: [],
             excludedChannelIds: [],
             retained: 0,
@@ -80,6 +82,24 @@ function selectChannel(form: ReturnType<typeof within>, name: string, query: str
     fireEvent.change(input, { target: { value: query } })
     fireEvent.keyDown(input, { key: "Enter" })
 }
+test("The webhook posts switch queues its own change, and the audit log's event list names the new events", async () => {
+    const { calls, ui } = setup()
+    const form = section(ui, "Webhook posts")
+    assert.ok(form.getByText(/at most 30 at once and then one a minute/))
+    const box = form.getByLabelText("Log what webhooks post") as HTMLInputElement
+    assert.equal(box.checked, false)
+    fireEvent.click(box)
+    await act(async () => {
+        fireEvent.click(form.getByRole("button", { name: "Request webhook posts change" }))
+    })
+    assert.deepEqual(
+        calls.map((call) => call.operation),
+        [{ type: "webhook-posts", expectedRevision: 3, enabled: true }],
+    )
+    for (const name of ["Webhook message posted", "Webhook message edited", "Webhook message deleted"])
+        assert.ok(section(ui, name))
+})
+
 test("Event routes override group destinations using shared configuration CAS and exact owner IDs", async () => {
     const { ui, calls } = setup()
     const event = section(ui, "Member joined")
@@ -153,7 +173,7 @@ test("Every channel mode hides the channel list and queues only the exclusions",
     const { ui, calls } = setup(remote)
     const filters = section(ui, "Logging channel filters")
     assert.equal((filters.getByLabelText("Log messages from") as HTMLSelectElement).value, "all")
-    assert.equal(filters.queryByLabelText("Only log messages from these channels"), null)
+    assert.equal(filters.queryByLabelText("Only log messages from these channels") === null, true)
     selectChannel(filters, "Never log messages from these channels", "⭐ evt")
     await submit(filters)
     assert.deepEqual(calls[0]?.operation, {
@@ -203,11 +223,11 @@ test("Existing 500-channel filters stay editable, and a 501st selection is rejec
         excludedChannelIds: configured,
     })
 })
-test("All seven group palettes, twenty-nine event types and thirty-eight audit actions remain available without custom color settings", () => {
+test("All seven group palettes and every event type and audit action remain available without custom color settings", () => {
     const { ui } = setup()
     for (const name of ["Membership", "Resources", "Messages", "Audit", "Settings", "Operations", "Security alerts"])
         assert.equal(within(ui.getByRole("list", { name: `${name} color legend` })).getAllByRole("listitem").length, 4)
-    assert.equal(ui.getAllByLabelText(/ routing$/).length, 74)
+    assert.equal(ui.getAllByLabelText(/ routing$/).length, metadataEventSelectors.length + 7)
     assert.ok(ui.container.querySelector("input[type=color]") === null)
     assert.ok(ui.getByText(/Who made a change is shown only/))
 })

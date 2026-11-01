@@ -61,6 +61,9 @@ const events = {
     "message-update": { category: "messages" },
     "message-delete": { category: "messages" },
     "message-bulk-delete": { category: "messages" },
+    "webhook-message-create": { category: "messages" },
+    "webhook-message-update": { category: "messages" },
+    "webhook-message-delete": { category: "messages" },
     "audit-entry": { category: "audit" },
     "settings-change": { category: "settings" },
     "backend-failure": { category: "operations" },
@@ -74,6 +77,10 @@ const events = {
     "privilege-change": { category: "security" },
     impersonation: { category: "security" },
     "alert-action": { category: "security" },
+    "lockdown-change": { category: "security" },
+    "anti-nuke-incident": { category: "security" },
+    "jail-change": { category: "security" },
+    "bot-rights": { category: "security" },
     "audit-entry:1": { category: "audit" },
     "audit-entry:10": { category: "audit" },
     "audit-entry:11": { category: "audit" },
@@ -185,7 +192,11 @@ function DestinationFields({
 function requestName(operation: DashboardMetadataOperation): string {
     if ("eventType" in operation) return metadataEventLabel(operation.eventType)
     if ("category" in operation) return `${groups[operation.category].title} group`
-    return operation.type === "module" ? "Logging enabled" : "Channel filters"
+    return operation.type === "module"
+        ? "Logging enabled"
+        : operation.type === "webhook-posts"
+          ? "Webhook posts"
+          : "Channel filters"
 }
 export function LogsSection({
     client,
@@ -274,6 +285,36 @@ export function LogSettings(props: LogSettingsProps) {
             />
             <LogForm
                 {...common}
+                title="Webhook posts"
+                description="Also log what webhooks post. Their edits and deletions are logged whatever this says, at most 30 at once and then one a minute per server"
+                snapshot={{ revision, values: { webhookPosts: settings.webhookPosts } }}
+                submitLabel="Request webhook posts change"
+                operation={(values) => ({
+                    type: "webhook-posts",
+                    expectedRevision: settings.revision,
+                    enabled: Boolean(values.webhookPosts),
+                })}
+                fields={(values, edit, disabled) => (
+                    <>
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={Boolean(values.webhookPosts)}
+                                disabled={disabled}
+                                onChange={(event) => edit("webhookPosts", event.target.checked)}
+                            />
+                            Log what webhooks post
+                        </label>
+                        <p className="field-help">
+                            At most 30 posts at once and then 30 a minute are recorded per server, and posts past that
+                            are skipped. The channel filters below apply, and NeonFlux pauses this while the bill guard
+                            pauses optional work
+                        </p>
+                    </>
+                )}
+            />
+            <LogForm
+                {...common}
                 title="Logging channel filters"
                 description="Choose the channels whose message edits and deletions are logged"
                 snapshot={{
@@ -331,7 +372,8 @@ export function LogSettings(props: LogSettingsProps) {
                         <p className="field-help">
                             Choose up to 500 channels in each list. These lists also apply to message events that have
                             their own override. DMs, ticket channels, log channels and messages from bots are never
-                            logged, so exclude staff-only channels whose messages you do not want in a log
+                            logged, while webhook messages are, so exclude staff-only channels whose messages you do not
+                            want in a log
                         </p>
                     </>
                 )}

@@ -101,6 +101,8 @@ export function createMetadataLogsStore(config: BackendConfig): MetadataLogsStor
                 if (v.type !== "settings") return false
                 if (op.type === "module")
                     return v.settings.revision === op.expectedRevision + 1 && v.settings.enabled === op.enabled
+                if (op.type === "webhook-posts")
+                    return v.settings.revision === op.expectedRevision + 1 && v.settings.webhookPosts === op.enabled
                 if (op.type === "channels")
                     return (
                         v.settings.revision === op.expectedRevision + 1 &&

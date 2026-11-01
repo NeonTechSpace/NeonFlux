@@ -215,6 +215,35 @@ export const PublishingTwitchConsumer = Schema.Struct({
     streamId: Schema.String.check(Schema.makeFilter(isTwitchStreamId)),
 })
 export type PublishingTwitchConsumer = typeof PublishingTwitchConsumer.Type
+/** A feed account's stable ID, which is a Bluesky DID or an X user ID, and a post's record key or number, used to deduplicate posts */
+export const isFeedAccountId = (value: string) =>
+        /^(?:did:plc:[a-z2-7]{24}|did:web:[a-z0-9.-]{1,80}|[0-9]{1,25})$/.test(value),
+    isFeedItemId = (value: string) => /^[a-z0-9]{1,30}$/.test(value)
+export const PublishingFeedConsumer = Schema.Struct({
+    type: Schema.Literal("feed"),
+    provider: Schema.Literals(["bluesky", "x"]),
+    accountId: Schema.String.check(Schema.makeFilter(isFeedAccountId)),
+    itemId: Schema.String.check(Schema.makeFilter(isFeedItemId)),
+})
+export type PublishingFeedConsumer = typeof PublishingFeedConsumer.Type
+/** The publisher's source ID of one feed post. A DID's colons are not token characters */
+export const feedSourceId = (provider: string, accountId: string, itemId: string) =>
+    `feed_${provider}_${accountId.replace(/[^a-zA-Z0-9-]/g, "_")}_${itemId}`
+/** One board's post of one message. boardId is the board's stored ID, and an edit of the post gets a source ID of its own */
+export const PublishingBoardConsumer = Schema.Struct({
+    type: Schema.Literal("board"),
+    boardId: Token,
+    messageId: Id,
+})
+export type PublishingBoardConsumer = typeof PublishingBoardConsumer.Type
+/** The publisher's source ID of one send or edit of a board post */
+export const boardSourceId = (boardId: string, messageId: string, generation: number) =>
+    `board_${boardId}_${messageId}_${generation}`
+/** A giveaway's card. Later edits of the card are the giveaway's own, so only the post goes through the publisher */
+export const PublishingGiveawayConsumer = Schema.Struct({ type: Schema.Literal("giveaway"), giveawayNo: Int(1) })
+export type PublishingGiveawayConsumer = typeof PublishingGiveawayConsumer.Type
+/** The publisher's source ID of a giveaway's card */
+export const giveawaySourceId = (giveawayNo: number) => `giveaway_${giveawayNo}`
 export const PublishingSuggestionConsumer = Schema.Struct({
     type: Schema.Literal("suggestion-card"),
     ...SuggestionsCardBinding.fields,
@@ -270,12 +299,18 @@ export const PublishingConsumer = Schema.Union([
     PublishingSuggestionConsumer,
     PublishingYoutubeConsumer,
     PublishingTwitchConsumer,
+    PublishingFeedConsumer,
+    PublishingBoardConsumer,
+    PublishingGiveawayConsumer,
 ])
 export type PublishingConsumer = typeof PublishingConsumer.Type
 
 export const PublishingSource = Schema.Union([
     PublishingYoutubeConsumer,
     PublishingTwitchConsumer,
+    PublishingFeedConsumer,
+    PublishingBoardConsumer,
+    PublishingGiveawayConsumer,
     Schema.Struct({ type: Schema.Literal("dashboard-message"), jobId: Token, createdAt: Millis }),
     Schema.Struct({ type: Schema.Literal("showcase"), jobId: Token, createdAt: Millis }),
     Schema.Struct({ type: Schema.Literal("dashboard-role"), jobId: Token, createdAt: Millis }),
@@ -323,6 +358,9 @@ export const PublishingProvenance = Schema.Union([
         template: MilestonesTemplateSource,
     }),
     PublishingTwitchConsumer,
+    PublishingFeedConsumer,
+    PublishingBoardConsumer,
+    PublishingGiveawayConsumer,
 ])
 export type PublishingProvenance = typeof PublishingProvenance.Type
 
@@ -375,6 +413,35 @@ function boundProvenance(v: GrantFields) {
             equalUnknown(v.source, v.provenance) &&
             equalUnknown(v.consumer, v.provenance) &&
             v.sourceId === `twitch_${v.provenance.twitchChannelId}_${v.provenance.streamId}` &&
+            v.draftKind === undefined &&
+            v.draftName === undefined &&
+            v.draftRevision === undefined
+        )
+    if (v.provenance?.type === "feed")
+        return (
+            v.action === "send" &&
+            equalUnknown(v.source, v.provenance) &&
+            equalUnknown(v.consumer, v.provenance) &&
+            v.sourceId === feedSourceId(v.provenance.provider, v.provenance.accountId, v.provenance.itemId) &&
+            v.draftKind === undefined &&
+            v.draftName === undefined &&
+            v.draftRevision === undefined
+        )
+    if (v.provenance?.type === "board")
+        return (
+            equalUnknown(v.source, v.provenance) &&
+            equalUnknown(v.consumer, v.provenance) &&
+            v.sourceId === boardSourceId(v.provenance.boardId, v.provenance.messageId, v.generation) &&
+            v.draftKind === undefined &&
+            v.draftName === undefined &&
+            v.draftRevision === undefined
+        )
+    if (v.provenance?.type === "giveaway")
+        return (
+            v.action === "send" &&
+            equalUnknown(v.source, v.provenance) &&
+            equalUnknown(v.consumer, v.provenance) &&
+            v.sourceId === giveawaySourceId(v.provenance.giveawayNo) &&
             v.draftKind === undefined &&
             v.draftName === undefined &&
             v.draftRevision === undefined

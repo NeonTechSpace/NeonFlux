@@ -15,6 +15,8 @@ import { publishingHelpAll } from "./publishing-command.ts"
 import { code, replyCard, replyText, type Card } from "./reply-style.ts"
 import { managementHelpAll } from "./response-command.ts"
 import { roleHelpAll } from "./role-command.ts"
+import type { BotRight } from "@neonflux/contracts/rights"
+import { rightsHeldBy } from "./rights-memory.ts"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import { rolePickerHelpAll } from "./rolepicker-command.ts"
 import { scheduleHelpAll } from "./schedule-command.ts"
@@ -31,13 +33,13 @@ import { greetingsHelpAll } from "./welcome-command.ts"
 export type Audience = "everyone" | "staff" | "manager" | "admin"
 /** The groups !help lists, in this order, with the purpose it shows for each */
 const groups = {
-    basics: "Ping, help, away status, prefix and reply style",
+    basics: "Ping, help, away status, reminders, prefix and reply style",
     setup: "Check NeonFlux, apply presets, see activity and back up the server",
     moderation: "Cases, automatic rules, raid protection, logs and alerts",
-    roles: "Role panels, verification, newcomer roles and the member list",
+    roles: "Role panels, verification, newcomer roles, the member list and counters",
     messages: "Announcements, greetings, custom replies and message cleanup",
-    support: "Tickets, the help desk and suggestions",
-    community: "Levels, events, birthdays, showcases and profiles",
+    support: "Tickets, the help desk, suggestions and boards",
+    community: "Levels, events, birthdays, showcases, profiles and feeds",
     voice: "Temporary voice rooms and finding a group",
 } as const
 type Group = keyof typeof groups
@@ -79,6 +81,13 @@ export const commandTable = [
         group: "basics",
         audience: "everyone",
         description: "Show the command prefix. Managers can change it",
+    },
+    {
+        name: "commands",
+        feature: "commandrules",
+        group: "basics",
+        audience: "manager",
+        description: "Limit where built-in commands work and who can use them",
     },
     {
         name: "replies",
@@ -200,6 +209,27 @@ export const commandTable = [
         description: "Staff alerts for invites, new bots and webhooks, and risky changes",
     },
     {
+        name: "lockdown",
+        feature: "lockdown",
+        group: "moderation",
+        audience: "staff",
+        description: "Stop posting across the whole server, and restore it exactly",
+    },
+    {
+        name: "jail",
+        feature: "jail",
+        group: "roles",
+        audience: "staff",
+        description: "Set up the jail role and channel, and see who is jailed",
+    },
+    {
+        name: "antinuke",
+        feature: "antinuke",
+        group: "setup",
+        audience: "admin",
+        description: "Stop an account that destroys the server at machine speed",
+    },
+    {
         name: "invites",
         feature: "alerts",
         group: "moderation",
@@ -310,6 +340,41 @@ export const commandTable = [
         group: "messages",
         audience: "manager",
         description: "Post live alerts from Twitch streamers",
+    },
+    {
+        name: "counter",
+        feature: "counters",
+        group: "roles",
+        audience: "manager",
+        description: "Keep a channel named with a live member count",
+    },
+    {
+        name: "board",
+        feature: "boards",
+        group: "support",
+        audience: "manager",
+        description: "Repost messages that collect enough of an emoji, such as a starboard",
+    },
+    {
+        name: "feed",
+        feature: "feeds",
+        group: "community",
+        audience: "manager",
+        description: "Post new posts from Bluesky and X accounts",
+    },
+    {
+        name: "giveaway",
+        feature: "giveaways",
+        group: "community",
+        audience: "manager",
+        description: "Run a giveaway members enter by reacting",
+    },
+    {
+        name: "remind",
+        feature: "reminders",
+        group: "basics",
+        audience: "everyone",
+        description: "Get a DM when a time you chose comes",
     },
     {
         name: "cleanup",
@@ -470,18 +535,44 @@ export function audiences(bits: bigint): ReadonlySet<Audience> {
     ])
 }
 
+/** What a member can run through each bot-only right, which !help lists for them */
+const rightCommands: Record<BotRight, readonly string[]> = {
+    kick: ["!mod kick"],
+    ban: ["!mod ban", "!mod unban"],
+    timeout: ["!mod timeout", "!mod untimeout"],
+    purge: ["!mod purge"],
+    slowmode: ["!mod slowmode"],
+    lock: ["!security lock", "!security unlock"],
+    quarantine: ["!security quarantine", "!security release"],
+    jail: ["!mod jail", "!mod unjail"],
+}
 /**
  * Help for a member, printed with the server's prefix. Without a topic it lists the groups with a command the member can use.
  * A group, a feature or a command name shows that group's commands. Anything else gets one line with the closest topic
  */
-export function helpCard(prefix: string, allowed: ReadonlySet<Audience>, topic?: string): Card | string {
+export function helpCard(
+    prefix: string,
+    allowed: ReadonlySet<Audience>,
+    topic?: string,
+    rights: readonly BotRight[] = [],
+): Card | string {
     const visible = (group: Group) =>
         commandTable.filter((entry) => entry.group === group && allowed.has(entry.audience))
     const open = (Object.keys(groups) as Group[]).filter((group) => visible(group).length)
     if (topic === undefined)
         return {
             title: "Commands you can use",
-            fields: open.map((group) => [label(group), groups[group]] as const),
+            fields: [
+                ...open.map((group) => [label(group), groups[group]] as const),
+                ...(rights.length
+                    ? [
+                          [
+                              "Through bot-only rights",
+                              withPrefix(rights.flatMap((right) => rightCommands[right]).join(", "), prefix),
+                          ] as const,
+                      ]
+                    : []),
+            ],
             note: withPrefix(
                 `Send ${code("!help <group>")} to see its commands, such as ${code(`!help ${open[0]}`)}`,
                 prefix,
@@ -545,16 +636,18 @@ export const suggestCommand = (
 function authorAudiences(serverId: string, context: BotEventContext<"messageCreate">) {
     return readSafetyAuthority(context.client, serverId, context.message.author.id, { cached: true }).pipe(
         Effect.flatMap((authority) =>
-            Effect.try(() =>
-                context.client.permissions.calculate({
+            Effect.try(() => ({
+                bits: context.client.permissions.calculate({
                     guild: authority.guild,
                     member: authority.actor,
                     roles: authority.roles,
                 }),
-            ),
+                // From memory, which only chooses what help shows. The backend decides each action
+                rights: rightsHeldBy(serverId, authority.roleIds),
+            })),
         ),
-        Effect.catch(() => Effect.succeed(0n)),
-        Effect.map(audiences),
+        Effect.catch(() => Effect.succeed({ bits: 0n, rights: [] as readonly BotRight[] })),
+        Effect.map(({ bits, rights }) => ({ allowed: audiences(bits), rights })),
     )
 }
 /** The hint for the message's author. Their permissions are read only for a word close to some command */
@@ -567,7 +660,7 @@ export function commandHint(
 ) {
     return Effect.gen(function* () {
         if (!isCloseToAny({ word: name, builtIn: entries.keys(), custom: customNames, following })) return []
-        return suggestCommand(name, yield* authorAudiences(serverId, context), customNames, following)
+        return suggestCommand(name, (yield* authorAudiences(serverId, context)).allowed, customNames, following)
     })
 }
 /** !help and a mention of the bot followed by help. The member's server permissions decide which commands are listed */
@@ -578,11 +671,11 @@ export function handleHelpCommand(
     context: BotEventContext<"messageCreate">,
 ) {
     return Effect.gen(function* () {
-        const allowed = yield* authorAudiences(serverId, context)
+        const { allowed, rights } = yield* authorAudiences(serverId, context)
         const result =
             args.length > 1
                 ? withPrefix(`No help matches that. Send ${code("!help")} to see the groups`, prefix)
-                : helpCard(prefix, allowed, args[0]?.toLowerCase())
+                : helpCard(prefix, allowed, args[0]?.toLowerCase(), rights)
         if (typeof result === "object") yield* replyCard(context, serverId, result)
         else yield* replyText(context, result)
     })

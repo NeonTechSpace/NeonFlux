@@ -7,6 +7,7 @@ import {
     metadataPlain,
     metadataSlice,
     METADATA_TEXT,
+    METADATA_WEBHOOK_NAME,
 } from "@neonflux/contracts/metadata-logs"
 import { cutText, InviteCode } from "@neonflux/contracts/common"
 import { permissionKeyTitles, permissionNames } from "@neonflux/contracts/permission-names"
@@ -286,8 +287,11 @@ export function auditChanges(entry: Record<string, unknown>) {
             permissions(before ?? 0n, after, changes, key)
             continue
         }
-        const b = change.oldValue === undefined ? undefined : auditValue(change.oldValue),
-            a = change.newValue === undefined ? undefined : auditValue(change.newValue)
+        // A channel's ID shows as its mention
+        const shown = (v: unknown) =>
+            (key === "channel_id" || key === "parent_id") && id(v) ? channel(v) : auditValue(v)
+        const b = change.oldValue === undefined ? undefined : shown(change.oldValue),
+            a = change.newValue === undefined ? undefined : shown(change.newValue)
         if (b === undefined && a === undefined) continue
         // An omitted side is unavailable, so only a recorded old value shows as before
         changes.push({ field: key, ...(b !== undefined ? { before: b || "(none)" } : {}), after: a || "(none)" })
@@ -305,13 +309,16 @@ export function auditChanges(entry: Record<string, unknown>) {
                 field: "delete_messages",
                 after: `${Math.round((options.deleteMessagesMs as number) / 1000)} seconds`,
             })
-        // Overwrite entries name the role or member the overwrite is for
-        if (
-            [13, 14, 15].includes(entry.actionType as number) &&
-            id(options.id) &&
-            !changes.some((c) => c.field === "overwrite_target")
-        )
-            changes.push({ field: "overwrite_target", after: options.type === 1 ? user(options.id) : role(options.id) })
+    }
+    // Overwrite entries name the role or member the overwrite is for as their target, the channel in their options and the kind of
+    // target as a type of 1 for a member. The server's own ID as the target is the everyone role
+    if ([13, 14, 15].includes(entry.actionType as number) && !changes.some((c) => c.field === "overwrite_target")) {
+        const target = id(options?.id) ? options.id : entry.targetId
+        if (id(target))
+            changes.push({
+                field: "overwrite_target",
+                after: options?.type === 1 ? user(target) : target === entry.guildId ? "Everyone" : role(target),
+            })
     }
     return changes
 }
@@ -355,6 +362,13 @@ export type MetadataPrevious =
 /** Names the projection needs that the event does not carry, such as a forum's tag names */
 export interface MetadataProjectionNames {
     readonly tags?: ReadonlyMap<string, string>
+    /** The name of the webhook an audit entry is about, as NeonFlux learned it */
+    readonly webhook?: string | undefined
+}
+/** A webhook's name as a record shows it, escaped so it cannot fake a line or a mention */
+export const metadataWebhookName = (name: string | undefined) => {
+    const shown = name?.trim() ? metadataPlain(name, METADATA_WEBHOOK_NAME) : ""
+    return shown ? { webhookName: shown } : {}
 }
 
 /**
@@ -418,9 +432,15 @@ export function projectMetadataEvent(
         // The reason shows in a code block, so it keeps its own text
         const reason = typeof value.reason === "string" ? metadataSlice(value.reason.trim(), 512) : ""
         const changes = auditChanges(value)
+        const webhookName = action >= 50 && action <= 52 ? metadataWebhookName(names.webhook) : {}
         const details: Details | undefined =
-            changes.length || reason || inviteCode
-                ? { ...withChanges(changes), ...(reason ? { reason } : {}), ...(inviteCode ? { inviteCode } : {}) }
+            changes.length || reason || inviteCode || webhookName.webhookName
+                ? {
+                      ...withChanges(changes),
+                      ...(reason ? { reason } : {}),
+                      ...(inviteCode ? { inviteCode } : {}),
+                      ...webhookName,
+                  }
                 : undefined
         return {
             ...base("audit", "audit-entry", !invite && id(value.targetId) ? [value.targetId] : [], details)!,
@@ -526,19 +546,36 @@ export function projectMetadataEvent(
         )
         return event ? { ...event, count: items.length } : undefined
     }
-    if (["messageUpdate", "messageDelete", "messageDeleteBulk"].includes(name)) {
+    if (["messageCreate", "messageUpdate", "messageDelete", "messageDeleteBulk"].includes(name)) {
         if (!id(value.channelId)) return
         const author = object(value.author)
-        // A deletion carries no author flags, so the bot flag comes from the message the bot remembered
+        // A deletion carries no author flags, so the bot flag and the webhook come from the message the bot remembered
         const remembered = name === "messageDelete" ? (previous as RememberedMessage | undefined) : undefined
+        const webhookId = id(value.webhookId) ? value.webhookId : remembered?.webhookId
+        // Other bots and system messages stay out, and NeonFlux's own posts by their author. Fluxer may mark a webhook's
+        // author as a bot, so a webhook message is told apart by its webhook. Only a webhook's post is ever logged as created
         if (
-            author?.isBot === true ||
             author?.isSystem === true ||
-            remembered?.authorBot === true ||
-            value.webhookId ||
-            (scope.botId && (author?.id === scope.botId || value.authorId === scope.botId))
+            (!webhookId && (author?.isBot === true || remembered?.authorBot === true)) ||
+            (scope.botId &&
+                (author?.id === scope.botId ||
+                    value.authorId === scope.botId ||
+                    remembered?.authorId === scope.botId)) ||
+            (name === "messageCreate" && !webhookId)
         )
             return
+        // A webhook's records name it as the author, since no member wrote its messages
+        const writer = (): Pick<Details, "authorId" | "webhookId" | "webhookName"> =>
+            webhookId
+                ? {
+                      webhookId,
+                      ...metadataWebhookName(
+                          typeof author?.username === "string" ? author.username : remembered?.webhookName,
+                      ),
+                  }
+                : id(author?.id)
+                  ? { authorId: author.id }
+                  : {}
         const messageIds = name === "messageDeleteBulk" ? value.ids : [value.id]
         if (
             !Array.isArray(messageIds) ||
@@ -547,16 +584,30 @@ export function projectMetadataEvent(
             new Set(messageIds).size !== messageIds.length
         )
             return
-        const type =
-            name === "messageUpdate"
-                ? "message-update"
-                : name === "messageDelete"
-                  ? "message-delete"
-                  : "message-bulk-delete"
+        const type: MetadataLogsEventType = webhookId
+            ? name === "messageCreate"
+                ? "webhook-message-create"
+                : name === "messageUpdate"
+                  ? "webhook-message-update"
+                  : "webhook-message-delete"
+            : name === "messageUpdate"
+              ? "message-update"
+              : name === "messageDelete"
+                ? "message-delete"
+                : "message-bulk-delete"
         const clip = (text: string) => metadataSlice(text, METADATA_TEXT)
         let details: Details | undefined
         let changed: string[] = []
-        if (name === "messageUpdate") {
+        if (name === "messageCreate") {
+            const attachments = attachmentsOf(value.attachments),
+                count = Array.isArray(value.attachments) ? value.attachments.length : 0
+            details = {
+                ...writer(),
+                ...(typeof value.content === "string" ? { text: clip(value.content) } : {}),
+                ...(attachments.length ? { attachments: attachments.slice(0, 10) } : {}),
+                ...(count > Math.min(10, attachments.length) ? { attachmentCount: count } : {}),
+            }
+        } else if (name === "messageUpdate") {
             const earlier = previous as RememberedMessage | undefined,
                 text = typeof value.content === "string" ? clip(value.content) : undefined,
                 attachments = attachmentsOf(value.attachments),
@@ -572,7 +623,7 @@ export function projectMetadataEvent(
             ]
             if (!changed.length) changed = ["update"]
             details = {
-                ...(id(author?.id) ? { authorId: author.id } : {}),
+                ...writer(),
                 ...(earlier?.text === undefined
                     ? { earlierUnknown: true as const }
                     : earlier.text !== text
@@ -587,7 +638,7 @@ export function projectMetadataEvent(
             // Fluxer's own text comes first, and null or absent means it sent none
             const text = typeof value.content === "string" ? clip(value.content) : remembered?.text
             details = {
-                ...(authorId ? { authorId } : {}),
+                ...(webhookId ? writer() : authorId ? { authorId } : {}),
                 ...(text !== undefined ? { text } : {}),
                 ...(remembered?.attachments?.length ? { attachments: [...remembered.attachments] } : {}),
                 ...(remembered?.attachmentCount ? { attachmentCount: remembered.attachmentCount } : {}),
@@ -616,12 +667,13 @@ export function projectMetadataEvent(
                 ? { source: { kind: "message-delete", messageId: value.id as string } as const }
                 : {}),
             channelId: value.channelId,
-            authorBot:
-                typeof author?.isBot === "boolean"
-                    ? author.isBot
-                    : typeof remembered?.authorBot === "boolean"
-                      ? remembered.authorBot
-                      : null,
+            authorBot: webhookId
+                ? false
+                : typeof author?.isBot === "boolean"
+                  ? author.isBot
+                  : typeof remembered?.authorBot === "boolean"
+                    ? remembered.authorBot
+                    : null,
             privateChannel: false,
             count: messageIds.length,
         }

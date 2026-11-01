@@ -33,7 +33,14 @@ export const metadataTypes = {
         "thread-delete",
         "server-update",
     ],
-    messages: ["message-update", "message-delete", "message-bulk-delete"],
+    messages: [
+        "message-update",
+        "message-delete",
+        "message-bulk-delete",
+        "webhook-message-create",
+        "webhook-message-update",
+        "webhook-message-delete",
+    ],
     audit: ["audit-entry"],
     settings: ["settings-change"],
     operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"],
@@ -46,6 +53,10 @@ export const metadataTypes = {
         "privilege-change",
         "impersonation",
         "alert-action",
+        "lockdown-change",
+        "anti-nuke-incident",
+        "jail-change",
+        "bot-rights",
     ],
 } as const
 /** Every event type, in category order */
@@ -110,6 +121,7 @@ export const metadataChangedFields = {
         "route",
         "messageChannelIds",
         "excludedChannelIds",
+        "webhookPosts",
         "configuration",
     ],
     operations: [],
@@ -135,6 +147,18 @@ export const metadataChangedFields = {
         "kick-bot",
         "delete-webhook",
         "remove-permissions",
+        "lockdown-started",
+        "lockdown-ended",
+        "anti-nuke-dry-run",
+        "anti-nuke-alert",
+        "anti-nuke-strip",
+        "anti-nuke-kick",
+        "anti-nuke-ban",
+        "jail-rejoin",
+        "jail-stripped",
+        "rights-limit",
+        "rights-ceiling",
+        "rights-anti-nuke",
         "succeeded",
         "failed",
         "uncertain",
@@ -165,6 +189,9 @@ const eventLabels: Record<(typeof metadataEventTypes)[number], string> = {
     "message-update": "Message edited",
     "message-delete": "Message deleted",
     "message-bulk-delete": "Messages deleted in bulk",
+    "webhook-message-create": "Webhook message posted",
+    "webhook-message-update": "Webhook message edited",
+    "webhook-message-delete": "Webhook message deleted",
     "audit-entry": "Audit log entry",
     "settings-change": "Settings changed",
     "backend-failure": "Log processing failed",
@@ -178,6 +205,10 @@ const eventLabels: Record<(typeof metadataEventTypes)[number], string> = {
     "privilege-change": "Dangerous permissions granted",
     impersonation: "Possible impersonation",
     "alert-action": "Security alert action",
+    "lockdown-change": "Server-wide lockdown",
+    "anti-nuke-incident": "Anti-nuke incident",
+    "jail-change": "Jailed member held again",
+    "bot-rights": "Bot-only rights refused",
 }
 const auditLabels: Record<(typeof metadataAuditActions)[number], string> = {
     1: "Server changed",
@@ -232,6 +263,8 @@ export function metadataEventLabel(selector: string) {
 export const MetadataLogsEventSelector = Schema.Literals(metadataEventSelectors)
 const metadataLogCategories = metadataCategories
 const text = (max = 4096) => Str(max).check(Schema.isMinLength(1))
+/** The most characters of a webhook's name a record shows, escapes included */
+export const METADATA_WEBHOOK_NAME = 100
 const array = <S extends Schema.Top>(item: S, max = METADATA_PAGE) => List(item, max)
 
 export const MetadataLogsCategory = Schema.Literals(metadataLogCategories)
@@ -267,6 +300,16 @@ export const MetadataLogsDashboardScope = Schema.Literals([
     "profile",
     "youtube",
     "twitch",
+    "lockdown",
+    "antinuke",
+    "jail",
+    "rights",
+    "feeds",
+    "reminders",
+    "giveaways",
+    "counters",
+    "boards",
+    "commandrules",
 ])
 export const MetadataLogsDashboardSettingScope = Schema.Literals(["general", "responses"])
 export const MetadataLogsOutcome = Schema.Literals(["observed", "accepted", "failed", "disconnected", "reconnected"])
@@ -324,6 +367,10 @@ export const MetadataLogsChange = Schema.Struct({
  */
 export const MetadataLogsDetails = Schema.Struct({
     authorId: Schema.optionalKey(Id),
+    /** The webhook that wrote a webhook message, which has no member as its author */
+    webhookId: Schema.optionalKey(Id),
+    /** A webhook's name, ready to show, on its messages and on the audit entries and alerts about it. Absent when NeonFlux could not learn it */
+    webhookName: Schema.optionalKey(text(METADATA_WEBHOOK_NAME)),
     before: Schema.optionalKey(Str(METADATA_TEXT)),
     text: Schema.optionalKey(Str(METADATA_TEXT)),
     earlierUnknown: Schema.optionalKey(Schema.Literal(true)),
@@ -341,9 +388,14 @@ function detailKeys(type: (typeof metadataEventTypes)[number], category: Metadat
         return ["authorId", "before", "text", "earlierUnknown", "attachments", "attachmentCount"]
     if (type === "message-delete") return ["authorId", "text", "attachments", "attachmentCount"]
     if (type === "message-bulk-delete") return ["authors"]
+    if (type === "webhook-message-update")
+        return ["webhookId", "webhookName", "before", "text", "earlierUnknown", "attachments", "attachmentCount"]
+    if (type === "webhook-message-create" || type === "webhook-message-delete")
+        return ["webhookId", "webhookName", "text", "attachments", "attachmentCount"]
     if (category === "membership" || category === "resources") return ["changes", "moreChanges", "earlierUnknown"]
-    if (category === "audit") return ["changes", "moreChanges", "reason", "inviteCode"]
+    if (category === "audit") return ["changes", "moreChanges", "reason", "inviteCode", "webhookName"]
     if (type === "invite-create" || type === "invite-delete") return ["inviteCode"]
+    if (type === "webhook-change" || type === "alert-action") return ["webhookName"]
     return []
 }
 function validDetails(v: {
@@ -400,11 +452,22 @@ export const MetadataLogsEvent = Schema.Struct({
         const prefixes: Record<MetadataLogsCategory, readonly string[]> = {
             membership: ["member-"],
             resources: ["role-", "channel-", "thread-", "server-"],
-            messages: ["message-"],
+            messages: ["message-", "webhook-message-"],
             audit: ["audit-entry"],
             settings: ["settings-change"],
             operations: ["backend-failure", "admission-failure", "delivery-failure", "gateway-discontinuity"],
-            security: ["invite-", "bot-join", "webhook-change", "privilege-change", "impersonation", "alert-action"],
+            security: [
+                "invite-",
+                "bot-join",
+                "webhook-change",
+                "privilege-change",
+                "impersonation",
+                "alert-action",
+                "lockdown-change",
+                "anti-nuke-incident",
+                "jail-change",
+                "bot-rights",
+            ],
         }
         return (
             validDetails(v) &&
@@ -414,14 +477,15 @@ export const MetadataLogsEvent = Schema.Struct({
             v.changedFields.every((f) => (metadataChangedFields[v.category] as readonly string[]).includes(f)) &&
             (v.actor.kind === "unknown" ||
                 (v.actor.kind === "audit" && (v.category === "audit" || auditAlert(v))) ||
-                (v.actor.kind === "configuration" && v.category === "settings") ||
+                (v.actor.kind === "configuration" && (v.category === "settings" || v.type === "lockdown-change")) ||
                 (v.actor.kind === "event" && v.type === "invite-create")) &&
             (v.category === "audit"
                 ? v.source.kind === "audit" && v.auditAction !== undefined && v.resourceIds.length <= 1
                 : v.auditAction === undefined) &&
-            (v.type === "message-delete"
+            (v.type === "message-delete" || v.type === "webhook-message-delete"
                 ? v.source.kind === "message-delete" && v.resourceIds.includes(v.source.messageId)
                 : true) &&
+            (!v.type.startsWith("webhook-message-") || v.details?.webhookId !== undefined) &&
             (v.type === "member-add" && v.source.kind === "member-add"
                 ? v.resourceIds.includes(v.source.userId)
                 : true) &&
@@ -431,6 +495,7 @@ export const MetadataLogsEvent = Schema.Struct({
             (v.category === "audit" ||
                 v.category === "settings" ||
                 v.type === "message-delete" ||
+                v.type === "webhook-message-delete" ||
                 (v.type === "member-add" && v.source.kind === "member-add") ||
                 auditAlert(v) ||
                 v.source.kind === "observation") &&
@@ -480,6 +545,8 @@ export const MetadataLogsSettings = Schema.Struct({
     eventRoutes: array(MetadataLogsEventRoute, metadataEventSelectors.length),
     /** Message events come from every channel except the excluded ones, instead of only the listed ones */
     allChannels: Schema.Boolean,
+    /** What webhooks post is logged too, as webhook-message-create records. Off by default */
+    webhookPosts: Schema.Boolean,
     messageChannelIds: array(Id, METADATA_CHANNEL_LIMIT),
     excludedChannelIds: array(Id, METADATA_CHANNEL_LIMIT),
     retained: Int(0, 10000),
@@ -635,7 +702,8 @@ export const MetadataLogsWorkResult = Schema.Union([
     Schema.Struct({ type: Schema.Literal("reserved"), grant: MetadataLogsGrant }),
     Schema.Struct({ type: Schema.Literal("claimed"), claimed: Schema.Boolean, grant: MetadataLogsGrant }),
     Schema.Struct({ type: Schema.Literal("record"), record: MetadataLogsRecord }),
-    Schema.Struct({ type: Schema.Literal("messages"), logged: Schema.Boolean }),
+    /** Whether message events reach a log channel, and whether what webhooks post is logged too */
+    Schema.Struct({ type: Schema.Literal("messages"), logged: Schema.Boolean, webhookPosts: Schema.Boolean }),
 ])
 export const MetadataLogsAdmitResult = Schema.Union([
     Schema.Struct({ admitted: Schema.Literal(true), duplicate: Schema.Literal(false), record: MetadataLogsRecord }),
@@ -676,6 +744,11 @@ const channelsOperation = Schema.Struct({
     messageChannelIds: List(Id, METADATA_CHANNEL_LIMIT).check(Schema.makeFilter((v) => new Set(v).size === v.length)),
     excludedChannelIds: List(Id, METADATA_CHANNEL_LIMIT).check(Schema.makeFilter((v) => new Set(v).size === v.length)),
 }).check(Schema.makeFilter((v) => !v.allChannels || v.messageChannelIds.length === 0))
+const webhookPostsOperation = Schema.Struct({
+    type: Schema.Literal("webhook-posts"),
+    expectedRevision: Int(),
+    enabled: Schema.Boolean,
+})
 const routeOperation = Schema.Struct({
     type: Schema.Literal("route"),
     category: MetadataLogsCategory,
@@ -711,6 +784,7 @@ const eventClearOperation = Schema.Struct({
 export const MetadataConfigurationOperation = Schema.Union([
     moduleOperation,
     channelsOperation,
+    webhookPostsOperation,
     routeOperation,
     clearOperation,
     eventRouteOperation,
@@ -719,6 +793,7 @@ export const MetadataConfigurationOperation = Schema.Union([
 export const MetadataLogsConfigurationOperation = Schema.Union([
     moduleOperation,
     channelsOperation,
+    webhookPostsOperation,
     Schema.Struct({ ...routeOperation.fields, recipientOwner: MetadataLogsContext }),
     clearOperation,
     Schema.Struct({ ...eventRouteOperation.fields, recipientOwner: Schema.optionalKey(MetadataLogsContext) }).check(
@@ -848,6 +923,8 @@ const changeLabels: Record<string, string> = {
     userLimit: "User limit",
     verificationLevel: "Verification level",
     overwrites: "Permission overwrites changed for",
+    channel_id: "Channel",
+    overwrite_target: "Permission overwrite for",
 }
 const changeLabel = (field: string) => changeLabels[field] ?? `${field[0]!.toUpperCase()}${field.slice(1)}`
 const oneLine = (value: string) => value.replace(/[\r\n\u2028\u2029]/g, " ")
@@ -897,33 +974,41 @@ export function metadataLogContent(
         { type, resourceIds: ids } = event,
         d = event.details ?? {},
         action = event.auditAction ?? 0
+    const edited = type === "message-update" || type === "webhook-message-update"
     const link =
-        type === "message-update" && serverId && event.channelId && ids.length === 1
+        (edited || type === "webhook-message-create") && serverId && event.channelId && ids.length === 1
             ? `Message: [Jump to message](${metadataMessageLink(serverId, event.channelId, ids[0]!)})`
             : undefined
-    const about = !ids.length
-        ? undefined
-        : link
-          ? link
-          : type === "server-update" || action === 1
-            ? "About: This server"
-            : type.startsWith("message-") || (action >= 72 && action <= 75)
-              ? `Messages: ${ids.join(", ")}`
-              : type === "webhook-change" ||
-                  (type === "alert-action" && event.changedFields.includes("delete-webhook")) ||
-                  (action >= 50 && action <= 52)
-                ? `Webhook: ${ids.join(", ")}`
-                : action >= 60 && action <= 62
-                  ? `Emoji: ${ids.join(", ")}`
-                  : action >= 90 && action <= 92
-                    ? `Sticker: ${ids.join(", ")}`
-                    : type === "privilege-change" && event.changedFields.includes("member-roles")
-                      ? `About: ${[user(ids[0]!), ...ids.slice(1).map(role)].join(", ")}`
-                      : `About: ${ids.map(type.startsWith("member-") || type === "bot-join" || type === "impersonation" || (type === "alert-action" && event.changedFields.includes("kick-bot")) || (action >= 20 && action <= 28) ? user : type.startsWith("role-") || type === "privilege-change" || type === "alert-action" || (action >= 30 && action <= 32) ? role : channel).join(", ")}`
+    // An overwrite entry's target is the role or member it is for, not a channel, and its changes name both
+    const about =
+        !ids.length || (action >= 13 && action <= 15)
+            ? undefined
+            : link
+              ? link
+              : type === "server-update" || action === 1
+                ? "About: This server"
+                : type.startsWith("message-") || type.startsWith("webhook-message-") || (action >= 72 && action <= 75)
+                  ? `Messages: ${ids.join(", ")}`
+                  : type === "webhook-change" ||
+                      (type === "alert-action" && event.changedFields.includes("delete-webhook")) ||
+                      (action >= 50 && action <= 52)
+                    ? `Webhook: ${d.webhookName ? `${d.webhookName} (${ids.join(", ")})` : ids.join(", ")}`
+                    : action >= 60 && action <= 62
+                      ? `Emoji: ${ids.join(", ")}`
+                      : action >= 90 && action <= 92
+                        ? `Sticker: ${ids.join(", ")}`
+                        : type === "privilege-change" && event.changedFields.includes("member-roles")
+                          ? `About: ${[user(ids[0]!), ...ids.slice(1).map(role)].join(", ")}`
+                          : `About: ${ids.map(type.startsWith("member-") || type === "bot-join" || type === "impersonation" || type === "lockdown-change" || type === "anti-nuke-incident" || type === "jail-change" || type === "bot-rights" || (type === "alert-action" && event.changedFields.includes("kick-bot")) || (action >= 20 && action <= 28) ? user : type.startsWith("role-") || type === "privilege-change" || type === "alert-action" || (action >= 30 && action <= 32) ? role : channel).join(", ")}`
+    // NeonFlux wrote these itself, for staff or for anti-nuke, so no Fluxer event is behind them
+    const ownRecord = type === "lockdown-change" || type === "anti-nuke-incident"
     const head = [
         `Event: ${type} (${event.category})`,
-        `By: ${event.actor.kind === "unknown" ? "Unknown" : user(event.actor.userId)}`,
+        `By: ${event.actor.kind === "unknown" ? (ownRecord ? "Anti-nuke" : "Unknown") : user(event.actor.userId)}`,
         ...(d.authorId ? [`Author: ${user(d.authorId)}`] : []),
+        ...(d.webhookId
+            ? [`Author: ${d.webhookName ? `${d.webhookName} (webhook ${d.webhookId})` : `Webhook ${d.webhookId}`}`]
+            : []),
         ...(about ? [about] : []),
         ...(event.channelId ? [`Channel: ${channel(event.channelId)}`] : []),
         ...(event.changedFields.length && !d.changes ? [`Changed: ${event.changedFields.join(", ")}`] : []),
@@ -939,7 +1024,7 @@ export function metadataLogContent(
             : []),
     ]
     const tail = [
-        `Source: ${metadataSources[event.source.kind]}`,
+        `Source: ${ownRecord ? "NeonFlux" : metadataSources[event.source.kind]}`,
         `When: <t:${Math.floor(event.observedAt / 1000)}:f>`,
         ...notes,
     ]
@@ -953,7 +1038,7 @@ export function metadataLogContent(
         else if (value === "") fixedText.push(`${label}: (no text)`)
         else blocks.push({ label: `${label}:`, text: unfenced(value) })
     }
-    if (type === "message-update") {
+    if (edited) {
         // Known earlier text that equals the new text, as for a pin or a flag change, shows once
         if (d.earlierUnknown) fixedText.push("Before: Earlier text unavailable")
         if (!d.earlierUnknown && d.before === undefined) textBlock("Text", d.text, "Unavailable")
@@ -961,7 +1046,8 @@ export function metadataLogContent(
             if (!d.earlierUnknown) textBlock("Before", d.before, "Unavailable")
             textBlock("After", d.text, "Unavailable")
         }
-    } else if (type === "message-delete") textBlock("Text", d.text, "Unavailable")
+    } else if (type === "message-delete" || type === "webhook-message-delete" || type === "webhook-message-create")
+        textBlock("Text", d.text, "Unavailable")
     if (d.reason !== undefined) blocks.push({ label: "Reason:", text: unfenced(d.reason) })
     // The first line names the record and is not part of the description
     const budget = DESCRIPTION_LIMIT - joined([...head, ...fixedText, ...tail]) + 1

@@ -5,6 +5,7 @@ import { administrator } from "./moderationDomain.ts"
 import { decode } from "./validation.ts"
 
 export { VOICE_GENERATOR_LIMIT, VOICE_ROOM_LIMIT } from "@neonflux/contracts/voice"
+export const VOICE_FAMILY = "member-voice"
 
 // Dashboard configuration jobs validate generator patches with this. Channel names and templates come back trimmed
 export function voicePatch(value: unknown): VoiceGeneratorPatch {

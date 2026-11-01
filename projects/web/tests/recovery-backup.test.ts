@@ -203,7 +203,7 @@ test("The recovery inbox pages stopped role removals past its newest 10, and a r
         panels(),
         range(24, 0).map((entry) => /Panel (p\d+)/.exec((entry as { summary: string }).summary)![1]),
     )
-    assert.equal(ui.queryByRole("button", { name: "Show more stopped role removals" }), null)
+    assert.equal(ui.queryByRole("button", { name: "Show more stopped role removals" }) === null, true)
     // A resolved removal lets the next older one into its page, which the following page already shows
     resolved = [24, 10]
     await act(async () => {

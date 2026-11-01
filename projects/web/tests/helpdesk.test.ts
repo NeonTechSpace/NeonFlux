@@ -130,7 +130,7 @@ test("An answer removal after a change elsewhere removes the current answer with
     const { ui, calls, update } = setup({ settings, answers: [answer] })
     update({ settings, answers: [{ ...answer, content: "Open the new settings", updatedAt: 2 }] })
     const remove = section(ui, "Remove answer logs")
-    assert.equal(remove.queryByText("Changed elsewhere"), null)
+    assert.equal(remove.queryByText("Changed elsewhere") === null, true)
     await clickOnce(remove, "Remove answer")
     assert.deepEqual(calls, [{ type: "answer-remove", name: "logs" }])
 })

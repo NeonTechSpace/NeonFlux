@@ -40,6 +40,23 @@ function configuredUsageBudget() {
     }
 }
 
+/** Whether the bill guard pauses optional work this month, for work the backend starts on its own. An invalid setting counts as paused, as it does for the bot */
+export async function usagePaused(ctx: Pick<MutationCtx, "db">, now: number) {
+    let budget: ReturnType<typeof parseUsageBudget>
+    try {
+        budget = parseUsageBudget(process.env)
+    } catch {
+        return true
+    }
+    if (!budget) return false
+    const month = new Date(now).toISOString().slice(0, 7),
+        row = await ctx.db
+            .query("usageMonths")
+            .withIndex("by_month", (q) => q.eq("month", month))
+            .unique()
+    return (row?.calls ?? 0) >= budget.calls * USAGE_PAUSE_SHARE
+}
+
 // Adds one bot report to the current UTC month, the window Convex usage limits reset on, and answers the guard state.
 // The first report at or past the warning share in a month answers warn, so the operator gets one warning a month
 export async function recordUsage(ctx: Pick<MutationCtx, "db">, calls: number, now: number): Promise<ServiceUsage> {

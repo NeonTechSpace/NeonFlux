@@ -410,3 +410,22 @@ test("Access lists and automod rules decide who may save and show a profile", as
     assert.equal((await f.view()).requests[0]!.error, "The bot did not handle this request in time. Try again")
     assert.equal((await f.view()).profile?.bio, saved.bio)
 })
+
+test("A jailed member's text stays out of their profile, which refuses on the website", async () => {
+    const f = await fixture()
+    await f.manage({ type: "settings", enabled: true, cooldownSeconds: 30 })
+    await f.t.run((ctx) =>
+        ctx.db.insert("jailRecords", {
+            serverId: "10",
+            userId: "20",
+            state: "active",
+            roleIds: [],
+            caseNo: 1,
+            createdAt: now,
+        }),
+    )
+    const job = await f.apply(await f.ask(saved))
+    assert.equal(job.state, "failed")
+    assert.match(job.error ?? "", /while you are jailed/)
+    assert.equal((await f.view()).profile, null)
+})

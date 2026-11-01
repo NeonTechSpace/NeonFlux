@@ -1,0 +1,3243 @@
+[
+    {
+        "name": "bluesky-original-01",
+        "family": "original",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3vem7ryfdav5s",
+                "cid": "bafyreib3jkzck566nneymo7dhapmsonzkq2u2zmn3kcppvmewvcs276m4a",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update original-0"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "x-repost-03",
+        "family": "repost",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000592412005307",
+                "author_id": "710000000000000001",
+                "text": "Community update repost-2",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "quoted",
+                        "id": "1890000000000000000"
+                    },
+                    {
+                        "type": "retweeted",
+                        "id": "1890000000000000001"
+                    }
+                ]
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    },
+                    {
+                        "id": "1890000000000000001",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000002",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-adult-label-01",
+        "family": "adult-label",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3y7adwpxdomd7",
+                "cid": "bafyreia6yxdktxevdue5jevjqwfpnrzftvj7hv7irass4rbs6yhrt33zc4",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update adult-0"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [
+                    {
+                        "src": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                        "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3y7adwpxdomd7",
+                        "val": "porn",
+                        "cts": "2026-10-30T12:34:56.000Z"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-reply-02",
+        "family": "reply",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3lzwsyu7i7kiv",
+                "cid": "bafyreiard66pqht2iuhiluhopmhpcxl7osanpuvkonnoqydu6mtr6h433i",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update reply-1",
+                    "reply": {
+                        "root": {
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3kqtlnnd5s2hu",
+                            "cid": "bafyreigqw24vduytffbrqabn7iwdh5jjudkyce6tnxbv4cudxmpa7bry5q"
+                        },
+                        "parent": {
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3m2hcfvrfz24n",
+                            "cid": "bafyreihsudw6qk23c4vv7yec6ncm6iznu2dl3ioi44yboae436lz57ksvu"
+                        }
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "x-original-09",
+        "family": "original",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000441804792232",
+                "author_id": "710000000000000001",
+                "text": "Community update original-8",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "attachments": {
+                    "media_keys": ["3_1900000000000000001"]
+                }
+            },
+            "includes": {
+                "media": [
+                    {
+                        "media_key": "3_1900000000000000001",
+                        "type": "photo",
+                        "url": "https://example.org/garden.jpg",
+                        "width": 640,
+                        "height": 480
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-quote-02",
+        "family": "quote",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000902274824253",
+                "author_id": "710000000000000001",
+                "text": "Community update quote-1",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "quoted",
+                        "id": "1890000000000000000"
+                    }
+                ]
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000001",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000001",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-broken-shape-06",
+        "family": "broken-shape",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3dvih4la7dt5j",
+                "cid": "bafyreihjpoxi2yrra2s4s6odb7k37oi4xtzhm5j6p6jfwz4zf5e4jpqgaa",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "x-quote-03",
+        "family": "quote",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000783246774375",
+                "author_id": "710000000000000001",
+                "text": "Community update quote-2",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "quoted",
+                        "id": "1890000000000000000"
+                    }
+                ]
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000002",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-self-thread-02",
+        "family": "self-thread",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000885183185105",
+                "author_id": "710000000000000001",
+                "text": "Community update self-thread-1",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "replied_to",
+                        "id": "1890000000000000000"
+                    }
+                ],
+                "in_reply_to_user_id": "710000000000000001",
+                "conversation_id": "1880000000000000001"
+            }
+        }
+    },
+    {
+        "name": "x-adult-label-01",
+        "family": "adult-label",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000703204351276",
+                "author_id": "710000000000000001",
+                "text": "Community update sensitive-0",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "possibly_sensitive": true
+            }
+        }
+    },
+    {
+        "name": "bluesky-pinned-01",
+        "family": "pinned",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3utl7joyhxsza",
+                "cid": "bafyreid2xgiskt7ut2wt36e7q3377y4vnhoxbqqndq53lao6tvkwlx3tfe",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update pinned-0"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            },
+            "reason": {
+                "$type": "app.bsky.feed.defs#reasonPin"
+            }
+        }
+    },
+    {
+        "name": "x-original-06",
+        "family": "original",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000781920474596",
+                "author_id": "710000000000000001",
+                "text": "News https://t.co/abcdef",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "entities": {
+                    "urls": [
+                        {
+                            "start": 5,
+                            "end": 24,
+                            "url": "https://t.co/abcdef",
+                            "expanded_url": "https://example.org/news",
+                            "display_url": "example.org/news"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "name": "x-adult-label-02",
+        "family": "adult-label",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000994506810910",
+                "author_id": "710000000000000001",
+                "text": "Community update sensitive-1",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "possibly_sensitive": true,
+                "referenced_posts": [
+                    {
+                        "type": "quoted",
+                        "id": "1890000000000000000"
+                    }
+                ]
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000002",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-quote-04",
+        "family": "quote",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000599043010142",
+                "author_id": "710000000000000001",
+                "text": "Community update quote-3",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "quoted",
+                        "id": "1890000000000000000"
+                    }
+                ],
+                "possibly_sensitive": false
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000002",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-quote-02",
+        "family": "quote",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3mn7sxtwa4ahi",
+                "cid": "bafyreigscpctqpkzxqdaezvnvyxxr6ffjjgfawb4iqv6xceispprg5dot4",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.recordWithMedia",
+                        "record": {
+                            "$type": "app.bsky.embed.record",
+                            "record": {
+                                "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3qkiw4og6ky5c",
+                                "cid": "bafyreiewwchlzqru5tspapwdjcs35rmorrx3tchp3kdmlba5o7g55d3qoa"
+                            }
+                        },
+                        "media": {
+                            "$type": "app.bsky.embed.images",
+                            "images": [
+                                {
+                                    "alt": "A community garden",
+                                    "aspectRatio": {
+                                        "height": 4000,
+                                        "width": 3000
+                                    },
+                                    "image": {
+                                        "$type": "blob",
+                                        "ref": {
+                                            "$link": "bafyreihtgzi4exawzremn4hemiucsranqpuwmqi6dtjtbhthajc2pjbo5u"
+                                        },
+                                        "mimeType": "image/jpeg",
+                                        "size": 1968731
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "langs": ["en"],
+                    "text": "Community update quote-1"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "$type": "app.bsky.embed.recordWithMedia#view",
+                    "record": {
+                        "$type": "app.bsky.embed.record#view",
+                        "record": {
+                            "$type": "app.bsky.embed.record#viewRecord",
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3qkiw4og6ky5c",
+                            "cid": "bafyreiewwchlzqru5tspapwdjcs35rmorrx3tchp3kdmlba5o7g55d3qoa",
+                            "author": {
+                                "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                                "handle": "feed-fixture.example",
+                                "displayName": "Community Notes"
+                            },
+                            "value": {
+                                "$type": "app.bsky.feed.post",
+                                "createdAt": "2026-10-30T12:34:56.000Z",
+                                "langs": ["en"],
+                                "text": "Community update quoted-quote-1"
+                            },
+                            "labels": [],
+                            "indexedAt": "2026-10-30T12:34:56.000Z"
+                        }
+                    },
+                    "media": {
+                        "images": [
+                            {
+                                "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreihtgzi4exawzremn4hemiucsranqpuwmqi6dtjtbhthajc2pjbo5u",
+                                "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreihtgzi4exawzremn4hemiucsranqpuwmqi6dtjtbhthajc2pjbo5u",
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                }
+                            }
+                        ],
+                        "$type": "app.bsky.embed.images#view"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "name": "x-broken-shape-04",
+        "family": "broken-shape",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "",
+                "author_id": "710000000000000001",
+                "text": "Community update broken-3",
+                "created_at": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "bluesky-original-05",
+        "family": "original",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3hk2aiacb3apm",
+                "cid": "bafyreifngbaimdqgjbtyczsv2k3imv4xfqs2fys5upybp23fhxthn65q5y",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.images",
+                        "images": [
+                            {
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                },
+                                "image": {
+                                    "$type": "blob",
+                                    "ref": {
+                                        "$link": "bafyreiacsm7icios4e4lntzbi2rdajtoxvlt4zsnbwiw5mtriq4jkure7y"
+                                    },
+                                    "mimeType": "image/jpeg",
+                                    "size": 1968731
+                                }
+                            }
+                        ]
+                    },
+                    "langs": ["en"],
+                    "text": "Community update original-4",
+                    "labels": {
+                        "$type": "com.atproto.label.defs#selfLabels",
+                        "values": [
+                            {
+                                "val": "!no-unauthenticated"
+                            }
+                        ]
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "images": [
+                        {
+                            "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreiacsm7icios4e4lntzbi2rdajtoxvlt4zsnbwiw5mtriq4jkure7y",
+                            "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreiacsm7icios4e4lntzbi2rdajtoxvlt4zsnbwiw5mtriq4jkure7y",
+                            "alt": "A community garden",
+                            "aspectRatio": {
+                                "height": 4000,
+                                "width": 3000
+                            }
+                        }
+                    ],
+                    "$type": "app.bsky.embed.images#view"
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-other-author-02",
+        "family": "other-author",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3b7lrwje34qfn",
+                "cid": "bafyreiehewivopgpzja4enslwonn6yca4g353q7z7ekv6bp2ks47ooeavy",
+                "author": {
+                    "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.images",
+                        "images": [
+                            {
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                },
+                                "image": {
+                                    "$type": "blob",
+                                    "ref": {
+                                        "$link": "bafyreial4xyytnncelntdfsrn26mwvgelfauwa3ueosqbrhsasrkkzugc4"
+                                    },
+                                    "mimeType": "image/jpeg",
+                                    "size": 1968731
+                                }
+                            }
+                        ]
+                    },
+                    "langs": ["en"],
+                    "text": "Community update other-1"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "images": [
+                        {
+                            "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:ey4ax2nblgyc7amn7244j4bh/bafyreial4xyytnncelntdfsrn26mwvgelfauwa3ueosqbrhsasrkkzugc4",
+                            "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:ey4ax2nblgyc7amn7244j4bh/bafyreial4xyytnncelntdfsrn26mwvgelfauwa3ueosqbrhsasrkkzugc4",
+                            "alt": "A community garden",
+                            "aspectRatio": {
+                                "height": 4000,
+                                "width": 3000
+                            }
+                        }
+                    ],
+                    "$type": "app.bsky.embed.images#view"
+                }
+            }
+        }
+    },
+    {
+        "name": "x-original-08",
+        "family": "original",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000694664161088",
+                "author_id": "710000000000000001",
+                "text": "Community update original-7",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "conversation_id": "1900000694664161088",
+                "possibly_sensitive": false
+            }
+        }
+    },
+    {
+        "name": "bluesky-original-03",
+        "family": "original",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3f5f6h7ag3uov",
+                "cid": "bafyreihlapfuidnfq3gedwqupn6ieitzapsb73lqr7cxhnkkukgqxdgoqi",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.external",
+                        "external": {
+                            "description": "News from the garden",
+                            "title": "Community update",
+                            "uri": "https://example.org/community"
+                        }
+                    },
+                    "langs": ["en"],
+                    "text": "Community update original-2"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "external": {
+                        "uri": "https://example.org/community",
+                        "title": "Community update",
+                        "description": "News from the garden"
+                    },
+                    "$type": "app.bsky.embed.external#view"
+                }
+            }
+        }
+    },
+    {
+        "name": "x-original-02",
+        "family": "original",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000884636563690",
+                "author_id": "710000000000000001",
+                "text": "Community update original-1",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "attachments": {
+                    "media_keys": ["3_1900000000000000001"]
+                }
+            },
+            "includes": {
+                "media": [
+                    {
+                        "media_key": "3_1900000000000000001",
+                        "type": "photo",
+                        "url": "https://example.org/garden.jpg",
+                        "width": 640,
+                        "height": 480
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-reply-01",
+        "family": "reply",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3ovmhv7thbwbs",
+                "cid": "bafyreieu7mzg3w4f7ewsopdhldfcwblzrzvhjoz5yryipzyy2ralswaqz4",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update reply-0",
+                    "reply": {
+                        "root": {
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3iapd4kvdwcck",
+                            "cid": "bafyreigoizk4tasqpmuxzcdi6aucu7hvwivenwniucifx5tvd4korllmxq"
+                        },
+                        "parent": {
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/34evh4csapybt",
+                            "cid": "bafyreidczl5u2iui7ctbkpthxhymksrqwkyvan4xej4xfwplongumfgx7y"
+                        }
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            },
+            "reply": {
+                "root": {
+                    "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3iapd4kvdwcck",
+                    "cid": "bafyreigoizk4tasqpmuxzcdi6aucu7hvwivenwniucifx5tvd4korllmxq",
+                    "author": {
+                        "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                        "handle": "feed-fixture.example",
+                        "displayName": "Community Notes"
+                    },
+                    "record": {
+                        "$type": "app.bsky.feed.post",
+                        "createdAt": "2026-10-30T12:34:56.000Z",
+                        "langs": ["en"],
+                        "text": "Community update root-0"
+                    },
+                    "indexedAt": "2026-10-30T12:34:56.000Z",
+                    "labels": []
+                },
+                "parent": {
+                    "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/34evh4csapybt",
+                    "cid": "bafyreidczl5u2iui7ctbkpthxhymksrqwkyvan4xej4xfwplongumfgx7y",
+                    "author": {
+                        "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                        "handle": "feed-fixture.example",
+                        "displayName": "Community Notes"
+                    },
+                    "record": {
+                        "$type": "app.bsky.feed.post",
+                        "createdAt": "2026-10-30T12:34:56.000Z",
+                        "langs": ["en"],
+                        "text": "Community update parent-0"
+                    },
+                    "indexedAt": "2026-10-30T12:34:56.000Z",
+                    "labels": []
+                },
+                "grandparentAuthor": {
+                    "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-broken-shape-05",
+        "family": "broken-shape",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "",
+                "cid": "bafyreicswehz5uehz4rfpbj2sbpoenbk3qqol5dnvw2x2xctbsbrvbexam",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update broken-4"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "bluesky-reply-03",
+        "family": "reply",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/36swxeaqj63fb",
+                "cid": "bafyreidepcob32qgg2hyiykle6me5bpcooz2qcstne4yrdt4np63epukgm",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.recordWithMedia",
+                        "record": {
+                            "$type": "app.bsky.embed.record",
+                            "record": {
+                                "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3logjrupeeahp",
+                                "cid": "bafyreierwqwm7n422xfkuzrnwwrpnpbbj5a635bafikmzo4s2lhjyqx2ny"
+                            }
+                        },
+                        "media": {
+                            "$type": "app.bsky.embed.images",
+                            "images": [
+                                {
+                                    "alt": "A community garden",
+                                    "aspectRatio": {
+                                        "height": 4000,
+                                        "width": 3000
+                                    },
+                                    "image": {
+                                        "$type": "blob",
+                                        "ref": {
+                                            "$link": "bafyreibtpkmrycu2jk5lpydmmx5t5lq7tyhmbynxlryqm3dflpy44sboz4"
+                                        },
+                                        "mimeType": "image/jpeg",
+                                        "size": 1968731
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "langs": ["en"],
+                    "text": "Community update reply-2",
+                    "reply": {
+                        "root": {
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3bwktfutzgkns",
+                            "cid": "bafyreifhxqibsc42xf7yyubttds42ogeq4ffxihcekkrudd2cb6ngsqmfm"
+                        },
+                        "parent": {
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3eg46shfs3icb",
+                            "cid": "bafyreigkrtbci6cnznmgctqi46jbq43kgl4uwxtq4nnrd5z4wxvnuhlhj4"
+                        }
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "$type": "app.bsky.embed.recordWithMedia#view",
+                    "record": {
+                        "$type": "app.bsky.embed.record#view",
+                        "record": {
+                            "$type": "app.bsky.embed.record#viewRecord",
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3logjrupeeahp",
+                            "cid": "bafyreierwqwm7n422xfkuzrnwwrpnpbbj5a635bafikmzo4s2lhjyqx2ny",
+                            "author": {
+                                "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                                "handle": "feed-fixture.example",
+                                "displayName": "Community Notes"
+                            },
+                            "value": {
+                                "$type": "app.bsky.feed.post",
+                                "createdAt": "2026-10-30T12:34:56.000Z",
+                                "langs": ["en"],
+                                "text": "Community update quoted-reply-2"
+                            },
+                            "labels": [],
+                            "indexedAt": "2026-10-30T12:34:56.000Z"
+                        }
+                    },
+                    "media": {
+                        "images": [
+                            {
+                                "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreibtpkmrycu2jk5lpydmmx5t5lq7tyhmbynxlryqm3dflpy44sboz4",
+                                "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreibtpkmrycu2jk5lpydmmx5t5lq7tyhmbynxlryqm3dflpy44sboz4",
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                }
+                            }
+                        ],
+                        "$type": "app.bsky.embed.images#view"
+                    }
+                }
+            },
+            "reply": {
+                "root": {
+                    "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3bwktfutzgkns",
+                    "cid": "bafyreifhxqibsc42xf7yyubttds42ogeq4ffxihcekkrudd2cb6ngsqmfm",
+                    "author": {
+                        "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                        "handle": "feed-fixture.example",
+                        "displayName": "Community Notes"
+                    },
+                    "record": {
+                        "$type": "app.bsky.feed.post",
+                        "createdAt": "2026-10-30T12:34:56.000Z",
+                        "langs": ["en"],
+                        "text": "Community update root-2"
+                    },
+                    "indexedAt": "2026-10-30T12:34:56.000Z",
+                    "labels": []
+                },
+                "parent": {
+                    "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3eg46shfs3icb",
+                    "cid": "bafyreigkrtbci6cnznmgctqi46jbq43kgl4uwxtq4nnrd5z4wxvnuhlhj4",
+                    "author": {
+                        "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                        "handle": "feed-fixture.example",
+                        "displayName": "Community Notes"
+                    },
+                    "record": {
+                        "$type": "app.bsky.feed.post",
+                        "createdAt": "2026-10-30T12:34:56.000Z",
+                        "langs": ["en"],
+                        "text": "Community update parent-2"
+                    },
+                    "indexedAt": "2026-10-30T12:34:56.000Z",
+                    "labels": []
+                },
+                "grandparentAuthor": {
+                    "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-adult-label-04",
+        "family": "adult-label",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3klaylitlr46q",
+                "cid": "bafyreiaqwgdd5epophi5piuek2d5z5csuvjtbs2xljzfy5xoqsyrwylzoy",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.images",
+                        "images": [
+                            {
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                },
+                                "image": {
+                                    "$type": "blob",
+                                    "ref": {
+                                        "$link": "bafyreiarbi3tfifa5rthbuxbkspon7e7ts7o3lvrsayirhfggxdbe322ey"
+                                    },
+                                    "mimeType": "image/jpeg",
+                                    "size": 1968731
+                                }
+                            }
+                        ]
+                    },
+                    "langs": ["en"],
+                    "text": "Community update adult-3"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [
+                    {
+                        "src": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                        "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3klaylitlr46q",
+                        "val": "graphic-media",
+                        "cts": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "embed": {
+                    "images": [
+                        {
+                            "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreiarbi3tfifa5rthbuxbkspon7e7ts7o3lvrsayirhfggxdbe322ey",
+                            "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreiarbi3tfifa5rthbuxbkspon7e7ts7o3lvrsayirhfggxdbe322ey",
+                            "alt": "A community garden",
+                            "aspectRatio": {
+                                "height": 4000,
+                                "width": 3000
+                            }
+                        }
+                    ],
+                    "$type": "app.bsky.embed.images#view"
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-self-thread-02",
+        "family": "self-thread",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3itb2lbg5tk7s",
+                "cid": "bafyreigodedybuihrrbztmgf3a4hxgby5kgq4ngndfk2o2r3vjhm7xazsa",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update self-thread-1",
+                    "reply": {
+                        "root": {
+                            "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3kqtlnnd5s2hu",
+                            "cid": "bafyreigqw24vduytffbrqabn7iwdh5jjudkyce6tnxbv4cudxmpa7bry5q"
+                        },
+                        "parent": {
+                            "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3m2hcfvrfz24n",
+                            "cid": "bafyreihsudw6qk23c4vv7yec6ncm6iznu2dl3ioi44yboae436lz57ksvu"
+                        }
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "bluesky-quote-01",
+        "family": "quote",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/33lez4mozybvz",
+                "cid": "bafyreidbgefj7iqswrp74j63t6qysxeskoyfuyjm7i7jhazauhaj7h6cre",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update quote-0",
+                    "embed": {
+                        "$type": "app.bsky.embed.record",
+                        "record": {
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3a6zswj3kmeqx",
+                            "cid": "bafyreihgaq7tqxgpyfifeksw3v3bgictpx4xm5llq3jegk6rwdarxh4juy"
+                        }
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "$type": "app.bsky.embed.record#view",
+                    "record": {
+                        "$type": "app.bsky.embed.record#viewRecord",
+                        "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3a6zswj3kmeqx",
+                        "cid": "bafyreihgaq7tqxgpyfifeksw3v3bgictpx4xm5llq3jegk6rwdarxh4juy",
+                        "author": {
+                            "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                            "handle": "feed-fixture.example",
+                            "displayName": "Community Notes"
+                        },
+                        "value": {
+                            "$type": "app.bsky.feed.post",
+                            "createdAt": "2026-10-30T12:34:56.000Z",
+                            "langs": ["en"],
+                            "text": "Community update quoted-quote-0"
+                        },
+                        "labels": [],
+                        "indexedAt": "2026-10-30T12:34:56.000Z"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "name": "x-reply-01",
+        "family": "reply",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000639869545947",
+                "author_id": "710000000000000001",
+                "text": "Community update reply-0",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "replied_to",
+                        "id": "1890000000000000000"
+                    }
+                ],
+                "in_reply_to_user_id": "710000000000000002",
+                "conversation_id": "1880000000000000001"
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000002",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-original-02",
+        "family": "original",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3hsmsebjhlbns",
+                "cid": "bafyreign7bzlr2qhn4g3dz7tpcr3qs4teolivooi2oiarjhl6egbtg2bfq",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.images",
+                        "images": [
+                            {
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                },
+                                "image": {
+                                    "$type": "blob",
+                                    "ref": {
+                                        "$link": "bafyreid7fiyblhyuislbwuzfk5di3bnn6cfg74pi4xlktdpfaj5lqhewwm"
+                                    },
+                                    "mimeType": "image/jpeg",
+                                    "size": 1968731
+                                }
+                            }
+                        ]
+                    },
+                    "langs": ["en"],
+                    "text": "Community update original-1"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "images": [
+                        {
+                            "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreid7fiyblhyuislbwuzfk5di3bnn6cfg74pi4xlktdpfaj5lqhewwm",
+                            "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreid7fiyblhyuislbwuzfk5di3bnn6cfg74pi4xlktdpfaj5lqhewwm",
+                            "alt": "A community garden",
+                            "aspectRatio": {
+                                "height": 4000,
+                                "width": 3000
+                            }
+                        }
+                    ],
+                    "$type": "app.bsky.embed.images#view"
+                }
+            }
+        }
+    },
+    {
+        "name": "x-self-thread-01",
+        "family": "self-thread",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000728080323497",
+                "author_id": "710000000000000001",
+                "text": "Community update self-thread-0",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "replied_to",
+                        "id": "1890000000000000000"
+                    }
+                ],
+                "in_reply_to_user_id": "710000000000000001",
+                "conversation_id": "1880000000000000001"
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000001",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000001",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-adult-label-07",
+        "family": "adult-label",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3ppuyqmsvedqn",
+                "cid": "bafyreiavwvnn5frstbnqucnwcoyqqorfqrzoisi4obxtvdmlmn6ntalw5u",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update adult-6",
+                    "labels": {
+                        "$type": "com.atproto.label.defs#selfLabels",
+                        "values": [
+                            {
+                                "val": "nudity"
+                            }
+                        ]
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "x-broken-shape-03",
+        "family": "broken-shape",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000024833345239",
+                "author_id": "710000000000000001",
+                "text": "Community update broken-2"
+            }
+        }
+    },
+    {
+        "name": "x-original-01",
+        "family": "original",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000254656259447",
+                "author_id": "710000000000000001",
+                "text": "Community update original-0",
+                "created_at": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "x-broken-shape-05",
+        "family": "broken-shape",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000355157909200",
+                "author_id": null,
+                "text": "Community update broken-4",
+                "created_at": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "bluesky-self-thread-03",
+        "family": "self-thread",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3o6yfvvve5rqg",
+                "cid": "bafyreiduut7ew6333pvih54wftgpdokkoqtxrs6x4cowxdhtohjt7ayqk4",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.recordWithMedia",
+                        "record": {
+                            "$type": "app.bsky.embed.record",
+                            "record": {
+                                "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3evxgecqz2yzq",
+                                "cid": "bafyreibkpn6szkwi237ub7w7g2b56kniy3yujuku6mmyankrqs4k2lbvyq"
+                            }
+                        },
+                        "media": {
+                            "$type": "app.bsky.embed.images",
+                            "images": [
+                                {
+                                    "alt": "A community garden",
+                                    "aspectRatio": {
+                                        "height": 4000,
+                                        "width": 3000
+                                    },
+                                    "image": {
+                                        "$type": "blob",
+                                        "ref": {
+                                            "$link": "bafyreihld3763dji2itj7eb7rinietr75o7rmra5zcmjddehgxeiaq5wzi"
+                                        },
+                                        "mimeType": "image/jpeg",
+                                        "size": 1968731
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "langs": ["en"],
+                    "text": "Community update self-thread-2",
+                    "reply": {
+                        "root": {
+                            "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3bwktfutzgkns",
+                            "cid": "bafyreifhxqibsc42xf7yyubttds42ogeq4ffxihcekkrudd2cb6ngsqmfm"
+                        },
+                        "parent": {
+                            "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3eg46shfs3icb",
+                            "cid": "bafyreigkrtbci6cnznmgctqi46jbq43kgl4uwxtq4nnrd5z4wxvnuhlhj4"
+                        }
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "$type": "app.bsky.embed.recordWithMedia#view",
+                    "record": {
+                        "$type": "app.bsky.embed.record#view",
+                        "record": {
+                            "$type": "app.bsky.embed.record#viewRecord",
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3evxgecqz2yzq",
+                            "cid": "bafyreibkpn6szkwi237ub7w7g2b56kniy3yujuku6mmyankrqs4k2lbvyq",
+                            "author": {
+                                "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                                "handle": "feed-fixture.example",
+                                "displayName": "Community Notes"
+                            },
+                            "value": {
+                                "$type": "app.bsky.feed.post",
+                                "createdAt": "2026-10-30T12:34:56.000Z",
+                                "langs": ["en"],
+                                "text": "Community update quoted-self-thread-2"
+                            },
+                            "labels": [],
+                            "indexedAt": "2026-10-30T12:34:56.000Z"
+                        }
+                    },
+                    "media": {
+                        "images": [
+                            {
+                                "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreihld3763dji2itj7eb7rinietr75o7rmra5zcmjddehgxeiaq5wzi",
+                                "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreihld3763dji2itj7eb7rinietr75o7rmra5zcmjddehgxeiaq5wzi",
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                }
+                            }
+                        ],
+                        "$type": "app.bsky.embed.images#view"
+                    }
+                }
+            },
+            "reply": {
+                "root": {
+                    "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3bwktfutzgkns",
+                    "cid": "bafyreifhxqibsc42xf7yyubttds42ogeq4ffxihcekkrudd2cb6ngsqmfm",
+                    "author": {
+                        "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                        "handle": "feed-fixture.example",
+                        "displayName": "Community Notes"
+                    },
+                    "record": {
+                        "$type": "app.bsky.feed.post",
+                        "createdAt": "2026-10-30T12:34:56.000Z",
+                        "langs": ["en"],
+                        "text": "Community update root-2"
+                    },
+                    "indexedAt": "2026-10-30T12:34:56.000Z",
+                    "labels": []
+                },
+                "parent": {
+                    "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3eg46shfs3icb",
+                    "cid": "bafyreigkrtbci6cnznmgctqi46jbq43kgl4uwxtq4nnrd5z4wxvnuhlhj4",
+                    "author": {
+                        "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                        "handle": "feed-fixture.example",
+                        "displayName": "Community Notes"
+                    },
+                    "record": {
+                        "$type": "app.bsky.feed.post",
+                        "createdAt": "2026-10-30T12:34:56.000Z",
+                        "langs": ["en"],
+                        "text": "Community update parent-2"
+                    },
+                    "indexedAt": "2026-10-30T12:34:56.000Z",
+                    "labels": []
+                },
+                "grandparentAuthor": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                }
+            }
+        }
+    },
+    {
+        "name": "x-original-05",
+        "family": "original",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000743838877198",
+                "author_id": "710000000000000001",
+                "text": "Community update original-4",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "attachments": {
+                    "media_keys": ["3_1900000000000000001"]
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-adult-label-03",
+        "family": "adult-label",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3cuwuilrlwnvf",
+                "cid": "bafyreifihkofuturw7i5ze73nnufesgnoaq3r35ewhtiku4uypbfbrtscq",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update adult-2"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [
+                    {
+                        "src": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                        "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3cuwuilrlwnvf",
+                        "val": "nudity",
+                        "cts": "2026-10-30T12:34:56.000Z"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-original-08",
+        "family": "original",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/33xpb2xgwxuuj",
+                "cid": "bafyreifbxu26oqg5rsoh3ow2j4xtgabmt7n4px2nadjm56xxcufhpjwbpe",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.images",
+                        "images": [
+                            {
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                },
+                                "image": {
+                                    "$type": "blob",
+                                    "ref": {
+                                        "$link": "bafyreicthbltjaaucnmdrxyvjmoddwfx4nyu3yov53fzyhb5typboeumcm"
+                                    },
+                                    "mimeType": "image/jpeg",
+                                    "size": 1968731
+                                }
+                            }
+                        ]
+                    },
+                    "langs": ["en"],
+                    "text": "Community update original-7"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "images": [
+                        {
+                            "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreicthbltjaaucnmdrxyvjmoddwfx4nyu3yov53fzyhb5typboeumcm",
+                            "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreicthbltjaaucnmdrxyvjmoddwfx4nyu3yov53fzyhb5typboeumcm",
+                            "alt": "A community garden",
+                            "aspectRatio": {
+                                "height": 4000,
+                                "width": 3000
+                            }
+                        }
+                    ],
+                    "$type": "app.bsky.embed.images#view"
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-repost-03",
+        "family": "repost",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3di3nv4w6ccnl",
+                "cid": "bafyreiej52a5ho3c3tsoqkatggzkin3pqmjxx2qwgkg2p233bps6yecniq",
+                "author": {
+                    "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update repost-2"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            },
+            "reason": {
+                "$type": "app.bsky.feed.defs#reasonRepost",
+                "by": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "followed.example"
+                },
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.repost/3sealed2aaaaa",
+                "cid": "bafyreiej52a5ho3c3tsoqkatggzkin3pqmjxx2qwgkg2p233bps6yecniq",
+                "indexedAt": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "bluesky-broken-shape-03",
+        "family": "broken-shape",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/37ciarwnpgsdt",
+                "cid": "bafyreiafzaxmnv64wok2zggjphr63elayvxwi3kkrywbzdswgupfis5rsq",
+                "author": {
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update broken-2"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "bluesky-broken-shape-04",
+        "family": "broken-shape",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3rci26alfb4ze",
+                "cid": "bafyreihxfdhobregwefqpar75lyv26dnfp55lycx5rt326kaygut2rp32y",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "langs": ["en"],
+                    "text": "Community update broken-3"
+                },
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "x-self-thread-03",
+        "family": "self-thread",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000500984335227",
+                "author_id": "710000000000000001",
+                "text": "Community update self-thread-2",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "quoted",
+                        "id": "1890000000000000000"
+                    },
+                    {
+                        "type": "replied_to",
+                        "id": "1890000000000000001"
+                    }
+                ],
+                "in_reply_to_user_id": "710000000000000001",
+                "conversation_id": "1880000000000000001"
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000001",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    },
+                    {
+                        "id": "1890000000000000001",
+                        "author_id": "710000000000000001",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000001",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-quote-06",
+        "family": "quote",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000983152727666",
+                "author_id": "710000000000000001",
+                "text": "RT @gardenfixture: Quoting this discussion",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "quoted",
+                        "id": "1890000000000000000"
+                    }
+                ]
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000002",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-repost-02",
+        "family": "repost",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000330851347822",
+                "author_id": "710000000000000001",
+                "text": "Community update repost-1",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "retweeted",
+                        "id": "1890000000000000000"
+                    }
+                ]
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000001",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000001",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-original-07",
+        "family": "original",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000735930642264",
+                "author_id": "710000000000000001",
+                "text": "@gardenfixture Thanks for coming",
+                "created_at": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "x-repost-04",
+        "family": "repost",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000640287052723",
+                "author_id": "710000000000000001",
+                "text": "Community update repost-3",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "retweeted",
+                        "id": "1890000000000000000"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-broken-shape-06",
+        "family": "broken-shape",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900001002802416994",
+                "author_id": "710000000000000001",
+                "text": "Community update broken-5",
+                "created_at": null
+            }
+        }
+    },
+    {
+        "name": "x-broken-shape-02",
+        "family": "broken-shape",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000514323254952",
+                "text": "Community update broken-1",
+                "created_at": "2026-10-30T12:34:56.000Z"
+            },
+            "includes": {
+                "users": [
+                    {
+                        "id": "710000000000000001",
+                        "name": "Followed",
+                        "username": "followedfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-pinned-04",
+        "family": "pinned",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3brhcfnivxv2g",
+                "cid": "bafyreichw6gsqk6tr3572g6afqulkhdy5wy5dfdicqvs3gfthwenqn734e",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update pinned-3"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            },
+            "reason": {
+                "$type": "app.bsky.feed.defs#reasonPin"
+            }
+        }
+    },
+    {
+        "name": "bluesky-pinned-03",
+        "family": "pinned",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3dbgnk7h2ibxz",
+                "cid": "bafyreibj47wjhudfrwac4j75p6tm3inrwm2efgo34n5b4borjwneqt3qhq",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.external",
+                        "external": {
+                            "description": "News from the garden",
+                            "title": "Community update",
+                            "uri": "https://example.org/community"
+                        }
+                    },
+                    "langs": ["en"],
+                    "text": "Community update pinned-2"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "external": {
+                        "uri": "https://example.org/community",
+                        "title": "Community update",
+                        "description": "News from the garden"
+                    },
+                    "$type": "app.bsky.embed.external#view"
+                }
+            },
+            "reason": {
+                "$type": "app.bsky.feed.defs#reasonPin"
+            }
+        }
+    },
+    {
+        "name": "bluesky-original-06",
+        "family": "original",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3qirp6m7c6xsr",
+                "cid": "bafyreifwbylzlzgsuueaihjyw45dbr2jfcifqgztddzzgib7cyw7tvnnuu",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.external",
+                        "external": {
+                            "description": "News from the garden",
+                            "title": "Community update",
+                            "uri": "https://example.org/community"
+                        }
+                    },
+                    "langs": ["en"],
+                    "text": "RT @garden: This is typed commentary, not a repost"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "external": {
+                        "uri": "https://example.org/community",
+                        "title": "Community update",
+                        "description": "News from the garden"
+                    },
+                    "$type": "app.bsky.embed.external#view"
+                }
+            }
+        }
+    },
+    {
+        "name": "x-reply-03",
+        "family": "reply",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000431520226794",
+                "author_id": "710000000000000001",
+                "text": "Community update reply-2",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "quoted",
+                        "id": "1890000000000000000"
+                    },
+                    {
+                        "type": "replied_to",
+                        "id": "1890000000000000001"
+                    }
+                ],
+                "in_reply_to_user_id": "710000000000000002",
+                "conversation_id": "1880000000000000001"
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    },
+                    {
+                        "id": "1890000000000000001",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000002",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-original-04",
+        "family": "original",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900001008998591003",
+                "author_id": "710000000000000001",
+                "text": "RT @gardenfixture: This is a typed recollection",
+                "created_at": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "bluesky-original-07",
+        "family": "original",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3fs4jsnyjsyve",
+                "cid": "bafyreiflldrg6whth3x5rpv3rjc5j7qvo43hpbokx4xxdf4qi4v36e2ebq",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "@garden.example Thanks for the invitation",
+                    "facets": [
+                        {
+                            "index": {
+                                "byteStart": 0,
+                                "byteEnd": 15
+                            },
+                            "features": [
+                                {
+                                    "$type": "app.bsky.richtext.facet#mention",
+                                    "did": "did:plc:ey4ax2nblgyc7amn7244j4bh"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "bluesky-quote-05",
+        "family": "quote",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3q5w6eqsrvzmv",
+                "cid": "bafyreibwimooj2qwtdl7wx5sppanhlqxrlodgaa5vv37pnlor3j2xucnfm",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update quote-4",
+                    "embed": {
+                        "$type": "app.bsky.embed.record",
+                        "record": {
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3yaktc4gqtmig",
+                            "cid": "bafyreia6yyyfssfcfqlptuqojtbunqvx5egnipwl5naupfv6gt6ali54fu"
+                        }
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "$type": "app.bsky.embed.record#view",
+                    "record": {
+                        "$type": "app.bsky.embed.record#viewNotFound",
+                        "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3yaktc4gqtmig",
+                        "notFound": true
+                    }
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-adult-label-08",
+        "family": "adult-label",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3z6pfuq4muk2x",
+                "cid": "bafyreih7is22wgtwqljpvmbahx4jdltk2hqsw6se2lbei5j7knwthvqxp4",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.images",
+                        "images": [
+                            {
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                },
+                                "image": {
+                                    "$type": "blob",
+                                    "ref": {
+                                        "$link": "bafyreide7o6ieu42oq5b2akrr2tq74hfijcnqikgtd6c63teovjotkzyru"
+                                    },
+                                    "mimeType": "image/jpeg",
+                                    "size": 1968731
+                                }
+                            }
+                        ]
+                    },
+                    "langs": ["en"],
+                    "text": "Community update adult-7",
+                    "labels": {
+                        "$type": "com.atproto.label.defs#selfLabels",
+                        "values": [
+                            {
+                                "val": "graphic-media"
+                            }
+                        ]
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "images": [
+                        {
+                            "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreide7o6ieu42oq5b2akrr2tq74hfijcnqikgtd6c63teovjotkzyru",
+                            "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreide7o6ieu42oq5b2akrr2tq74hfijcnqikgtd6c63teovjotkzyru",
+                            "alt": "A community garden",
+                            "aspectRatio": {
+                                "height": 4000,
+                                "width": 3000
+                            }
+                        }
+                    ],
+                    "$type": "app.bsky.embed.images#view"
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-repost-04",
+        "family": "repost",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3popnn5lyv33b",
+                "cid": "bafyreievcqkrhmzdwhphxqoba7rpigai6fq6osp2hzmeo25ygbl4lap76u",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update repost-3"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            },
+            "reason": {
+                "$type": "app.bsky.feed.defs#reasonRepost",
+                "by": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "followed.example"
+                },
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.repost/3sealed3aaaaa",
+                "cid": "bafyreievcqkrhmzdwhphxqoba7rpigai6fq6osp2hzmeo25ygbl4lap76u",
+                "indexedAt": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "bluesky-adult-label-02",
+        "family": "adult-label",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3qegtvha3vb4g",
+                "cid": "bafyreiawnlwhsoznezqvxjzcbty37yr3caux55jtbpzfnrvj5j6crjz5mu",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.images",
+                        "images": [
+                            {
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                },
+                                "image": {
+                                    "$type": "blob",
+                                    "ref": {
+                                        "$link": "bafyreigceu6w3rkorutl3hzth4ry2isnwoemvu27x46rjtjtglsce6ai74"
+                                    },
+                                    "mimeType": "image/jpeg",
+                                    "size": 1968731
+                                }
+                            }
+                        ]
+                    },
+                    "langs": ["en"],
+                    "text": "Community update adult-1"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [
+                    {
+                        "src": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                        "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3qegtvha3vb4g",
+                        "val": "sexual",
+                        "cts": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "embed": {
+                    "images": [
+                        {
+                            "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreigceu6w3rkorutl3hzth4ry2isnwoemvu27x46rjtjtglsce6ai74",
+                            "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreigceu6w3rkorutl3hzth4ry2isnwoemvu27x46rjtjtglsce6ai74",
+                            "alt": "A community garden",
+                            "aspectRatio": {
+                                "height": 4000,
+                                "width": 3000
+                            }
+                        }
+                    ],
+                    "$type": "app.bsky.embed.images#view"
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-self-thread-01",
+        "family": "self-thread",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3d6sndklnu4pg",
+                "cid": "bafyreifjqt4bhkiqkgjrvysvrs64mz7l6hdypddrj3tyb5jlmfsep5xqbm",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update self-thread-0",
+                    "reply": {
+                        "root": {
+                            "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3iapd4kvdwcck",
+                            "cid": "bafyreigoizk4tasqpmuxzcdi6aucu7hvwivenwniucifx5tvd4korllmxq"
+                        },
+                        "parent": {
+                            "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/34evh4csapybt",
+                            "cid": "bafyreidczl5u2iui7ctbkpthxhymksrqwkyvan4xej4xfwplongumfgx7y"
+                        }
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            },
+            "reply": {
+                "root": {
+                    "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3iapd4kvdwcck",
+                    "cid": "bafyreigoizk4tasqpmuxzcdi6aucu7hvwivenwniucifx5tvd4korllmxq",
+                    "author": {
+                        "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                        "handle": "feed-fixture.example",
+                        "displayName": "Community Notes"
+                    },
+                    "record": {
+                        "$type": "app.bsky.feed.post",
+                        "createdAt": "2026-10-30T12:34:56.000Z",
+                        "langs": ["en"],
+                        "text": "Community update root-0"
+                    },
+                    "indexedAt": "2026-10-30T12:34:56.000Z",
+                    "labels": []
+                },
+                "parent": {
+                    "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/34evh4csapybt",
+                    "cid": "bafyreidczl5u2iui7ctbkpthxhymksrqwkyvan4xej4xfwplongumfgx7y",
+                    "author": {
+                        "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                        "handle": "feed-fixture.example",
+                        "displayName": "Community Notes"
+                    },
+                    "record": {
+                        "$type": "app.bsky.feed.post",
+                        "createdAt": "2026-10-30T12:34:56.000Z",
+                        "langs": ["en"],
+                        "text": "Community update parent-0"
+                    },
+                    "indexedAt": "2026-10-30T12:34:56.000Z",
+                    "labels": []
+                },
+                "grandparentAuthor": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-quote-06",
+        "family": "quote",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/36csqmnbihbw5",
+                "cid": "bafyreihe5b4bm4sta6xe3r44qnpfavwu5z3oyr77kkj2folws2yu46svue",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.recordWithMedia",
+                        "record": {
+                            "$type": "app.bsky.embed.record",
+                            "record": {
+                                "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3dd54awhkiorw",
+                                "cid": "bafyreigjbfryfbu4jwyk45dx7rovkbge2h77sd2yr7id6h4yi3dcrjsiou"
+                            }
+                        },
+                        "media": {
+                            "$type": "app.bsky.embed.images",
+                            "images": [
+                                {
+                                    "alt": "A community garden",
+                                    "aspectRatio": {
+                                        "height": 4000,
+                                        "width": 3000
+                                    },
+                                    "image": {
+                                        "$type": "blob",
+                                        "ref": {
+                                            "$link": "bafyreihdfgnb2tmtknuirhz7j33dldiqpe7y4tcxocqw3rzroo7zbipyue"
+                                        },
+                                        "mimeType": "image/jpeg",
+                                        "size": 1968731
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "langs": ["en"],
+                    "text": "Community update quote-5"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "$type": "app.bsky.embed.recordWithMedia#view",
+                    "record": {
+                        "$type": "app.bsky.embed.record#view",
+                        "record": {
+                            "$type": "app.bsky.embed.record#viewNotFound",
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3dd54awhkiorw",
+                            "notFound": true
+                        }
+                    },
+                    "media": {
+                        "images": [
+                            {
+                                "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreihdfgnb2tmtknuirhz7j33dldiqpe7y4tcxocqw3rzroo7zbipyue",
+                                "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreihdfgnb2tmtknuirhz7j33dldiqpe7y4tcxocqw3rzroo7zbipyue",
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                }
+                            }
+                        ],
+                        "$type": "app.bsky.embed.images#view"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "name": "x-quote-05",
+        "family": "quote",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000233054201066",
+                "author_id": "710000000000000001",
+                "text": "Community update quote-4",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "quoted",
+                        "id": "1890000000000000000"
+                    }
+                ]
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z",
+                        "referenced_posts": [
+                            {
+                                "type": "replied_to",
+                                "id": "1880000000000000000"
+                            }
+                        ]
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000002",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-other-author-02",
+        "family": "other-author",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000580450867004",
+                "author_id": "710000000000000002",
+                "text": "Community update other-1",
+                "created_at": "2026-10-30T12:34:56.000Z"
+            },
+            "includes": {
+                "users": [
+                    {
+                        "id": "710000000000000001",
+                        "name": "Followed user",
+                        "username": "followedfixture"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-reply-02",
+        "family": "reply",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000073546922014",
+                "author_id": "710000000000000001",
+                "text": "Community update reply-1",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "replied_to",
+                        "id": "1890000000000000000"
+                    }
+                ],
+                "in_reply_to_user_id": "710000000000000002",
+                "conversation_id": "1880000000000000001"
+            }
+        }
+    },
+    {
+        "name": "bluesky-repost-01",
+        "family": "repost",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3q6fy3wzpyp3s",
+                "cid": "bafyreicwuqfx4ym4h4254vobdcv725n4j7xpggkncoctltnspx3l5hd6x4",
+                "author": {
+                    "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update repost-0"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            },
+            "reason": {
+                "$type": "app.bsky.feed.defs#reasonRepost",
+                "by": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "followed.example"
+                },
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.repost/3sealed0aaaaa",
+                "cid": "bafyreicwuqfx4ym4h4254vobdcv725n4j7xpggkncoctltnspx3l5hd6x4",
+                "indexedAt": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "bluesky-quote-03",
+        "family": "quote",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3qx7kbpuqbx42",
+                "cid": "bafyreifwlusvaz6vxl3cpxjceczxshxqztlbhencjxm5gwt7vht5f2qseq",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update quote-2",
+                    "embed": {
+                        "$type": "app.bsky.embed.record",
+                        "record": {
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3yz4rm64iwf73",
+                            "cid": "bafyreig635bdp4xemjhbz23fifw5xedst5rqjm3t7hw3vjhu5arglgxany"
+                        }
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "$type": "app.bsky.embed.record#view",
+                    "record": {
+                        "$type": "app.bsky.embed.record#viewRecord",
+                        "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3yz4rm64iwf73",
+                        "cid": "bafyreig635bdp4xemjhbz23fifw5xedst5rqjm3t7hw3vjhu5arglgxany",
+                        "author": {
+                            "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                            "handle": "feed-fixture.example",
+                            "displayName": "Community Notes"
+                        },
+                        "value": {
+                            "$type": "app.bsky.feed.post",
+                            "createdAt": "2026-10-30T12:34:56.000Z",
+                            "langs": ["en"],
+                            "text": "Community update quoted-quote-2"
+                        },
+                        "labels": [],
+                        "indexedAt": "2026-10-30T12:34:56.000Z"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-repost-02",
+        "family": "repost",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3hcahij22hqv6",
+                "cid": "bafyreicnbbdo23xpmdqo2fv34t5yvdgjjh4smtfaycd3t4ryheixlrkxcm",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update repost-1"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            },
+            "reason": {
+                "$type": "app.bsky.feed.defs#reasonRepost",
+                "by": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "followed.example"
+                },
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.repost/3sealed1aaaaa",
+                "cid": "bafyreicnbbdo23xpmdqo2fv34t5yvdgjjh4smtfaycd3t4ryheixlrkxcm",
+                "indexedAt": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "bluesky-pinned-02",
+        "family": "pinned",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/37bko4uamqkoa",
+                "cid": "bafyreiefq5ifjqu2a2jdmebuu3h3ujd4nk55ejg3hdm2r63zue6s45fesq",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.images",
+                        "images": [
+                            {
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                },
+                                "image": {
+                                    "$type": "blob",
+                                    "ref": {
+                                        "$link": "bafyreicw4hwjbpuiwbkcj5gme26zufvgztzq2lnahkfl3gjmvwca2sdqby"
+                                    },
+                                    "mimeType": "image/jpeg",
+                                    "size": 1968731
+                                }
+                            }
+                        ]
+                    },
+                    "langs": ["en"],
+                    "text": "Community update pinned-1"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "images": [
+                        {
+                            "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreicw4hwjbpuiwbkcj5gme26zufvgztzq2lnahkfl3gjmvwca2sdqby",
+                            "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreicw4hwjbpuiwbkcj5gme26zufvgztzq2lnahkfl3gjmvwca2sdqby",
+                            "alt": "A community garden",
+                            "aspectRatio": {
+                                "height": 4000,
+                                "width": 3000
+                            }
+                        }
+                    ],
+                    "$type": "app.bsky.embed.images#view"
+                }
+            },
+            "reason": {
+                "$type": "app.bsky.feed.defs#reasonPin"
+            }
+        }
+    },
+    {
+        "name": "x-broken-shape-01",
+        "family": "broken-shape",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "author_id": "710000000000000001",
+                "text": "Community update broken-0",
+                "created_at": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "x-other-author-01",
+        "family": "other-author",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000066315261259",
+                "author_id": "710000000000000002",
+                "text": "Community update other-0",
+                "created_at": "2026-10-30T12:34:56.000Z"
+            }
+        }
+    },
+    {
+        "name": "bluesky-quote-04",
+        "family": "quote",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3ftyiyxkawl4c",
+                "cid": "bafyreielpg7o4xx5wctpz4ncnci4kxe6qmwzso7k7wkmtjnj3fylzdhybu",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.recordWithMedia",
+                        "record": {
+                            "$type": "app.bsky.embed.record",
+                            "record": {
+                                "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/32yuljlmzucdr",
+                                "cid": "bafyreibapz5pcd7rwl73ucdjk4mbwrare6yrc23gixinl2ubr5oyltvunu"
+                            }
+                        },
+                        "media": {
+                            "$type": "app.bsky.embed.images",
+                            "images": [
+                                {
+                                    "alt": "A community garden",
+                                    "aspectRatio": {
+                                        "height": 4000,
+                                        "width": 3000
+                                    },
+                                    "image": {
+                                        "$type": "blob",
+                                        "ref": {
+                                            "$link": "bafyreifki4euuyb4rnfovcbbvyhillrzlwkvokuoul7qofu5e3ihkl4n54"
+                                        },
+                                        "mimeType": "image/jpeg",
+                                        "size": 1968731
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "langs": ["en"],
+                    "text": "Community update quote-3"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "$type": "app.bsky.embed.recordWithMedia#view",
+                    "record": {
+                        "$type": "app.bsky.embed.record#view",
+                        "record": {
+                            "$type": "app.bsky.embed.record#viewRecord",
+                            "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/32yuljlmzucdr",
+                            "cid": "bafyreibapz5pcd7rwl73ucdjk4mbwrare6yrc23gixinl2ubr5oyltvunu",
+                            "author": {
+                                "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                                "handle": "feed-fixture.example",
+                                "displayName": "Community Notes"
+                            },
+                            "value": {
+                                "$type": "app.bsky.feed.post",
+                                "createdAt": "2026-10-30T12:34:56.000Z",
+                                "langs": ["en"],
+                                "text": "Community update quoted-quote-3"
+                            },
+                            "labels": [],
+                            "indexedAt": "2026-10-30T12:34:56.000Z"
+                        }
+                    },
+                    "media": {
+                        "images": [
+                            {
+                                "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreifki4euuyb4rnfovcbbvyhillrzlwkvokuoul7qofu5e3ihkl4n54",
+                                "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreifki4euuyb4rnfovcbbvyhillrzlwkvokuoul7qofu5e3ihkl4n54",
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                }
+                            }
+                        ],
+                        "$type": "app.bsky.embed.images#view"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-original-04",
+        "family": "original",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": true,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3eh2evrsdv2bc",
+                "cid": "bafyreihk5uakug4x3buzwichfbxyq3odub3wpxqsatfxgg56swdztj7oum",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update original-3"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [
+                    {
+                        "src": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                        "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3eh2evrsdv2bc",
+                        "val": "spoiler",
+                        "cts": "2026-10-30T12:34:56.000Z"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "x-original-10",
+        "family": "original",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000771360997800",
+                "author_id": "710000000000000001",
+                "text": "Community update original-9",
+                "created_at": "2026-10-30T12:34:56.000Z"
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000099",
+                        "author_id": "710000000000000002",
+                        "text": "Unrelated expansion",
+                        "created_at": "2026-10-30T12:34:56.000Z",
+                        "possibly_sensitive": true
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-broken-shape-02",
+        "family": "broken-shape",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3r2iicv5cvzb4",
+                "cid": "bafyreidxyaha5kf3inubwhyhqlruummofzoda5q5jtg74mhkmvt7ostw3m",
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update broken-1"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "x-quote-01",
+        "family": "quote",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900000417434607522",
+                "author_id": "710000000000000001",
+                "text": "Community update quote-0",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "quoted",
+                        "id": "1890000000000000000"
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "name": "bluesky-adult-label-05",
+        "family": "adult-label",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/336gy6hq7jqlx",
+                "cid": "bafyreiebesgn4zhnszcs6vvr3xe36zgv7mnz5cxurgbo7jdkhvrxfbfq3e",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update adult-4",
+                    "labels": {
+                        "$type": "com.atproto.label.defs#selfLabels",
+                        "values": [
+                            {
+                                "val": "porn"
+                            }
+                        ]
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "bluesky-adult-label-06",
+        "family": "adult-label",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:xwjw4vtmd57m75kabt6ldcpk/app.bsky.feed.post/3kxdecqo3rips",
+                "cid": "bafyreidqluuyv2fwgqavp3xv3dqq6xzk7gcvdtyz5wen65xx5abqhe3vvy",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "embed": {
+                        "$type": "app.bsky.embed.images",
+                        "images": [
+                            {
+                                "alt": "A community garden",
+                                "aspectRatio": {
+                                    "height": 4000,
+                                    "width": 3000
+                                },
+                                "image": {
+                                    "$type": "blob",
+                                    "ref": {
+                                        "$link": "bafyreibp2n76fz6o3gsla5nnccwtoud3rgh7sfrclmtxcfs7i5jcis7bda"
+                                    },
+                                    "mimeType": "image/jpeg",
+                                    "size": 1968731
+                                }
+                            }
+                        ]
+                    },
+                    "langs": ["en"],
+                    "text": "Community update adult-5",
+                    "labels": {
+                        "$type": "com.atproto.label.defs#selfLabels",
+                        "values": [
+                            {
+                                "val": "sexual"
+                            }
+                        ]
+                    }
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": [],
+                "embed": {
+                    "images": [
+                        {
+                            "thumb": "https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreibp2n76fz6o3gsla5nnccwtoud3rgh7sfrclmtxcfs7i5jcis7bda",
+                            "fullsize": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xwjw4vtmd57m75kabt6ldcpk/bafyreibp2n76fz6o3gsla5nnccwtoud3rgh7sfrclmtxcfs7i5jcis7bda",
+                            "alt": "A community garden",
+                            "aspectRatio": {
+                                "height": 4000,
+                                "width": 3000
+                            }
+                        }
+                    ],
+                    "$type": "app.bsky.embed.images#view"
+                }
+            }
+        }
+    },
+    {
+        "name": "x-original-03",
+        "family": "original",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": true,
+        "item": {
+            "post": {
+                "id": "1900001009380967437",
+                "author_id": "710000000000000001",
+                "text": "News https://t.co/abcdef",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "entities": {
+                    "urls": [
+                        {
+                            "start": 5,
+                            "end": 24,
+                            "url": "https://t.co/abcdef",
+                            "expanded_url": "https://example.org/news",
+                            "display_url": "example.org/news"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "name": "bluesky-broken-shape-01",
+        "family": "broken-shape",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "cid": "bafyreibuhb4nd23wz7tbcbqwsldzyejniztmpcvzvcbzaxlswuwveozqk4",
+                "author": {
+                    "did": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update broken-0"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "bluesky-other-author-01",
+        "family": "other-author",
+        "provider": "bluesky",
+        "account": "did:plc:xwjw4vtmd57m75kabt6ldcpk",
+        "post": false,
+        "item": {
+            "post": {
+                "uri": "at://did:plc:ey4ax2nblgyc7amn7244j4bh/app.bsky.feed.post/3jkmpfs52g4vv",
+                "cid": "bafyreiapoczjks2yimaizyq3lp3ck6uwsrn3n7dueh5nlvxm7o5tclg6l4",
+                "author": {
+                    "did": "did:plc:ey4ax2nblgyc7amn7244j4bh",
+                    "handle": "feed-fixture.example",
+                    "displayName": "Community Notes"
+                },
+                "record": {
+                    "$type": "app.bsky.feed.post",
+                    "createdAt": "2026-10-30T12:34:56.000Z",
+                    "langs": ["en"],
+                    "text": "Community update other-0"
+                },
+                "indexedAt": "2026-10-30T12:34:56.000Z",
+                "labels": []
+            }
+        }
+    },
+    {
+        "name": "x-repost-01",
+        "family": "repost",
+        "provider": "x",
+        "account": "710000000000000001",
+        "post": false,
+        "item": {
+            "post": {
+                "id": "1900000372119404129",
+                "author_id": "710000000000000001",
+                "text": "Community update repost-0",
+                "created_at": "2026-10-30T12:34:56.000Z",
+                "referenced_posts": [
+                    {
+                        "type": "retweeted",
+                        "id": "1890000000000000000"
+                    }
+                ]
+            },
+            "includes": {
+                "posts": [
+                    {
+                        "id": "1890000000000000000",
+                        "author_id": "710000000000000002",
+                        "text": "Earlier update",
+                        "created_at": "2026-10-30T12:34:56.000Z"
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "710000000000000002",
+                        "name": "Garden account",
+                        "username": "gardenfixture"
+                    }
+                ]
+            }
+        }
+    }
+]

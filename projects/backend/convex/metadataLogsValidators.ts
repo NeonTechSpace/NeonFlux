@@ -59,6 +59,8 @@ export const metadataEventValidator = v.object({
     details: v.optional(
         v.object({
             authorId: v.optional(v.string()),
+            webhookId: v.optional(v.string()),
+            webhookName: v.optional(v.string()),
             before: v.optional(v.string()),
             text: v.optional(v.string()),
             earlierUnknown: v.optional(v.literal(true)),

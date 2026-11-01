@@ -2,6 +2,7 @@ import { Schema } from "effect"
 import { Id, Int, List, SERVER_ROLES } from "./common.ts"
 import { StaffClass } from "./moderation.ts"
 import { AlertAction } from "./alerts.ts"
+import { BOT_RIGHTS, BotRight, RightsSettings } from "./rights.ts"
 
 // What !setup, !health and the dashboard permission check read, the bot's answer to that check, and the recovery inbox
 
@@ -40,6 +41,15 @@ const sections = [
     "profile",
     "youtube",
     "twitch",
+    "feeds",
+    "counters",
+    "boards",
+    "reminders",
+    "giveaways",
+    "lockdown",
+    "antinuke",
+    "jail",
+    "rights",
 ] as const
 export const DashboardOverviewSection = Schema.Literals(sections)
 export type DashboardOverviewSection = typeof DashboardOverviewSection.Type
@@ -74,6 +84,8 @@ export const SetupProblem = Schema.Union([
     }),
     Schema.Struct({ kind: Schema.Literal("dangerous-role"), role, permissions, members: Schema.optionalKey(Int()) }),
     Schema.Struct({ kind: Schema.Literal("staff-permissions"), staffClass: StaffClass, role, permissions }),
+    Schema.Struct({ kind: Schema.Literal("antinuke-rank"), roles: List(role, SERVER_ROLES) }),
+    Schema.Struct({ kind: Schema.Literal("rights-limits"), rights: List(BotRight, BOT_RIGHTS.length) }),
     Schema.Struct({
         kind: Schema.Literal("verification-bypass"),
         features: List(DashboardOverviewSection, 20).check(Schema.isMinLength(1)),
@@ -96,6 +108,8 @@ export const SetupStatus = Schema.Struct({
     staffRoleIds: Schema.Record(StaffClass, ids),
     threadFeatures: Schema.mutable(Schema.Array(DashboardOverviewSection)),
     alertActions: Schema.optionalKey(Schema.mutable(Schema.Array(AlertAction))),
+    /** Bot-only staff rights, while they are on, so the safety audit reads what roles hold through NeonFlux */
+    rights: Schema.optionalKey(RightsSettings),
 })
 export type SetupStatus = typeof SetupStatus.Type
 export const SetupReadyRequest = Schema.Struct({ serverId: Id })
@@ -123,6 +137,14 @@ export const RecoverySource = Schema.Literals([
     "helpdesk",
     "youtube",
     "twitch",
+    "feeds",
+    "counters",
+    "boards",
+    "giveaways",
+    "lockdown",
+    "antinuke",
+    "jail",
+    "rights",
     "defcon",
     "removals",
 ])

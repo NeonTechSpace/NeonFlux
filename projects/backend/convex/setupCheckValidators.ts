@@ -14,4 +14,6 @@ export const setupProblem = v.union(
     }),
     v.object({ kind: v.literal("staff-permissions"), staffClass: v.string(), role, permissions: v.array(v.string()) }),
     v.object({ kind: v.literal("verification-bypass"), features: v.array(v.string()) }),
+    v.object({ kind: v.literal("antinuke-rank"), roles: v.array(role) }),
+    v.object({ kind: v.literal("rights-limits"), rights: v.array(v.string()) }),
 )

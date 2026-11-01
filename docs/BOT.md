@@ -1,6 +1,6 @@
 # Run and develop the bot
 
-This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API, stores durable state in the Convex [backend](BACKEND.md) and shares its settings with the [dashboard](WEB.md). It ignores system notices and servers it does not serve, and ignores bot and webhook messages unless `!automod bots on` has automod check them
+This guide is for operators running NeonFlux and contributors working on its bot. The bot uses Fluxerly's native Effect API, stores durable state in the Convex [backend](BACKEND.md) and shares its settings with the [dashboard](WEB.md). It ignores system notices and servers it does not serve, and ignores bot and webhook messages unless `!automod bots on` has automod check them or [metadata logs](#metadata-logs) record a webhook's messages
 
 Examples use the default `!` prefix. Each server can choose its own prefix, and the bot's help text prints that prefix. Commands sent in a one-to-one DM always use `!`
 
@@ -85,7 +85,7 @@ A warning about failed background work names its cause in log annotations. `caus
 
 ### Optional work limits and the bill guard
 
-Some per-message work is optional, so the bill guard can pause it. Only the check of ordinary text for autoresponders has a limit of its own, so one very busy server cannot take a large share of the backend calls every server shares. Each server has its own token bucket for it: It may spend a burst at once, then the refill rate. A message over the limit skips that check only, and the ten-minute cost line counts it as a skipped optional job
+Some per-message work is optional, so the bill guard can pause it. The check of ordinary text for autoresponders, logged webhook posts and logged webhook edits and deletions have limits of their own, so one very busy server cannot take a large share of the backend calls every server shares. Each server has its own token bucket for each: It may spend a burst at once, then the refill rate. A message over the limit skips that check only, and the ten-minute cost line counts it as a skipped optional job
 
 | Work | Backend calls per message | Limit |
 | --- | --- | --- |
@@ -96,12 +96,14 @@ Some per-message work is optional, so the bill guard can pause it. Only the chec
 | Analytics counting | None, counts leave in batches | None |
 | Sticky message reposts | One per repost, at most once per interval in each of up to five channels | None |
 | Help desk reply reminder records | One per new post in a help desk forum while reminders are on | None |
+| Logged webhook posts | One per post while `!logs metadata webhook-posts` is on, none while it is off | 30 at once, then 30 a minute |
+| Logged webhook edits and deletions | One per edit or deletion while message events are logged, shared by both, and an edit or deletion over the limit is not logged | 30 at once, then one a minute |
 
 AFK remembers, for each server, up to 5,000 members it knows to have no status. A member leaves that memory when they set a status, and joins it only after a backend answer, so a failed call hides nothing. XP keeps one waiting message for each member, and the bot remembers up to 5,000 members' next earning time from the backend's last answer, so messages inside the cooldown cost no call. `!level` and `!preset` commands and a leveling or preset change on the website forget those times, and `!mydata delete` forgets the member's own. A full XP queue of 1,000 members skips a message and counts it as a skipped optional job
 
 Moderation, automod, security, join protection, DEFCON, built-in commands, including `!afk`, and background workers are never limited or paused
 
-The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, set in the Convex deployment. The bot reports its calls every five minutes, and the answer tells it the guard's state. At the warning share the bot logs one warning a month. At 90 percent of the budget the bot pauses all seven kinds of optional work in every server until the month rolls over in UTC or the budget is raised, and logs when it pauses and resumes. An invalid budget setting in the deployment pauses optional work the same way, with a warning that the deployment's logs name the variable to fix, until a report succeeds again. Moderation, built-in commands and the rest of the bot keep running
+The [bill guard](BACKEND.md#bill-guard) adds a monthly budget of backend calls, set in the Convex deployment. The bot reports its calls every five minutes, and the answer tells it the guard's state. At the warning share the bot logs one warning a month. At 90 percent of the budget the bot pauses every kind of optional work in every server until the month rolls over in UTC or the budget is raised, and logs when it pauses and resumes. An invalid budget setting in the deployment pauses optional work the same way, with a warning that the deployment's logs name the variable to fix, until a report succeeds again. Moderation, built-in commands and the rest of the bot keep running
 
 ## Help, setup and health
 
@@ -129,7 +131,9 @@ A prefixed word that is not a command and is close to one the member can use get
 `!health safety` reports each finding of the safety audit with its fix:
 
 - A role that gives a dangerous permission to every member through the everyone role, or to 20 or more members. Dangerous permissions are Administrator, Manage community, Manage roles, Manage channels, Manage webhooks, Ban members, Kick members, Time out members, Manage messages and Use @everyone/@here and @roles. Member counts come from Fluxer's member search, one request per role for up to 10 roles, Administrator roles first and then from the lowest role up. The searches share Fluxer's 40 member requests per server every 10 seconds with the member reads every other feature makes, and a website check answers within a minute, so a check counts no more. The search needs a member management permission such as Manage roles, and a role whose count cannot be read is left out
-- While moderation is on, a staff role that lacks the permissions its staff area's commands check on the member who runs them. Moderation staff need Kick members, Ban members, Time out members, Manage messages and Manage channels, and security staff need Time out members, Manage roles and Manage channels. Case, automod and appeal staff need none. Permissions come from the role and the everyone role
+- While moderation is on, a staff role that lacks the permissions its staff area's commands check on the member who runs them. Moderation staff need Kick members, Ban members, Time out members, Manage messages and Manage channels, and security staff need Time out members, Manage roles and Manage channels. Case, automod and appeal staff need none. Permissions come from the role and the everyone role, and a [bot-only right](#bot-only-staff-rights) the role holds counts as the permission its commands check
+- While [bot-only rights](#bot-only-staff-rights) are on with a grant, any limit above its default rate
+- While anti-nuke is on, a role with a dangerous permission that ranks at or above NeonFlux, since [anti-nuke](#anti-nuke) can only alert about its members
 - Autorole, reaction roles, rules verification or the role picker being on while the server has a Fluxer verification level. Fluxer skips its verification level for every member who has any role, so a role from these features lets a member past it. The fix is to turn them off when the verification level must hold, or to use rules verification with advanced verification, which gives its role only after a solved challenge and makes autorole wait for it
 
 When a moderation action, a role panel, autorole, verification, role picker or temporary role change, a ticket creation, a temporary voice room change or a group card or room fails because of NeonFlux's permissions or role position, the reply names the fix the same way. A moderation action against a member whose highest role is not below the moderator's says so too
@@ -185,13 +189,37 @@ A preset sets several existing settings at once as a starting point. Community p
 - Previews need Manage community. Applying needs the server owner or an Administrator, like the automod and security settings, and is refused at DEFCON 1
 - Every changed feature gets its own entry in the dashboard's audit log, named `preset <name>`. The dashboard's Setup presets section shows and applies the same presets
 
-## Ping, AFK, prefix, reply style, nickname and custom responses
+## Ping, AFK, prefix, command rules, reply style, nickname and custom responses
 
 ### Prefix
 
 Server owners and members with Manage community change the prefix with `!prefix <value>`, or read it with `!prefix`. A prefix is one to five of these characters: `! $ % & * + , . ? ~ ^ | : / -`. `!prefix` always works, so a forgotten prefix can be recovered. The dashboard can also change it
 
 The bot caches each server's prefix. A chat change applies at once and a dashboard change applies within 30 seconds. If the backend cannot be read, the bot keeps the last known prefix, or `!` when it has none
+
+### Rules for built-in commands
+
+A rule limits where a built-in command works and who can use it, such as `!rank` only in #bot-commands. Server owners and members with Administrator or Manage community manage rules, and the dashboard's Command rules section changes the same rules
+
+| Command | Behavior |
+| --- | --- |
+| `!commands rule <command> channels #a #b` | The command works only in these channels, replacing the list |
+| `!commands rule <command> roles @a @b` | Only these roles can use it, replacing the list |
+| `!commands rule <command> channels all` | Remove the channel limit |
+| `!commands rule <command> roles all` | Remove the role limit |
+| `!commands rule <command> clear` | Remove the rule |
+| `!commands rules [next]` | The server's rules, eight to a page |
+| `!commands show <command>` | One command's rule |
+
+- A rule names a command as members type it, such as `rank`, `leaderboard` or `level`. A rule on a command covers all its forms, so one on `voice` covers `!voice lock` too. `!rank` and `!level` are separate commands, each with its own rule
+- A server has at most 25 rules, and a rule holds up to 500 channels and 250 roles, the same limits as a custom command
+- Rules never apply to the server owner or Administrators, or to commands in a DM. A thread or forum post counts as its parent channel. A role rule reads the copy of the member the bot holds
+- A refused command answers one line, such as `!rank works in #bot-commands`, at most once per member and command per minute. Help and typo hints still list it
+- The DEFCON refusal comes first, and a form DEFCON treats as critical, such as turning a feature off, ignores the rule so it stays in reach. Website pages and room controls cards are not commands, so rules do not limit them
+
+These commands always work and refuse a rule with the reason: `!commands`, `!help`, `!prefix`, `!defcon`, `!security`, `!mod`, `!automod`, `!lockdown`, `!antinuke`, `!jail`, `!appeal`, `!logs`, `!alerts`, `!invites`, `!recovery`, `!setup`, `!health`, `!preset`, `!backup`, `!export`, `!ticket`, `!verify`, `!milestone`, `!cleanup` and `!mydata`. A new command stays out of reach of rules until it is added to the limitable list
+
+Rules are kept in memory with the prefix and arrive with the same read, so they add no backend call. A command with no rule looks only in memory. A chat change applies at once and a dashboard change with the next command after the bot applies it, or within 30 seconds if that fails
 
 ### Reply style
 
@@ -262,7 +290,7 @@ A response is reserved before it is sent. A failed or uncertain send still uses 
 
 ## Moderation, protections, DEFCON and appeals
 
-Moderation needs the server owner, an Administrator or a configured staff role. Assign staff roles per area with `!mod staff moderation|cases|automod|security|appeals @role...`, or clear them with `none`. Changing configuration needs the owner or an Administrator. Native actions also need the bot's native permission and a higher role than the target. The bot refuses destructive actions against itself, the owner, Administrators and members with a higher role. Staff can act on another bot, such as a rogue one, within the same rules
+Moderation needs the server owner, an Administrator or a configured staff role, and a staff role's actions need the real Fluxer permission unless a server turned on [bot-only rights](#bot-only-staff-rights). Assign staff roles per area with `!mod staff moderation|cases|automod|security|appeals @role...`, or clear them with `none`. Changing configuration needs the owner or an Administrator. Native actions also need the bot's native permission and a higher role than the target. The bot refuses destructive actions against itself, the owner, Administrators and members with a higher role. Staff can act on another bot, such as a rogue one, within the same rules
 
 A reason or appeal text is the rest of the command and needs no quotes, as in `!mod warn @user don't post invite links`. An action's reason is optional, and a case without one shows `No reason given`. Correcting a reason, watchlist entries and appeal decisions still need text. Reasons are limited to 512 code units and appeal text to 2000. Durations are whole numbers with the units `s`, `m`, `h`, `d` or `w`, in any case, combined from largest to smallest without spaces, such as `90s` or `1h30m`. A fraction or a sign, as in `1.5h`, is refused, and milliseconds are accepted only when the total is whole seconds
 
@@ -386,6 +414,135 @@ permissions in the channel unless NeonFlux is an Administrator. Unlock leaves th
 exactly the permissions its lock changed, as they were, and keeps unrelated later changes. Other role or member grants
 can still let people speak. A thread has no permissions of its own, so locking or unlocking a thread replies with its
 parent channel to lock instead
+
+### Server-wide lockdown
+
+`!lockdown` stops posting across the server at once. It starts on no channel until staff run it
+
+| Task | Command |
+| --- | --- |
+| Start or lift it | `!lockdown on [reason]`, `!lockdown off [reason]` |
+| See how far it got | `!lockdown status` |
+| Leave a channel out of the next one | `!lockdown exempt add\|remove #channel`, `!lockdown exempt list [next]` |
+
+The server owner, Administrators and security staff with Manage roles can use it, under the same rule as `!security lock`. `!lockdown off` and `!lockdown status` stay reachable for the owner and Administrators at DEFCON 1. NeonFlux needs Manage roles
+
+A lockdown covers text, announcement, forum and voice channels. A voice channel's chat is locked, and members can still join. It leaves out categories, exempt channels, channels only staff can view and channels that already deny every bit, and its reply says how many of each. Before a raid, exempt any staff channel that a role without staff permissions can view, since a lockdown counts it as public. A channel counts as staff only when the everyone role cannot view it and every role that can holds Administrator, Manage community, Manage roles, Manage channels, Manage messages, Ban members, Kick members or Time out members, so a channel shown through a member role is locked, and a ticket shown through a member overwrite is not. Threads follow their parent channel. A channel created during a lockdown is not touched. As with a channel lock, it denies Send messages, and Send messages in threads, Create public threads and Create private threads where NeonFlux holds those server-wide, and it first allows NeonFlux itself those bits in the channel unless NeonFlux is an Administrator. Fluxer's permission order, as Fluxerly documents it and as this has not yet been checked live, applies the everyone overwrite first and role and member overwrites after it. A denial for everyone therefore reaches members who have the permission from their roles, including a member role, but a role with its own allow for Send messages in a channel can still post there. A lockdown changes only the everyone role, so the reply counts those channels instead of hiding them
+
+`!lockdown off` gives each channel back only the bits this lockdown changed and that the everyone role is still denied, as they were, so later changes stay. An everyone overwrite that did not exist before and now holds nothing is removed. NeonFlux's own allow goes when it is still exactly what the lockdown set. A channel a `!security lock` already held keeps that lock after `!lockdown off`, since the lockdown owns no bit there. `!security lock` is refused on a channel the lockdown holds, since the lock would remember the lockdown's denial as the channel's own. A lockdown already on is not changed by the exempt list
+
+The work runs in batches of 20 channels, in the background, and goes on after a restart. A write known not to have gone through, or that Fluxer answered with a 429, goes again on its own up to five tries with growing waits, then fails. If the lockdown is lifted first, a channel an earlier try reached is read and restored, since NeonFlux's own allow may already be there. A write NeonFlux could not confirm stays uncertain and is never repeated on its own, including one that was running when the process stopped, which becomes uncertain after five minutes. `!lockdown status` reads each uncertain channel, up to 10 at a time, without writing, and settles it as done or as failed. A restore counts as done only once NeonFlux's own allow is gone too. Sending `!lockdown on` or `!lockdown off` again repeats failed channels. While the last lockdown holds channels it could not restore, a new one is refused until `!lockdown off` restored them, since only that lockdown's record knows what to give back. `!lockdown status` shows the state and counts and names at most 10 problem channels, and the [recovery inbox](#recovery-inbox) lists them
+
+Start and end each add a `lockdown-change` record to the metadata log's `security` category and a note in the staff log channel, when there is one. A lost note is not sent again. A live test locked and restored a text and a voice channel with existing overwrites, and they matched their start byte for byte, also with the lift after a restart. It has not shown a member really being stopped, or NeonFlux's own allow, since the test bot was an Administrator
+
+### Jail
+
+A jail takes a member's roles and leaves them only the jail role, whose channel overwrites deny View channel, Send messages and Connect everywhere except the jail channel. Taking the roles is the point, since an allow overwrite on another role would beat the jail role's denial. Jail is off until a server sets it up, and a server with no jail costs nothing
+
+| Task | Command |
+| --- | --- |
+| Make the role and channel and close the other channels | `!jail setup [#channel]` |
+| Use a role or channel the server already has | `!jail role @role`, `!jail channel #channel` |
+| See setup progress and the channels it could not change | `!jail status` |
+| See who is jailed, here in a staff channel or by DM | `!jail list [next]` |
+| Turn new jails on or off | `!jail module on\|off` |
+| Jail a member, with an optional length and reason | `!mod jail @member [length] [reason]` |
+| Release a member | `!mod unjail @member [reason]` |
+
+`!jail setup` makes a role called Jailed when none is set and a channel called jail when none is set or named, and finds ones an earlier setup left. A worker then writes the role's denial on every other channel, category included, one at a time from a fresh read, and opens the jail channel to the jail role, moderation staff and NeonFlux while the everyone role's view of it stays denied. A channel the everyone role cannot view gets no denial, since a jailed member holds nothing else that opens it. A new channel, or one opened to everyone later, gets the denial 15 seconds after its event while jail is on or anyone is jailed, read from memory, so NeonFlux's own flows finish reading back the channel they made. A change of moderation staff writes the jail channel again, and a role that left the staff keeps what it was given there until someone removes it. A write with an unknown outcome is listed by `!jail status` and never repeated on its own. The next `!jail setup` or start reads each channel first and writes only what is missing. Changing jail needs the owner or an Administrator, and it needs Manage roles and Manage channels for NeonFlux. The jail role must rank below NeonFlux, carry no permissions and not be a staff role, and it cannot change while members are jailed
+
+`!mod jail` is a moderation action with a case, the staff log, the member's DM, `!mod recover` and appeals. It needs moderation staff with Manage roles, or the [jail right](#bot-only-staff-rights), follows DEFCON, and is refused on the owner, Administrators, higher-ranked members and NeonFlux, and when NeonFlux does not outrank every role the member holds, since those could not be taken and given back. A length uses the same units as a timeout, from a minute to a year, and a worker releases the member when it ends. A first jail stores the member's role IDs, then one edit sets their roles to exactly the jail role. A later jail of a jailed member changes only its length or reason and never touches the stored roles, and the moderator must outrank those roles as for a release, since a short new length is a release soon after. A timeout the member already has is left alone. When NeonFlux holds Move members a confirmed jail also disconnects the member from voice, once. Without it they stay in the voice channel they are in until they leave, and Connect keeps them out after that
+
+`!mod unjail` sets the stored roles back in one edit. A role deleted meanwhile or now ranked above NeonFlux stays out, and the reply and staff log name it. The moderator must outrank the stored roles too, so a low-ranked moderator cannot hand a jailed senior member their roles back. A member who left has no edit, and the record ends. At DEFCON 1 an Administrator can still release. A jail or release with an unknown outcome is never repeated, and both refuse until `!mod recover <case>` has read the member. While a jail's outcome is unknown the member is not held, so nothing sends the edit again, and the role features stay shut. The stored roles end with the release, and neither case keeps them. A reason lives only on the case, so erasing it erases it everywhere
+
+A jail holds when the member leaves. The bot keeps each server's jailed IDs in memory from one read at the start, so an ordinary join or member update costs no backend call. A jailed member who rejoins is set to the jail role right away, and their stored roles stay as they were. Autorole, rules verification, role panels, reaction roles, the role picker, temporary roles, level rewards and the newcomer checklist all skip a jailed member, in the backend as well, since every role they give passes one check. A role someone adds to a jailed member anyway goes again in one edit, which never changes the stored roles and reaches the security log. A temporary role that ends during a jail leaves the stored roles, so the release does not give it back. Turning jail off stops new jails only, and members already jailed stay held, with channels still closed to them. While jailed a member can run only `!help`, `!ping`, `!appeal`, `!mydata` and `!ticket`, since any other command could carry their text out of the jail channel or hand them a room, and everything else gets one line. It reads memory, so nobody else pays for it, and it also covers a jail or release whose outcome is unknown. `!ticket` opens only a private category while jailed, since a public ticket shows its text to the whole server. On the website a jailed member cannot post or change a showcase, change their profile or control a voice room, and can still delete their own showcase. Bot-only rights cannot release a jailed member without the jail right. A jailed member's `!appeal` keeps working in a DM, since it needs no channel, and a jail can be appealed
+
+Jail cannot hold against:
+
+- Roles that rank above NeonFlux, which it refuses to jail in the first place
+- A channel created while the bot was down, until the next start closes it
+- A member who rejoins while the bot is down, until they next change or rejoin
+- A member overwrite someone adds by hand on a channel, which beats the role's denial. That includes the owner's overwrite on a temporary voice room they hid or locked before the jail, until the room goes. `!voice allow` and a room handover refuse a jailed member, and a lock gives a jailed member inside no access
+- A public ticket the member already has open, whose member overwrite lets them keep posting where the whole server reads. Close it with `!ticket close <number>`, and a closed one stays closed until the release
+- A looking for group room the member belongs to, whose member overwrite keeps View channel and Connect until the room goes. Delete the room or remove that overwrite by hand
+- Someone with Manage roles giving a jailed member a role while NeonFlux cannot edit them, such as after it lost Manage roles. The security log shows the failed edit
+
+Deleting the jail role does not remove its overwrites, which stay on every channel in Fluxer and are harmless since nobody holds the role. NeonFlux writes no more for a role that is gone, from a fresh read. Remove the old ones in each channel's settings if they get in the way. `!jail status` says when the role or channel is gone, and `!jail setup` makes new ones
+
+Setup against a live Fluxer server wrote Connect on text, voice and category channels and the jail channel's order as described. Jailing and releasing a real member, and a right acting on a real member, have not been tried against a live server yet
+
+### Bot-only staff rights
+
+Staff roles normally need the real Fluxer permission for each action, so a hacked staff account can act in Fluxer directly and NeonFlux sees only audit entries. Bot-only rights change that for the roles a server chooses: A staff role with no real permission can act only through NeonFlux, which limits how much it can do. This moves a security boundary, so it is off by default, only the server owner turns it on, and every default refuses
+
+| Task | Command | Who |
+| --- | --- | --- |
+| Turn it on | `!mod rights on` | Owner |
+| Turn it off, also at DEFCON 1 | `!mod rights off` | Owner or Administrator |
+| Give a role rights | `!mod rights grant @role <kick\|ban\|timeout\|purge\|slowmode\|lock\|quarantine\|jail>...` | Owner |
+| Take rights from a role, also at DEFCON 1 | `!mod rights revoke @role [right...]` | Owner or Administrator |
+| Change what one member may do | `!mod rights limit <right> <count> <minutes>` | Owner |
+| See who holds what and who is suspended | `!mod rights status` | Staff |
+| Lift a suspension and start the count again | `!mod rights clear @member` | Owner |
+
+Each right covers its action and its reversal: `ban` also unbans, `timeout` removes a timeout, `lock` unlocks, `quarantine` releases and `jail` unjails. Warnings, deleting a single message, `!lockdown`, reads, cases and settings have no right and stay as they are. A member with a right passes the native check for that right's actions and nothing else, with two limits on how narrow that is: A timeout and a quarantine share one recovery type, so `timeout` can lift a quarantine and `quarantine` can lift a timeout, and a purge names no target, so `purge` can delete anyone's messages, including the owner's. They still need the staff role for the area, DEFCON still applies, the target must rank below them and NeonFlux, the owner, Administrators and NeonFlux are still protected, and NeonFlux still needs its own permission and rank. A member who holds the real permission acts natively and no right is involved. A member with a staff role and no right gets the same refusal as before. A right counts only through a role that ranks below NeonFlux, so a role moved above it stops counting, a channel action needs a member who can view the channel, and a member who is timed out holds no right until it ends. `!mod recover` keeps needing the real permission, so someone else checks an unconfirmed action
+
+The backend decides each action in the transaction that reserves it, from the stored grants and the bot's fresh read of the member's roles. What the bot remembers only chooses what help shows and whether a purge goes on to its preview. The bot reads the member and target once more right before it acts, and the backend checks once more that rights are on, the grant stands and the member is not suspended, so turning rights off or revoking stops an action nothing was sent for yet. An action with an unknown outcome is counted once and never repeated
+
+A member may use each right this many times in a sliding window, and all members together three times that:
+
+| Right | Member limit | Server-wide ceiling |
+| --- | --- | --- |
+| `ban` | 3 in 10 minutes | 9 |
+| `kick` | 5 in 10 minutes | 15 |
+| `timeout` | 10 in 10 minutes | 30 |
+| `purge` | 5 in 10 minutes | 15 |
+| `slowmode` | 10 in 10 minutes | 30 |
+| `lock` | 5 in 10 minutes | 15 |
+| `quarantine` | 5 in 10 minutes | 15 |
+| `jail` | 3 in 10 minutes | 9 |
+
+A limit holds 1 to 50 actions in 1 to 1440 minutes. Going over a member's limit refuses the action, suspends that member's rights until `!mod rights clear` and sends a record to the security metadata log. Reaching the server-wide ceiling refuses and records too, without suspending, since other members' actions put it there. A purge counts as one action however many messages it deletes. An action the backend refuses for another reason costs nothing
+
+Each action through a right feeds [anti-nuke](#anti-nuke), since its audit entry names NeonFlux and this is the only record of who asked. When anti-nuke fires on that member their rights are suspended, in dry-run as well, since a refused bot action hurts nothing. In enforce, its strip response also takes a role that holds a right, and `!antinuke restore` gives it back. Anti-nuke's trusted accounts only alert, so they are not suspended. NeonFlux stays exempt only for its own automation. The audit reason sent to Fluxer and the staff log name the real member
+
+`!help` lists what a member can run through their rights. `!health safety` stops asking a staff role for a permission it holds as a right, and warns while rights are on with limits above the default. Rights stay out of backups, since a restore from an old archive or by a hacked owner must not hand out moderation rights, and the owner grants them again by hand. They are in the readable export
+
+What this can do:
+
+- A staff role with no real permission cannot act in Fluxer itself, so a hacked staff account can only do what the limits allow through NeonFlux, and every action has a case
+
+What this cannot do:
+
+- It cannot limit a hacked owner, who can turn it off, or a hacked Administrator, who has every real permission
+- It cannot limit a member holding real permissions, who acts natively where the bot sees only audit entries
+- It cannot stop a hacked staff account within its limits. Three bans still happen before the limit stops the fourth
+- NeonFlux's own token becomes the higher value target, since it holds the permissions these roles no longer need. Its permissions cannot be narrower than what the granted rights use
+
+### Anti-nuke
+
+Anti-nuke watches the activity log for one account destroying the server faster than a person works. It starts off and in dry-run, it needs View activity log, and only the server owner or an Administrator can use it. Turning it down, reading incidents and restoring roles stay reachable at DEFCON 1
+
+| Task | Command |
+| --- | --- |
+| See it or turn it on and off | `!antinuke status`, `!antinuke module on\|off` |
+| Choose whether it acts | `!antinuke mode dry-run\|enforce` |
+| Set how much one account may do that fast | `!antinuke limit bans\|kicks\|channels\|roles <count> <seconds>`, 2 to 100 actions in 5 to 3600 seconds |
+| Choose what enforce does | `!antinuke response strip\|kick\|ban`, strip by default |
+| Let it start the lockdown | `!antinuke lockdown on\|off`, off by default |
+| Accounts it only alerts about | `!antinuke trust add\|remove @member`, `!antinuke trust list [next]` |
+| See what it found | `!antinuke incidents [next]`, `!antinuke incident <number>` |
+| Give roles back | `!antinuke restore @member` |
+
+The limits start at 10 bans, 10 kicks, 5 channels deleted and 5 roles deleted, each within 30 seconds. It also fires on two prunes within five minutes, 10 webhooks or 15 unbans within 30 seconds, 30 new channels or roles within 15 seconds, dangerous permissions added to 5 roles or a role with them given to or taken from 20 members within 30 seconds, whether Fluxer records that as a role update or as a member update with the roles among its changes, and destruction spread across kinds within 30 seconds. Accounts acting together fire when each reached 60% of a limit within half its window and they reach it between them, so two people tidying side by side do not. Slow burns only alert, and touch nothing, since ordinary maintenance reaches the same pace: Four times the bans or kicks limit in an hour, kept up for at least 20 minutes, and 2.4 times the channels or roles limit in half an hour, at most one alert per account each half hour. So a slow burn by a person is reported, not stopped. A bot working faster than one action per 15 seconds at that count is stopped, for bans and kicks as for channels and roles, and a slower one, such as a spam filter or a voice bot closing rooms, is left alone. The numbers come from labeled cases, as [the contributing guide](CONTRIBUTING.md#detector-evals) describes, and no real server's history has tested them yet, so start in dry-run
+
+It cannot stop the owner or anyone ranked at or above NeonFlux, and it never acts on NeonFlux or a trusted account. Those only raise an alert, so keep NeonFlux's role above every role that holds dangerous permissions. The owner and trusted accounts are nobody's partner either, so working beside them never counts against a moderator. `!health safety` names the roles it cannot reach while it is on. NeonFlux's own actions never count. Its moderation commands report what the member did, for bans, kicks and unbans and for everything a [bot-only right](#bot-only-staff-rights) does, since their audit entries name NeonFlux
+
+In enforce, one incident acts once. NeonFlux claims the incident with the backend first, reads the account fresh and makes one native call, and an incident for the same account within five minutes does nothing more. Strip removes every role carrying a dangerous permission that NeonFlux outranks and stores exactly what it removed, and a bot with no such role is kicked. A call Fluxer refused, or one NeonFlux lacks the permission for, fails. One whose outcome is unknown stays uncertain and is never repeated, and `!antinuke incident <number>` reads the exact member and settles it. `!antinuke restore @member` reads the member and gives back only what its newest such incident removed and the member lacks, and forgets the account's count so its next action starts from nothing. A strip that failed holds nothing to give back, so a later demotion by staff cannot be undone. A role that now ranks at or above NeonFlux stays out, the reply names it and the incident can be restored again. A deleted role is named as gone. The account is not told by DM. An incident is recorded in the server's newest 200 with what was observed, what was done and how it ended, shown by `!antinuke incidents` to the owner and Administrators, and under Private cases on the website to the owner and the private data role, even while logs are off. Each adds an `anti-nuke-incident` record to the metadata log's `security` category and a note in the staff log channel. Metadata logs start off, so `!setup antinuke` says it needs a step until one of them can reach staff. In dry-run it records and alerts only
+
+The lockdown starts only when stopping one account cannot contain it: Two accounts fired within five minutes, or an account ranked at or above NeonFlux fired. It needs `!antinuke lockdown on` and enforce, and otherwise the incident says it was not allowed. Lift it with `!lockdown off`
+
+The settings stay in memory, loaded once when a server starts, and the counts stay in memory only, at most 400 actions for each of 200 accounts per server. An audit entry costs no backend call while it is off and while nothing fires, and a restart forgets the counts. Only a dangerous role given or taken counts as a member role change, so role bots do not add up. Each entry counts at its own time, from its ID, so entries a lost connection held back and delivers at once do not look like a burst. A read that fails during an incident, such as a 429, leaves an incident that only alerts, and the account's next action can still be acted on. A live test showed real audit entries firing the channels, roles, creates, grants, webhooks, kicks, bans and unbans rules, and NeonFlux's own actions firing nothing. Stripping, kicking or banning a real member and the prune audit entry, action 21, remain unproven
 
 ### DEFCON
 
@@ -1060,6 +1217,7 @@ Owners and Administrators extend `!logs` with metadata logging. Existing moderat
 !logs metadata categories
 !logs metadata overrides [next]
 !logs metadata module on|off
+!logs metadata webhook-posts on|off
 !logs metadata route <category> <channel> [owner] on|off
 !logs metadata clear <category>
 !logs metadata event <event> <channel> [owner] on
@@ -1080,13 +1238,19 @@ Categories are `membership`, `resources`, `messages`, `audit`, `settings`, `oper
 
 `!logs metadata status` is a summary: Whether the module is on, how many categories post to a channel, the number of event overrides, the message channels, the log channels that no longer exist and the log channels where NeonFlux currently lacks View channel, Send messages, Embed links or Read message history. It shows the stored record count only once 8000 of the 10000 records are in use. `!logs metadata categories` shows each category's channel and whether NeonFlux can post there. Replies and log post titles name events in plain words, such as Member joined or Audit: Member kicked. `event` and `inherit` take that name, in any case and with or without the colon, as in `!logs metadata event member joined off`, or the event code, such as `member-add` or `audit-entry:20`. `!logs counters` shows open tickets, stored moderation cases, stored metadata records by category and the log posts that are waiting, failed or not confirmed
 
-The dashboard's Channel logs section configures the same settings, including per-event overrides for twenty-nine event types and thirty-eight audit actions. An event without an override uses its category route. An audit-action override, such as `audit-entry:20` for kicks, wins over the audit category. An enabled override sends even when its category is off, a disabled one suppresses the event, and `inherit` removes the override
+The dashboard's Channel logs section configures the same settings, including per-event overrides for every event type and the thirty-eight audit actions, and the switch for what webhooks post. An event without an override uses its category route. An audit-action override, such as `audit-entry:20` for kicks, wins over the audit category. An enabled override sends even when its category is off, a disabled one suppresses the event, and `inherit` removes the override
 
 Each category has a color: Membership green, resources blue, messages cyan, audit purple, settings amber, operations coral red and security pink. Shade shows the kind of change, with the darkest tone for destructive actions. A member leaving is neutral and unattributed, while kicks and bans proven by the audit log use the darkest tone
 
-Each log post names the members, roles and channels of its record as mentions that notify no one and shows its time in each reader's timezone. Webhooks, emoji, stickers and messages an audit entry names appear by their IDs. A message edit shows the author, the channel, a link to the message, the earlier and the new text in code blocks and the attachments. A deletion shows the author, the text and the attachments NeonFlux knew. A bulk deletion shows the count and the authors NeonFlux knew with how many messages each wrote, without text. Member, role, channel, server and thread changes show each changed value before and after, such as a nickname, the roles added and removed or the permissions a role gained and lost. Audit log entries show their reason and every value Fluxer recorded before and after. Names and values are escaped, so text in them cannot fake a line or a mention, and a post that would exceed one embed shortens its text blocks with … and counts the change and attachment lines left out
+Each log post names the members, roles and channels of its record as mentions that notify no one and shows its time in each reader's timezone. Webhooks appear by their escaped name and ID, and by the ID alone when NeonFlux could not learn the name. Emoji, stickers and messages an audit entry names appear by their IDs. A channel permission entry names its channel and the role or member it is for. A message edit shows the author, the channel, a link to the message, the earlier and the new text in code blocks and the attachments. A deletion shows the author, the text and the attachments NeonFlux knew. A bulk deletion shows the count and the authors NeonFlux knew with how many messages each wrote, without text. Member, role, channel, server and thread changes show each changed value before and after, such as a nickname, the roles added and removed or the permissions a role gained and lost. Audit log entries show their reason and every value Fluxer recorded before and after. Names and values are escaped, so text in them cannot fake a line or a mention, and a post that would exceed one embed shortens its text blocks with … and counts the change and attachment lines left out
 
 Logged events cover member joins, updates and removals, role and channel changes, thread and forum post creation, changes and deletion, server updates, message edits and deletions and every action Fluxer records in its audit log, such as kicks, bans, role and member changes, invites, webhooks, emoji, stickers, pins, prunes and message deletions with the member who deleted them. An audit entry without a target, such as a prune, is logged without one. Thread events use the resources category with their own event types `thread-create`, `thread-update` and `thread-delete`, and name the parent channel. A thread change names the changed fields `name`, `archived`, `locked` and `tags` when NeonFlux saw the thread before, since Fluxer sends only the new state. A thread NeonFlux merely joins is not logged as created. Deleting a channel deletes its threads without separate events, so one `thread-delete` record counts the threads NeonFlux knew in that channel. Records keep IDs, times, proven actors or unknown attribution, the changed values above, message text up to 4000 characters per side, Fluxer's longest message, up to 10 attachment names and links, audit reasons and invite codes. Audit values whose names look like tokens, secrets or passwords are left out. Fluxer sends a deleted message's text but not an edited message's earlier text or the earlier state of a changed member, role, channel or server, so NeonFlux compares with what it saw last. It keeps the last 10000 messages and up to 8 MiB of their text for all servers together, and keeps a server's message text, never a DM's, while its message events reach a log channel. It also keeps the IDs of the last 10000 messages of other bots, webhooks and the system, never their text, since a deletion does not say whether a bot wrote it, so those deletions stay out of logs. It asks the backend about that when the server starts and after each logs change made in chat, on the dashboard or by a restore, and forgets the server's text only when the answer says its message events no longer reach a log channel. Reading logs, help and forgetting a record keep it. So an edit has no earlier text only for a message NeonFlux did not keep: One sent before NeonFlux started or while message events were not logged, one pushed out of the last 10000 messages or 8 MiB of text, or one sent before a lost connection to Fluxer or before its server became available or unavailable, since NeonFlux then forgets that server's messages because it may have missed their edits. It keeps up to 50000 roles, 20000 channels, 20000 members and 5000 servers, learns channels and members from their events and forgets a server's copies when the server becomes available or unavailable. A change NeonFlux has no earlier copy of says that earlier values are unavailable. Settings records cover moderation and log settings, security and DEFCON, metadata configuration and changes saved on the dashboard
+
+Logs always post as NeonFlux and never go through a webhook. A webhook message shows the name on its author, which a webhook may change for each post. An audit entry or a security alert about a webhook shows the name the entry recorded, then the last name NeonFlux learned from an entry or a read, of up to 5,000 per server, then one read of the webhook, which needs Manage webhooks, when logs are not known to be off. A failed read shows the ID
+
+Edits and deletions of webhook messages are logged as `webhook-message-update` and `webhook-message-delete` in the messages category, with the webhook's name as the author. NeonFlux keeps a webhook message's text under the same limits as a member's, and only while that server's message events reach a log channel, so a server whose message events are not logged pays nothing for them. Each server records up to 30 of these at once and then one a minute, so a status webhook that edits one message all day costs at most 1,440 records a day, and the bill guard pauses them. A skipped edit still updates the kept text, so the next logged edit shows it as the earlier text. These records have no member author, so `!mydata` does not list them, and they expire after 30 days like other message records. A bulk deletion counts webhook messages but names no webhook. Other bots, system messages and NeonFlux's own posts stay out. NeonFlux creates no webhooks of its own
+
+`!logs metadata webhook-posts on|off` also logs what webhooks post as `webhook-message-create`. It starts off, and while it is off a webhook's message costs no backend call and no read. While it is on, each server records up to 30 posts at once and then 30 a minute, and skips the rest, which count as skipped optional work. The bill guard pauses it. Excluded channels, listed mode, ticket channels and log channels apply as they do for member messages, so a webhook posting in a log channel cannot make a loop. A channel the backend answered as excluded for one of these events is remembered in memory until the next logs change, so a webhook there spends no token and no backend call
 
 Each server keeps at most 10000 records, and the oldest is evicted when a new one arrives. Delivery runs as NeonFlux
 under the server automation policy, and DEFCON 1 pauses it. Disabling keeps records, and re-enabling can deliver the
@@ -1140,7 +1304,7 @@ Every action starts off and runs only while its alert is on, at every DEFCON lev
 
 A webhook or role change whose audit entry names no actor is only reported. NeonFlux tries each action once, after its alert, and a short `alert-action` record names the action and its outcome. The outcome is `succeeded`, `failed` when NeonFlux lacked the permission or the rank, the request was never sent or Fluxer refused it, or `uncertain` otherwise, such as when Fluxer did not answer within five seconds or NeonFlux stopped before it learned the result. NeonFlux never repeats an uncertain action, so the server should be checked by hand. An event Fluxer delivers twice acts once
 
-Webhook and privilege alerts come from new audit log entries, which name the webhook or role and the member who made the change, so they need View activity log. The actor is taken only from the entry that describes the change and is never guessed. A member role change counts when the entry lists the member's roles before and after, which has not been checked against live Fluxer. A bot join comes from the join itself, so its alert names no actor. Route the audit action `audit-entry:28` to see who added a bot. Invite lists and the staff names impersonation compares need Manage community
+Webhook and privilege alerts come from new audit log entries, which name the webhook or role and the member who made the change, so they need View activity log. The actor is taken only from the entry that describes the change and is never guessed. A member role change counts when the entry lists the member's roles before and after, which a live test showed for both forms Fluxer records: A role update when one role is added or removed, and a member update when the whole list is set. A bot join comes from the join itself, so its alert names no actor. Route the audit action `audit-entry:28` to see who added a bot. Invite lists and the staff names impersonation compares need Manage community
 
 Impersonation compares names after folding accents, case, lookalike digits, Latin small capitals and letters from other scripts, such as `0` for `o` or a Cyrillic `а`, then keeping only letters and digits. The letter pairs `rn` and `vv` fold to `m` and `w`. Names that then match, or differ by one edit from five characters on and by two from ten on, raise one alert per member and name. An edit adds, removes or changes a character or swaps two neighboring characters. The shorter folded name sets these limits, and names shorter than three characters never match. A folded name of at least five characters also matches a whole part of the other name separated by spaces, punctuation or symbols. Staff means the owner and every member of each role holding Administrator, Manage community, Ban members, Kick members or Time out members. NeonFlux reads them at most every ten minutes, up to 2,000 role members in one read, so a larger staff is read over the next refreshes, highest roles first
 
@@ -1150,7 +1314,7 @@ Every alert becomes its own record, and Fluxer's rate limits pace their delivery
 
 ## Temporary voice rooms
 
-A member who joins a generator voice channel gets a room of their own, and NeonFlux moves them into it. Staff create and configure generators with `!voice generator`, and room owners manage their room with the other `!voice` commands. The dashboard's Temporary voice section configures the same generator settings
+A member who joins a generator voice channel gets a room of their own, and NeonFlux moves them into it. Staff create and configure generators with `!voice generator`, and room owners manage their room with the other `!voice` commands, the [controls card](#room-controls-card) in the room's chat or their [website page](WEB.md#your-voice-room). The dashboard's Temporary voice section configures the same generator settings
 
 ```text
 !voice generator add "Join to create" <category-ID>
@@ -1169,7 +1333,11 @@ A member who joins a generator voice channel gets a room of their own, and NeonF
 | `!voice generator set #generator limit <1-99\|none>`           | Staff              | Set the default member limit of new rooms                                              |
 | `!voice generator set #generator region <region-ID\|auto>`     | Staff              | Give new rooms a fixed voice region, or use Fluxer's automatic routing                 |
 | `!voice generator remove #generator`                           | Staff              | Stop using the channel as a generator. The channel stays                               |
+| `!voice generator set #generator panel on\|off`                | Staff              | Choose whether new rooms get a controls card. It starts on                             |
 | `!voice rename "name"`                                         | Owner, staff       | Rename the room                                                                        |
+| `!voice lock`, `!voice unlock`                                 | Owner, staff       | Stop new members joining, or let them join again                                       |
+| `!voice region <region-ID\|auto>`                              | Owner, staff       | Give the room a fixed voice region, or use Fluxer's automatic routing                  |
+| `!voice panel`                                                 | Owner, staff       | Post the room's controls card again and remove the old one                             |
 | `!voice hide`, `!voice show`                                   | Owner, staff       | Hide the room from everyone without explicit access, or show it again                  |
 | `!voice allow @member`, `!voice block @member`                 | Owner, staff       | Let a member see and join the room, or stop them from doing so                         |
 | `!voice limit <0-99>`                                          | Owner, staff       | Set the member limit, with 0 for no limit                                              |
@@ -1183,17 +1351,38 @@ Room commands act on the room the member owns. Put `#room` after the verb, such 
 - A server has at most 10 generators and 50 live rooms. At the room limit NeonFlux creates no room and posts a notice in the generator's text chat
 - Names and templates have 1 to 100 characters. Templates support only the `{owner}` placeholder
 - Hiding keeps access for the owner and NeonFlux. The owner and NeonFlux cannot be blocked, and blocking does not disconnect a member who is already inside
+- Locking denies Connect to everyone in one change of the room's permissions. The owner, NeonFlux, members inside when it locks and members allowed with `!voice allow` can still join, and a blocked member stays out. A role that has its own Connect allow on the room, such as one inherited from its category, also keeps it. Lock and hide are separate, so `!voice show` leaves a lock on and `!voice unlock` leaves a room hidden. Unlocking removes only the access the lock gave members inside, and keeps allow, block and any grant that was there before. A room whose permissions allowed Connect to everyone gets that allow back on unlock, and `!voice show` does the same for View channel. `!voice lock` waits for Fluxer's list of who is in voice, like `!voice claim`
+- A timed-out or jailed member cannot change a room through the card or the website, as they cannot send the command, and a bot cannot claim one
+- A room change NeonFlux cannot confirm says so and is never repeated by itself, so the member checks the room first
+- Fluxer checks a region ID when it is set, and NeonFlux names a refusal. The check on `!voice region` before that is the same as for a generator's region
 - `!voice claim` and `!voice transfer` read who is in the room from the voice activity NeonFlux tracks. Until Fluxer has sent its list of who is in voice, after a restart or a new connection, both ask the member to try again in a minute. A new owner of a hidden room gets the same access hiding gives the owner, and the old owner keeps theirs. A room keeps its name, even one made from `{owner}`. Group rooms from `!lfg` can be claimed and handed over too. A failing Fluxer voice server can report a member as gone, so a claim could then take a room whose owner is still in it
 - Room settings of a generator apply to rooms created after the change
 
 | NeonFlux permission                                       | Used for                                                                                            |
 | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | View channel and Connect to voice where rooms are created | Seeing rooms and their voice activity, since Fluxer delivers voice events only for visible channels |
-| Manage channels                                           | Creating generators and rooms, renaming, member limits and deleting empty rooms                     |
+| Manage channels                                           | Creating generators and rooms, renaming, member limits, lock, unlock and deleting empty rooms       |
 | Move members                                              | Moving members into their rooms                                                                     |
-| Manage roles                                              | Hide, show, allow and block                                                                         |
+| Manage roles                                              | Hide, show, lock, unlock, allow and block                                                           |
 | Set voice region                                          | Fixed regions, which Fluxer applies with an edit right after the room is created                    |
 | Send messages in generators                               | Room limit notices                                                                                  |
+| Send messages, Add reactions and Manage messages in rooms | The room controls card and removing the reaction a member used on it                                |
+
+### Room controls card
+
+Each new room, group rooms included, gets a card in its own chat unless its generator's `panel` setting is off. `!voice panel` posts it again. The card links the room's [website page](WEB.md#your-voice-room) when the bot knows the website
+
+| Reaction | Does | Who |
+| --- | --- | --- |
+| 🔒 | Locks the room, or unlocks a locked one | Owner, staff |
+| 🙈 | Hides the room, or shows a hidden one | Owner, staff |
+| 🔼 | Raises the member limit by one, up to 99. A room with no limit keeps none | Owner, staff |
+| 🔽 | Lowers the member limit by one, down to 1. A room with no limit starts at the members inside | Owner, staff |
+| 👑 | Claims the room once its owner left | A member in that room |
+
+A reaction follows the rule of the command it stands for, DEFCON included. NeonFlux removes the member's reaction either way, and a refused reaction gets no reply. Removing a limit stays with `!voice limit 0` and the website. A reaction whose native change cannot be confirmed is not repeated, so the member reacts again after checking the room
+
+A reaction on any other message costs no read, since the bot finds cards in memory. After a restart the cards load with the rooms on the server's first voice event, so a reaction before that event does nothing and the member's reaction stays until they try again. Posting the card, the bot's own reactions on it and removing a reaction in a voice room's chat, the bulk permission edit of a lock and Fluxer's refusal of an unknown region have been proven against the real service. A member's own reaction and a room created by joining a generator have not
 
 ### Room deletion
 
@@ -1377,6 +1566,180 @@ Each alert is one embed linking the streamer's Twitch channel, with the display 
 Delivery uses the same [publisher](#drafts-templates-and-posts) rules as YouTube: Fresh channel permissions, stopped alerts and a staff note for a missing channel or permission, a hold while publishing is off or DEFCON is below 3, at most one send per server and stream, no retry after an unknown outcome, a drop after two hours, since the stream may have ended by then, and 30-day retention. Unknown outcomes stay until resolved. Test alerts are direct and untracked
 
 All servers share one Twitch subscription per broadcaster. The last unfollow deletes it, including when a removed server is purged. Failed Twitch requests retry with backoff. A revoked subscription shows Twitch's reason in status and recovery, and only a recoverable delivery or maintenance failure retries automatically. Missing credentials make adds unavailable, as described in [the backend guide](BACKEND.md#twitch-live-alerts)
+
+## Bluesky and X feeds
+
+NeonFlux posts new posts from up to 10 followed accounts per server. Bluesky works through its public API with no key. X needs the bot operator's own paid key and has only been tested against a local copy of X's published API description, never against the real service
+
+The commands work for the server owner and members with Administrator or Manage community, and DEFCON staff rules match [YouTube upload alerts](#youtube-upload-alerts). The dashboard's [Bluesky and X feeds](WEB.md#bluesky-and-x-feeds) section changes the same settings
+
+| Command | Behavior |
+| --- | --- |
+| `!feed add bluesky <handle-or-link> #channel` | Follow a Bluesky account in a text, announcement or forum channel, or move and restart its posts |
+| `!feed add x <username-or-link> #channel` | The same for an X account. Without an X key on the deployment it answers that X feeds are not available |
+| `!feed remove <name>` | Stop following an account |
+| `!feed status [name]` | Show all followed accounts, or one account's last check, latest post, last post sent and any problem |
+| `!feed test <name>` | Post a labelled test, using the latest post NeonFlux holds or a placeholder. It reads nothing from the service |
+| `!feed help` | Show syntax |
+
+A name is a handle or a display name. When two accounts share one, the service goes first, such as `!feed remove x alice`. A Bluesky name without a dot means its `.bsky.social` handle. The backend looks a handle up once and then follows the stable account, so a renamed account keeps its place. A handle the service does not know shows its error in status and the recovery inbox, and adding it again tries again
+
+Own posts and quote posts go out. Reposts, retweets, replies including replies to oneself, other authors' posts, pinned posts and broken answers do not. Neither do Bluesky posts labelled `porn`, `sexual`, `nudity` or `graphic-media`, on the post, in its own labels or on its account, posts hidden by moderation or accounts that asked not to be shown to logged-out viewers, or X posts marked `possibly_sensitive`
+
+- The first successful read of an account records its newest post and posts nothing. A server gets only posts newer than its own follow, also when another server followed the account long before
+- An empty answer never counts as no news and moves nothing. An unreadable answer waits longer each time, and a rate limit waits at least as long as the service asks. After three failures in a row the problem shows in status and the recovery inbox
+- A change in the form of a service's answers shows at once in status and the recovery inbox, and stays until a read finds posts again
+- After an outage at most the 5 newest posts of an account go out per check, oldest first, and a post more than a day old never does
+- An account no server wants right now, because every follow is off or its server removed NeonFlux, is not read. When a follow comes back, nothing published in between is posted
+
+Each post is one embed linking the post, with the author, an excerpt cut at a sentence when the text is long, the first image or video still, and the service in the footer. Mentions in the text are broken up. In a forum, each post becomes its own forum post
+
+Delivery uses the same [publisher](#drafts-templates-and-posts) rules as YouTube: Fresh channel permissions, a stopped follow and a staff note for a missing channel or permission, a hold while publishing is off or DEFCON is below 3, at most one send per server and post, no retry after an unknown outcome and 30-day retention. Unknown outcomes appear in the recovery inbox and use `!publish reconcile` and `!publish resolve`
+
+Bluesky accounts are checked every 5 minutes and X accounts every 30 minutes, later when a deployment follows many accounts. Polling waits while the [bill guard](BACKEND.md#bill-guard) pauses optional work. When a deployment has spent its monthly X reads, X accounts wait for the next month and status says so. Without an X key, status shows X accounts as off. The limits are described in [the backend guide](BACKEND.md#bluesky-and-x-feeds)
+
+## Counter channels
+
+NeonFlux can keep up to 5 channels per server named with a live count, such as `Members: 120`. A counter renames an existing channel, which may be a voice, text or announcement channel or a category. NeonFlux creates no channels for it
+
+| Goal | Command |
+| --- | --- |
+| Keep a channel named with the server's member count | `!counter add members #channel "Members: {count}"` |
+| Keep a channel named with how many members hold a role | `!counter add role @role #channel "Staff: {count}"` |
+| Change a counter's name and turn it back on | `!counter set #channel "New name: {count}"` |
+| Stop renaming a channel, which keeps its name | `!counter remove #channel` |
+| List every counter and whether it is on | `!counter list` |
+| Turn every counter on or off | `!counter module on\|off` |
+
+These commands need the server owner, Administrator or Manage community, and the dashboard's Counter channels section has the same settings. Adding to a channel that has a counter replaces it. A name holds `{count}` and at most 100 characters, and the count shows plainly, with no separators
+
+- `members` reads the member count Fluxer reports over the gateway, one request per check
+- `role` reads the total from Fluxer's member search, one request per counted role per check, which shares Fluxer's 40 member requests per server every 10 seconds with other member reads. While Fluxer builds its member index, the check renames nothing
+- Fluxer exposes no boost count, and online counts are left out because the bot asks Fluxer not to send presence
+
+NeonFlux checks each server's counters every 10 minutes, and once right after a change, and renames a channel only when the name would change. Fluxer's measured limit on renames is a bucket of 20 with a 0.5 second refill, with no per-channel limit in 14 renames over 24 seconds. Fluxer's edge also answers a plain `429` with `retry-after: 5` on any route while it is busy, and repeated requests during that escalate to a block of about 600 seconds. So the interval is chosen for the channel's noise and the audit log's volume rather than for that limit. Each server's checks start at its own offset, so servers do not rename at once. Counters load once when a server starts and after a change, the timer runs only while a counter is on and a check makes no backend call, so a server without counters costs nothing
+
+A rename Fluxer refuses because NeonFlux lacks the permission, or because the channel is gone, turns that counter off, posts one note in the server and adds a recovery inbox entry. A rename whose outcome is unknown is not repeated blindly. `!counter list` shows it as not confirmed, and the next check reads the channel fresh and renames it only if the name still differs. A count or a channel that cannot be read skips that check. A role counter is refused at `!counter add` when Fluxer answers that NeonFlux holds no permission its member search takes, Manage community, Manage roles, Manage nicknames, Ban members, Kick members or Time out members, or asks for two-factor authentication. If that starts later, the counter stays on, its channel keeps its name, and `!counter list`, the dashboard and the recovery inbox say why until a read works again. A counter's own rename stays out of metadata logs when the name is the only change, the channel change by the rename NeonFlux just sent, once per rename, and the audit entry by the reason NeonFlux gives only for these renames. Fluxer sends that reason back, which a live rename showed. The rename also leaves the structure editor's read current and keeps what the bot remembers of channels and threads
+
+Counters keep renaming while DEFCON holds other automation, since a rename posts nothing
+
+The gateway member count, a role count from the member search, a rename by the running bot and its audit entry have been proven live against Fluxer. A refused rename, an unknown outcome and a count Fluxer refuses have been run only against the SDK's test transport
+
+## Personal reminders
+
+A member asks NeonFlux to send them a reminder later. It goes by DM, and the feature is on by default, since a reminder needs no setup and posts nothing while the member's DMs are open
+
+| Goal | Command |
+| --- | --- |
+| Set a reminder | `!remind <duration> <text>`, such as `!remind 2h take out the bins` |
+| List your reminders on this server, by DM | `!remind list [next]` |
+| Cancel one | `!remind cancel <number>` |
+| See whether reminders are on and the limit | `!remind settings` |
+| Turn reminders on or off | `!remind module on\|off` |
+| Set how many reminders each member keeps, from 1 to 25 | `!remind limit <number>` |
+
+`module` and `limit` need the server owner, Administrator or Manage community, and the dashboard's Personal reminders section has the same settings. Those changes reach the [audit log](WEB.md#audit-log), and nothing else about a member's reminders appears to staff. Commands work in a server channel, and a DM gets one line saying so
+
+A duration is written like other durations, such as 30m, 12h or 1d12h, from 1 minute to 1 year. Text holds up to 500 characters, stored as typed and sent with no ping. Each member's reminders have numbers of their own. A member keeps up to 25 reminders per server and a server up to 5,000, and uncertain and undelivered reminders count until they go. `!remind list` sends the list by DM, because the text is the member's own. When that DM cannot be sent the channel gets only a note
+
+Delivery:
+
+- A reminder goes out within the work dispatcher's delay of its time, which is a few seconds while the bot runs. One that comes due while the bot is down goes out once it is back
+- A member who left is skipped and the reminder is deleted
+- When Fluxer refuses the DM, NeonFlux posts one message in the channel the reminder was set in, naming the member with a mention that does not notify. It does so only when the channel still exists, it can post there and the [automod content rules](#automod) would let the text through for that member. Otherwise the reminder stays listed as undelivered
+- A rate limit or a connection failure on the DM sends nothing, so nothing goes to the channel and the reminder is tried again a minute later. Only Fluxer's own refusal moves it to the channel
+- A reminder is claimed before it is sent and is never sent twice. An unknown outcome stays listed as not confirmed
+- While reminders are off or DEFCON is below 3, delivery waits and resumes after. While off, members cannot set new reminders and can still list and cancel theirs
+
+Delivered and cancelled reminders are deleted. Uncertain and undelivered ones expire after 30 days, and so does a reminder held for 30 days past its time. See [your data](#your-data) for what `!mydata` shows and deletes
+
+Delivery by DM, the list by DM and cancelling are proven against Fluxer. A refused DM's post in the channel has not been, only against the SDK's test transport
+
+## Giveaways
+
+A giveaway is one card in a text or announcement channel. Members enter by reacting with 🎉, and NeonFlux draws winners when its time ends. The card goes through the [publisher](#drafts-templates-and-posts)
+
+| Goal | Command |
+| --- | --- |
+| Start one | `!giveaway start <length> <winners> #channel <prize>`, such as `!giveaway start 1d 2 #events Game key` |
+| Draw the winners now | `!giveaway end <number>` |
+| Draw new winners, leaving out earlier ones | `!giveaway reroll <number> [count]` |
+| Cancel a running giveaway | `!giveaway cancel <number>` |
+| List them | `!giveaway list [next]` |
+| Show one with its winners and any problem | `!giveaway show <number>` |
+| See whether giveaways are on and the required role | `!giveaway settings` |
+| Turn giveaways on or off | `!giveaway module on\|off` |
+| Set the role a member needs to win | `!giveaway role @role\|none` |
+
+Every form needs the server owner, Administrator or Manage community, and the dashboard's Giveaways section has the same settings and actions. Every setting change and every start, end, reroll and cancel reaches the [audit log](WEB.md#audit-log). NeonFlux needs View channel, Send messages, Add reactions and Read message history in the channel
+
+A server runs up to 25 giveaways at once. Each has 1 to 20 winners and runs for 1 minute to 60 days, and its prize holds up to 256 characters on one line, checked against the [automod content rules](#automod). A running giveaway keeps the required role it started with, so a later change applies to new ones
+
+Entries live on Fluxer as reactions, so NeonFlux stores no entry and a reaction costs no backend call. At the draw NeonFlux:
+
+- Reads up to 5,000 entries. Fluxer lists them by ascending account ID, so a larger giveaway counts the oldest accounts' entries, and the card and `!giveaway show` say so
+- Leaves out bots, NeonFlux and earlier winners
+- Shuffles the rest with Node's cryptographic random source
+- Reads candidates fresh from Fluxer, in that order, and takes those who are still members and hold the required role, until it has enough winners or the entries run out. A candidate Fluxer does not answer for puts the whole draw off for a minute, so a failed read never costs anyone their entry
+
+A draw is claimed in the backend and its winners are recorded once. NeonFlux then edits the card to name the winners with mentions that do not notify, and tells each winner by DM what they won. A DM that fails stops nothing, and `!giveaway show` names the winners it did not reach. `!giveaway end` and `reroll` answer at once and draw right after, since a large draw reads for some seconds, so the card and `!giveaway show` hold the result
+
+A reroll reads the reactions again, leaves out earlier winners and adds its winners to the card as a further line. A giveaway records up to 50 winners. `cancel` edits the card and draws nothing
+
+Unknown outcomes and problems:
+
+- A card post with an unknown outcome is never repeated. The giveaway waits, and `!recovery` shows the `!publish reconcile` or `!publish resolve` step that settles it. Once settled as posted it goes on, and the draw comes due at once when its time has passed
+- A card edit with an unknown outcome is never repeated. `!giveaway show` reads the card and clears the problem when the card shows the expected text
+- A giveaway whose end passes before its card could go out, such as after failed tries or while DEFCON holds it, ends with a problem and posts nothing, since it had no entries to draw from
+- A deleted card or channel ends the giveaway with a problem shown by `!giveaway show` and `!recovery`. A channel NeonFlux cannot post in ends it before its card goes out
+- When NeonFlux cannot read the entries, the draw tries again every 10 minutes and says why
+
+A start is refused while giveaways or publishing are off or DEFCON is below 3, since a held card could post after its end and draw from no entries. While giveaways are off or DEFCON is below 3, draws of giveaways already running wait and resume after. A card already queued also waits while publishing is off. A cancel's edit waits only for DEFCON
+
+An ended or cancelled giveaway expires after 90 days, with its winners and tracked post. See [your data](#your-data) for what `!mydata` deletes
+
+The card, its entry emoji, a reaction read holding only NeonFlux's own reaction, a draw with no valid entry, a reroll and a cancel's card edit are proven against Fluxer. A winner, a winner's DM and the 5,000 limit have not been, only against the SDK's test transport
+
+## Boards
+
+A board reposts a message once enough members react to it with the board's emoji, such as a starboard for ⭐ or a clownboard for 🤡. A server can have up to 5 boards, each with its own emoji and channel, and they are one feature whichever emoji they use
+
+| Goal | Command |
+| --- | --- |
+| Add a board, such as `!board add stars ⭐ #starboard` or `!board add clowns 🤡 #clownboard` | `!board add <name> <emoji> #channel [threshold]` |
+| Change its emoji, channel or threshold, which also turns a stopped board back on | `!board set <name> emoji <emoji>`, `!board set <name> channel #channel` or `!board set <name> threshold <number>` |
+| Let an author's own reaction count | `!board set <name> self on\|off` |
+| Let messages of bots and webhooks onto the board | `!board set <name> bots on\|off` |
+| Leave a channel out, or take it back in | `!board ignore add\|remove <name> #channel` |
+| Remove a board. Its posts stay | `!board remove <name>` |
+| List the boards, or show one | `!board list` or `!board show <name>` |
+| Turn every board on or off | `!board module on\|off` |
+
+These commands need the server owner, Administrator or Manage community, and the dashboard's Boards section has the same settings. The emoji is a Unicode emoji, stored without its optional emoji-style selector, or a custom emoji. The threshold is 1 to 100, 3 unless named. A board's channel is a text or announcement channel where NeonFlux has View channel, Send messages and Embed links
+
+### What counts
+
+- By default a member's own reaction does not count, and neither do messages of bots and webhooks. Reactions by bots never count
+- A channel holding any board is left out, and so is each channel a board ignores. A thread counts as its parent
+- A message stays off a board when someone who can read the board could not already read the message, including its history: Each role and each pair of roles is judged with everyone, Administrator roles never block, a member overwrite that opens the board to one member blocks unless everyone can read the source, and a member overwrite that hides the source from one member blocks too. NeonFlux's own member overwrite on a channel does not count, so a private board works for a private channel with the same readers. A channel whose overwrites Fluxer did not send never reposts. An adult channel never reposts to a board that is not adult, and a private thread or a ticket channel never reposts
+- Read message history is read as the server has it, so on a server where no role holds it only Administrator roles count as reading a source
+- NeonFlux judges this from its memory when a reaction arrives and again from fresh reads just before it posts. It judges a post that already stands only at the next reaction on its message, and removes the post then if its readers may no longer see the source. Permission changes alone recheck nothing
+
+### Posts
+
+A post is one embed with the author's name, the text cut to 2,000 characters, the first image, the reaction count and a link to the original. A spoiler image or one Fluxer marks as adult stays out. Mentions are broken up, so nothing pings. Text a [content rule](#automod) would catch for the author in the board's channel is left out with a note saying so, and the card still links to the original. NeonFlux stores no message text: The card's text exists only in the post and its [publisher](#drafts-templates-and-posts) record
+
+Each board posts a message once. A post with an unknown outcome shows as uncertain in `!board show` and the recovery inbox, and NeonFlux never posts it again. `!publish reconcile <post>` settles it only once NeonFlux knows the message's ID. After a timeout that left no ID, `!publish resolve <post> sent <message-id>` or `!publish resolve <post> failed` does. The count changes at most once a minute, and only on a post that already exists. A message that falls below the threshold stays posted. Moving a board leaves its earlier posts where they are, with their last count
+
+Deleting the source message, or its channel or thread, deletes its post, and so does `!mydata delete` by its author. These are best effort: A post NeonFlux may not delete stays, and a delete with an unknown outcome is listed in the recovery inbox and never sent again. One asked for while the post's own outcome is unknown runs once staff settle that outcome. A message its author deleted their data after is not reposted later. DEFCON below 3, publishing off and the module off hold new posts, which go out afterwards while their reactions still reach the threshold
+
+A missing channel or permission stops the board, posts one note in the server and adds a recovery inbox entry. `!board set <name> channel #channel` turns it back on. While it is stopped, waiting posts are dropped and a later reaction queues them again
+
+A reaction on an emoji no board uses costs nothing. A reaction on a board's emoji waits 5 seconds, so a burst costs one read of the message, and calls the backend only at the threshold. A message with a post waits a minute, then also reads the channels and roles fresh
+
+A board keeps its record of the latest 1,000 posts. An older post stays on Fluxer, but its count, its removal and the once per message rule no longer apply to it. A record without a post ends after 30 days
+
+Checked against Fluxer: The visibility check on real public, private and role-limited channels, and one card through the real publisher, with its mention broken up and no ping, its image and its link. A repost at a real threshold, which needs reactions from other members, a count update, a removal and the form a member's client sends a reaction in have not been proven against Fluxer, only against the SDK's test transport
 
 ## Server structure editor
 
@@ -1685,18 +2048,21 @@ A number means the server at that place in the last `!mydata` list shown to the 
 not reach, and its records are counted for that server alone. When the list reached its read limit, every count says "or more" and a note says that a server can be missing. A confirmation deletes only in the server whose deletion
 the member previewed last, and a newer list asks for a new preview
 
-Deletion removes the member's AFK status, custom command cooldowns, leveling XP with its message receipts and staff corrections, greeting records, rules acknowledgment, newcomer checklist completion, role picker role checks, birthday and anniversary enrollment with the receipts of those commands, ticket drafts, event RSVPs, suggestion votes, the member's places in open groups, the member's closed suggestions, the member's showcase records, the message log records of the member's edited and deleted messages, the log records of the member's joins, departures and member changes, the audit log records about the member, such as a kick, a ban or a nickname or role change, with their reasons, the member's place in a bulk deletion's log record, which keeps the other authors, and the member's profile with any profile save from the website that the bot has not handled yet. A seat the member held goes to the next member on the event's waitlist, and suggestion cards update their vote counts. After the rules acknowledgment is deleted, the rules must be acknowledged again before features that require it work for the member. Deletion does not remove messages NeonFlux already sent, such as greetings, event cards, showcases or log entries. Delete a showcase on the website first to remove its message too
+Deletion removes the member's AFK status, reminders, board posts of their messages, their ID from the winners of giveaways, custom command cooldowns, leveling XP with its message receipts and staff corrections, greeting records, rules acknowledgment, newcomer checklist completion, role picker role checks, birthday and anniversary enrollment with the receipts of those commands, ticket drafts, event RSVPs, suggestion votes, the member's places in open groups, the member's closed suggestions, the member's showcase records, the message log records of the member's edited and deleted messages, the log records of the member's joins, departures and member changes, the audit log records about the member, such as a kick, a ban or a nickname or role change, with their reasons, the member's place in a bulk deletion's log record, which keeps the other authors, and the member's profile with any profile save from the website that the bot has not handled yet. A seat the member held goes to the next member on the event's waitlist, and suggestion cards update their vote counts. After the rules acknowledgment is deleted, the rules must be acknowledged again before features that require it work for the member. Deletion does not remove messages NeonFlux already sent, such as greetings, event cards, showcases or log entries. Delete a showcase on the website first to remove its message too
 
 Some data stays because a rule needs it, and the reply says why:
 
 - Moderation cases with their corrections and appeals protect the server. They are kept for the period the server chose, or until erased, and the server owner can erase a case's text
+- A running jail keeps the roles the member gets back, shown by `!mydata`, since it protects the server as a case does. It ends with the release
 - Tickets are a support record shared with staff. A closed ticket's private content expires after the server's ticket retention, 30 days by default, and staff can erase it sooner
 - The roles NeonFlux gave the member stay recorded while the member may hold them, because NeonFlux removes only roles it can prove it gave
-- The member's temporary voice room stays recorded while it exists
+- The member's temporary voice room, with its last read name, limit, lock and region, stays recorded while it exists. A locked room also lists the members inside when it locked, until it unlocks or goes, which is not part of those members' own export
+- A giveaway the member hosts keeps them as its host until it ends. After that deletion removes them from it, and the card already in the channel stays, as with other messages NeonFlux sent
 - A group the member hosts stays while it is open, at most until its time runs out. Cancel it with `!lfg cancel`
 - Birthday and anniversary posts already sent stay recorded until 30 days after posting, and the years the member was celebrated stay for 400 days, so no year is celebrated twice
 - An open suggestion stays while staff review it. Withdraw it with `!suggest withdraw`, then delete again
 - A greeting that is being sent stays until it finishes
+- A board post whose outcome is unknown stays until staff settle it with `!publish reconcile` or, after a timeout, `!publish resolve`, and its removal runs then. Deletion queues the removal of every other post, which is best effort
 - A message log record whose post is being sent stays until it finishes, and the log post itself stays in the log channel
 - Security records are not listed: Spam detection counts and verification links keep their own expiry, watchlist entries stay until staff remove them, and security alert records expire after 30 days
 - NeonFlux keeps that the member deleted their data in the server and when, nothing else, so restoring a backup made before cannot bring the member's XP back. A backup can be restored at any time, so this record stays while NeonFlux keeps the server's data
@@ -1726,16 +2092,17 @@ mode. It opens Fluxer's bot authorization with the permission mask `900869479369
 | Permission | Used for |
 | --- | --- |
 | View channel, Send messages, Embed links, Read message history | Commands, replies, panels, logs and ticket transcripts |
-| Add reactions | Reaction role and verification panels, and the vote reactions on suggestion cards |
+| Add reactions | Reaction role and verification panels, the vote reactions on suggestion cards and the entry emoji of giveaways |
 | Manage messages | Delete and purge actions and message cleanup |
-| Manage channels | Tickets, slowmode, channel structure restore, temporary voice rooms, the dashboard link channel and the server structure editor |
+| Manage channels | Tickets, slowmode, channel structure restore, temporary voice rooms, the dashboard link channel, counter channels and the server structure editor |
 | Manage roles | Role panels, autorole, verification roles, ticket access, lock and unlock overwrites, temporary voice room access and the member list order |
 | Connect to voice, Move members | Moving members into their temporary voice rooms |
+| Add reactions, Manage messages | The controls card of temporary voice rooms |
 | Set voice region | Fixed regions for temporary voice rooms |
 | Kick members, Ban members, Time out members | Kicks, bans, timeouts, warnings and quarantine |
 | View activity log | Audit entries in metadata logs |
 | Manage community | Invite lists and staff names for security alerts |
-| Manage webhooks | Webhook names in alert lists and deleting unexpected webhooks when that security alert action is on |
+| Manage webhooks | Webhook names in alert lists and log posts, and deleting unexpected webhooks when that security alert action is on |
 | Manage threads | Help desk forums |
 | Change own nickname | Changing the bot's own nickname in that server |
 | Send messages in threads, Create public threads, Create private threads | Channel locks and ticket closes, which deny these too, because Fluxer lets a bot deny only permissions it holds |

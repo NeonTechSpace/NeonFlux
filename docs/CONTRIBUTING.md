@@ -43,7 +43,11 @@ Commit generated files together with the change that needs them
 
 ## Detector evals
 
-`pnpm run evals` scores the deceptive link judge, the lookalike name check and the typo hints against the labeled cases in [projects/evals/](../projects/evals/) and prints what each catches and wrongly flags, per family. The cases are synthesized from common phishing, impersonation and typing mistakes, not taken from real servers. `evals/baseline.json` lists the cases each detector fails today, and `pnpm run check` fails when a case outside that list starts to fail. After an improvement, `node scripts/evals.mjs --update` tightens the baseline
+`pnpm run evals` scores the deceptive link judge, the lookalike name check, the typo hints, which feed posts go out, anti-nuke and board visibility against the labeled cases in [projects/evals/](../projects/evals/) and prints what each catches and wrongly flags, per family. The cases are synthesized from common phishing, impersonation and typing mistakes, not taken from real servers. `evals/baseline.json` lists the cases each detector fails today, and `pnpm run check` fails when a case outside that list starts to fail. After an improvement, `node scripts/evals.mjs --update` tightens the baseline
+
+The `board-visibility` detector scores `boardMayRepost`, which decides whether a board may repost from a channel from its roles and permission overwrites. A wrong repost shows a private message, so a false `repost` costs more than a missed one
+
+The `anti-nuke` and `lockdown` detectors read the same cases in `evals/anti-nuke/`, which label whether a careful moderator wants the account stopped and whether freezing the server is also needed. `lockdown` names that folder in its `folder` field, and `baseline.json` lists each detector on its own
 
 To tune a detector, work only from `train.json`. A false positive costs more than a miss, since a flagged link is usually deleted, so never trade a new false positive for a catch. The `holdout.json` sets scored the last tuning round and now only guard against regressions, so a new round needs new held-out cases, written by someone other than the person tuning and scored once at the end
 

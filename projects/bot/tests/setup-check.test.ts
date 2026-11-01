@@ -1,3 +1,4 @@
+import { defaultRightsSettings } from "@neonflux/contracts/rights"
 import assert from "node:assert/strict"
 import test from "node:test"
 import type { DashboardOverviewSection, RecoveryEntry, SetupProblem, SetupStatus } from "@neonflux/contracts/setup"
@@ -108,6 +109,15 @@ const allSections = [
     "profile",
     "youtube",
     "twitch",
+    "feeds",
+    "counters",
+    "boards",
+    "reminders",
+    "giveaways",
+    "lockdown",
+    "antinuke",
+    "jail",
+    "rights",
 ] as const satisfies readonly DashboardOverviewSection[]
 const sectionsStore = (sections: SetupStatus["sections"]): SetupStore => ({
     status: () =>
@@ -278,7 +288,7 @@ test("health in its worst case stays a short summary, and its permission list pa
                     "Health check",
                     "Send `!health permissions` to see them",
                     "Connection: OK",
-                    "Permissions: Missing 14 permissions used by 17 features: Moderation, Message cleanup, Metadata logs, Reaction roles and 13 more",
+                    "Permissions: Missing 14 permissions used by 20 features: Moderation, Message cleanup, Metadata logs, Reaction roles and 16 more",
                     "Safety: No warnings",
                 ])
                 const [first] = yield* say("!health permissions"),
@@ -288,7 +298,7 @@ test("health in its worst case stays a short summary, and its permission list pa
                     [lines[0], lines[1], lines.at(-2), lines.at(-1)],
                     [
                         "Missing permissions",
-                        "Kick members: Moderation",
+                        "Kick members: Moderation, Anti-nuke",
                         "Grant these permissions to the NeonFlux role",
                         "Next: `!health permissions next`",
                     ],
@@ -407,6 +417,54 @@ test("health audits dangerous roles of the everyone role or many members, staff 
     )
 })
 
+test("health stops asking a staff role for a permission it holds as a bot-only right, and warns about limits above the default", async () => {
+    let staffRoleId = ""
+    let limits = defaultRightsSettings().limits
+    const store: SetupStore = {
+        status: () =>
+            Effect.sync(() => ({
+                sections: [{ id: "moderation", state: "on" }] as const,
+                managedRoles: [],
+                staffRoleIds: { moderation: [staffRoleId], cases: [], automod: [], security: [], appeals: [] },
+                threadFeatures: [],
+                rights: {
+                    enabled: true,
+                    limits,
+                    grants: [{ roleId: staffRoleId, rights: ["kick", "ban", "timeout", "purge"] as const }],
+                },
+            })),
+        ready: () => Effect.succeed({ queued: false }),
+        record: () => Effect.succeed({ recorded: true }),
+        recovery: (serverId) => Effect.succeed({ serverId, truncated: false, entries: [] }),
+    }
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { bot, p, say } = yield* setupBot(store, { botPermissions: limited })
+                staffRoleId = p.targetRole.id
+                bot.rest.respond("POST /guilds/:id/members-search", {
+                    body: {
+                        guild_id: bot.fixtures.ids.guild,
+                        members: [],
+                        page_result_count: 0,
+                        total_result_count: 1,
+                        indexing: false,
+                    },
+                })
+                // Slowmode is not granted, so its permission is the one still asked for, and limits at the default warn about nothing else
+                const [first] = yield* say("!health safety")
+                assert.match(first!, new RegExp(`<@&${p.targetRole.id}> lacks Manage channels,`))
+                assert.doesNotMatch(first!, /lacks.*(Kick members|Ban members|Time out members|Manage messages)/)
+                assert.doesNotMatch(first!, /limits above the default/)
+                limits = { ...limits, ban: { count: 20, minutes: 10 } }
+                const [second] = yield* say("!health safety")
+                assert.match(second!, /Bot-only staff rights are on with limits above the default for ban/)
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
 // Five features on, two that need a step and the rest off
 const mixed = allSections.map((id) => ({
     id,
@@ -418,11 +476,32 @@ const mixed = allSections.map((id) => ({
 }))
 const mixedOff =
     "Message cleanup, Metadata logs, Reaction roles, Rules verification, Role picker, Temporary roles, Newcomer checklist, Welcome and goodbye, Scheduled posts, " +
-    "Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts, Twitch alerts"
+    "Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts, Twitch alerts, Bluesky and X feeds, Counter channels, Boards, Personal reminders, Giveaways, Server-wide lockdown, Anti-nuke, Jail, Bot-only staff rights"
 const allNames =
     "Custom commands, Autoresponders, Moderation, Message cleanup, Metadata logs, Reaction roles, Autorole, Rules verification, Role picker, Temporary roles, Newcomer checklist, " +
     "Publishing, Welcome and goodbye, Scheduled posts, Tickets, Leveling, Birthdays and anniversaries, Suggestions, Events, Temporary voice rooms, Analytics, Sticky messages, Dashboard link, " +
-    "Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts, Twitch alerts"
+    "Security alerts, Help desk, Looking for group, Showcases, Member profiles, YouTube alerts, Twitch alerts, Bluesky and X feeds, Counter channels, Boards, Personal reminders, Giveaways, Server-wide lockdown, Anti-nuke, Jail, Bot-only staff rights"
+
+test("a failed read of a member's permissions asks them to try again, and only a member Fluxer does not find is refused", async () => {
+    const f = createFixtures()
+    for (const [route, answer, reply] of [
+        ["GET /guilds/:id/roles", 403, /could not be read right now/],
+        [`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, 404, /Only the server owner/],
+    ] as const)
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const bot = yield* createTestBot(createBotOptions({ token, serverId: f.ids.guild }, {}))
+                    const p = platform(bot)
+                    bot.rest.respond(route, { status: answer })
+                    yield* bot.ready()
+                    yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!recovery" }))
+                    yield* bot.idle()
+                    assert.match((p.replies.requests().at(-1)!.body as { content: string }).content, reply)
+                }),
+            ),
+        )
+})
 
 test("setup sums up the features by state in one short card, in both reply styles, with no step per feature", async () => {
     await Effect.runPromise(
@@ -432,7 +511,7 @@ test("setup sums up the features by state in one short card, in both reply style
                 const [summary, ...more] = yield* say("!setup")
                 assert.deepEqual(summary!.split("\n"), [
                     "Setup",
-                    "7 of 30 features are on",
+                    `7 of ${allSections.length} features are on`,
                     "Send `!setup <feature>` to see how to set one up, for example `!setup tickets`. `!health` checks NeonFlux's permissions",
                     "On: Custom commands, Autoresponders, Moderation, Publishing, Leveling",
                     "Needs a step: Autorole, Tickets",
@@ -451,7 +530,7 @@ test("setup sums up the features by state in one short card, in both reply style
                 assert.deepEqual(yield* say("?setup"), [
                     [
                         "**Setup**",
-                        "7 of 30 features are on",
+                        `7 of ${allSections.length} features are on`,
                         "Send `?setup <feature>` to see how to set one up, for example `?setup tickets`. `?health` checks NeonFlux's permissions",
                         "**On:** Custom commands, Autoresponders, Moderation, Publishing, Leveling",
                         "**Needs a step:** Autorole, Tickets",
@@ -472,7 +551,7 @@ test("setup with every feature off stays four lines, leaving out the empty group
                 assert.deepEqual(yield* say("!setup"), [
                     [
                         "Setup",
-                        "0 of 30 features are on",
+                        `0 of ${allSections.length} features are on`,
                         "Send `!setup <feature>` to see how to set one up, for example `!setup tickets`. `!health` checks NeonFlux's permissions",
                         `Off: ${allNames}`,
                     ].join("\n"),
@@ -570,6 +649,14 @@ test("a feature is found by its ID, its name with or without spaces, in singular
         schedule: "schedules",
         "YouTube alert": "youtube",
         "Twitch alert": "twitch",
+        "Bluesky and X feed": "feeds",
+        Counter: "counters",
+        Board: "boards",
+        Reminder: "reminders",
+        giveaway: "giveaways",
+        lockdown: "lockdown",
+        "Anti nuke": "antinuke",
+        jail: "jail",
         // Scheduled posts share the publish command, and the earlier feature wins it
         publish: "publishing",
     }
@@ -1004,5 +1091,29 @@ test("recovery entries keep the members, roles and channels the backend writes a
             next: "!publish reconcile 18",
         }),
         "Now: Post #18: NeonFlux could not confirm whether it was sent",
+    )
+})
+
+test("While anti-nuke is on, health safety names the dangerous roles that rank at or above NeonFlux", async () => {
+    const store = sectionsStore([{ id: "antinuke", state: "on" }])
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const { bot, p, say } = yield* setupBot(store, { botPermissions: Permissions.ViewAuditLog })
+                const above = bot.fixtures.role({ position: 30, permissions: Permissions.BanMembers.toString() })
+                bot.rest.respond("GET /guilds/:id/roles", { body: [...p.roles, above] })
+                bot.rest.respond("POST /guilds/:id/members-search", {
+                    body: {
+                        guild_id: bot.fixtures.ids.guild,
+                        members: [],
+                        page_result_count: 0,
+                        total_result_count: 1,
+                        indexing: false,
+                    },
+                })
+                const [safety] = yield* say("!health safety")
+                assert.match(safety!, new RegExp(`Anti-nuke cannot stop members holding <@&${above.id}>`))
+            }),
+        ),
     )
 })

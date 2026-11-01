@@ -5,7 +5,7 @@ import type {
     PermissionOverwriteSnapshot,
     ProviderObservation,
 } from "@neonflux/contracts/moderation"
-import { errors, Permissions, type Client } from "@neontechspace/fluxerly/effect"
+import { errors, hierarchy, permissionBits, Permissions, type Client } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, type Types } from "effect"
 import { allowBotPosting, ownedPostingBits, readSafetyAuthority, type SafetyAuthority } from "./safety-permissions.ts"
 import { readNativeMember } from "./member-evidence.ts"
@@ -33,11 +33,23 @@ export function actionPermission(action: ModerationActionType) {
         // Fluxer checks only Manage roles when it sets or removes a permission overwrite
         case "lock":
         case "unlock":
+        case "jail":
+        case "unjail":
             return Permissions.ManageRoles
         case "slowmode":
             return Permissions.ManageChannels
         default:
             return undefined
+    }
+}
+
+/** The stored roles an unjail could not give back, which its reply and staff log name */
+export type JailLeftOut = { deleted: string[]; above: string[] }
+const outranks = (authority: SafetyAuthority, role: SafetyAuthority["roles"][number]) => {
+    try {
+        return hierarchy.canManageRole({ guild: authority.guild, actor: authority.bot, role, roles: authority.roles })
+    } catch {
+        return false
     }
 }
 
@@ -93,13 +105,22 @@ export function executeAction<E>(
                 ...(grant.targetId && grant.action !== "log"
                     ? {
                           targetId: grant.targetId,
-                          allowAbsentTarget: grant.action === "ban" || grant.action === "unban",
+                          allowAbsentTarget:
+                              grant.action === "ban" || grant.action === "unban" || grant.action === "unjail",
                       }
                     : {}),
                 ...(grant.channelId ? { channelId: grant.channelId } : {}),
             }))
+        // The backend let this actor through a bot-only right. A grant that relies on one reads the actor again above, so a member who lost
+        // the role since, or whose role moved above NeonFlux, or who can no longer view the channel, acts on nothing
+        const throughRight =
+            grant.viaRight !== undefined &&
+            (grant.rightRoleIds ?? []).some(
+                (id) => authority.roleIds.includes(id) && authority.rightRoleIds.includes(id),
+            ) &&
+            (!grant.channelId || authority.actorViewsChannel)
         if (
-            !authority.nativePermissionAuthorized ||
+            (!authority.nativePermissionAuthorized && !throughRight) ||
             !authority.botPermissionAuthorized ||
             (grant.targetId &&
                 grant.action !== "log" &&
@@ -113,9 +134,9 @@ export function executeAction<E>(
         const targetMember =
             !known || !grant.targetId
                 ? Effect.succeed(authority.target)
-                : snapshot(readNativeMember(client, serverId, grant.targetId)).pipe(
-                      Effect.map((evidence) => evidence.member),
-                  )
+                : snapshot(
+                      readNativeMember(client, serverId, grant.targetId, { allowAbsent: grant.action === "unjail" }),
+                  ).pipe(Effect.map((evidence) => evidence.member))
         const channelState =
             !known || !grant.channelId
                 ? Effect.succeed(authority.channel)
@@ -128,8 +149,13 @@ export function executeAction<E>(
                   )
         const target = grant.targetId ? { guildId: serverId, userId: grant.targetId } : undefined
         const now = yield* Clock.currentTimeMillis
-        const options = { timeoutMs: 5000, auditReason: `NeonFlux case ${grant.caseNo}` }
+        // Fluxer's audit entry names NeonFlux, so its reason names the member who acted through a right
+        const options = {
+            timeoutMs: 5000,
+            auditReason: `NeonFlux case ${grant.caseNo}${grant.viaRight ? `, for member ${actorId}` : ""}`,
+        }
         let operation: Effect.Effect<unknown, unknown> = Effect.void
+        let leftOut: JailLeftOut | undefined
         switch (grant.action) {
             case "log":
             case "warn":
@@ -179,6 +205,38 @@ export function executeAction<E>(
                 )
                     return yield* Effect.fail(new ActionExecutionError({ stage: "snapshot" }))
                 operation = client.members.clearTimeout(target!, options)
+                break
+            }
+            case "jail": {
+                // A later jail of the same member changes only its length or reason, which the backend already holds
+                if (grant.jailRoleId === undefined) break
+                const member = yield* targetMember
+                const expected = grant.expectedRoleIds ?? []
+                if (
+                    !member ||
+                    member.roleIds.length !== expected.length ||
+                    !expected.every((id) => member.roleIds.includes(id))
+                )
+                    return yield* Effect.fail(new ActionExecutionError({ stage: "snapshot" }))
+                const role = authority.roles.find((item) => item.id === grant.jailRoleId)
+                if (!role || !outranks(authority, role))
+                    return yield* Effect.fail(new ActionExecutionError({ stage: "snapshot" }))
+                operation = client.members.setRoles(target!, [grant.jailRoleId], options)
+                break
+            }
+            case "unjail": {
+                // A member who left has no roles to set. The record ends, and a rejoin is an ordinary one
+                const member = yield* targetMember
+                if (!member) break
+                const kept: string[] = []
+                leftOut = { deleted: [], above: [] }
+                for (const id of grant.restoreRoleIds ?? []) {
+                    const role = authority.roles.find((item) => item.id === id)
+                    if (!role) leftOut.deleted.push(id)
+                    else if (!outranks(authority, role)) leftOut.above.push(id)
+                    else kept.push(id)
+                }
+                operation = client.members.setRoles(target!, kept, options)
                 break
             }
             case "delete":
@@ -268,6 +326,18 @@ export function executeAction<E>(
             )
                 outcome = "succeeded"
         }
+        // A jailed member would stay in a voice channel, so one disconnect follows a confirmed jail when NeonFlux may. Its failure changes nothing
+        // about the jail, and it is never repeated. Connect is denied, so a member who left cannot come back
+        if (
+            outcome === "succeeded" &&
+            grant.action === "jail" &&
+            grant.jailRoleId !== undefined &&
+            permissionBits.has(authority.botServerPermissions, "MoveMembers")
+        ) {
+            const disconnected = yield* Effect.exit(client.members.disconnect(target!, options))
+            if (Exit.isFailure(disconnected) && Cause.hasInterrupts(disconnected.cause))
+                return yield* Effect.failCause(disconnected.cause)
+        }
         let timeoutUntil: string | null | undefined
         let banExpiresAt: string | null | undefined
         if (
@@ -296,6 +366,7 @@ export function executeAction<E>(
             outcome,
             ...(timeoutUntil !== undefined ? { timeoutUntil } : {}),
             ...(banExpiresAt !== undefined ? { banExpiresAt } : {}),
+            ...(leftOut && (leftOut.deleted.length || leftOut.above.length) ? { leftOut } : {}),
         }
     })
 }
@@ -311,13 +382,17 @@ export function observeAction(
             observedAt: yield* Clock.currentTimeMillis,
         }
         if (action.targetId) {
-            const evidence = yield* readNativeMember(client, serverId, action.targetId)
+            const evidence = yield* readNativeMember(client, serverId, action.targetId, {
+                allowAbsent: action.action === "jail" || action.action === "unjail",
+            })
             const target = evidence.member
             observation.memberPresent = !!target
             observation.originServerId = evidence.originServerId
             observation.memberUserId = evidence.userId
             if (target?.communicationDisabledUntil !== undefined)
                 observation.timeoutUntil = target.communicationDisabledUntil
+            if (target && (action.action === "jail" || action.action === "unjail"))
+                observation.roleIds = [...target.roleIds]
             if (action.action === "ban" || action.action === "unban") {
                 const bans = yield* client.members.fetchBans(serverId, { timeoutMs: 5000 })
                 const ban = bans.find((item) => item.userId === action.targetId && item.guildId === serverId)

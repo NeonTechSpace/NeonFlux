@@ -117,8 +117,10 @@ const BOOKKEEPING = new Set([
 // The field that names an item of a list, such as a rule's name or a policy's channel. Drafts and templates, and custom commands and
 // autoresponders, may share a name, so their kind is part of it
 const IDENTITY = [
+    "giveawayNo",
     "youtubeChannelId",
     "twitchChannelId",
+    "accountId",
     "kind:name",
     "name",
     "kind",
@@ -224,6 +226,7 @@ export function operationLabel(operation: unknown): string {
     const target = [
         "youtubeChannelId",
         "twitchChannelId",
+        "accountId",
         "name",
         "categoryName",
         "route",
@@ -231,6 +234,7 @@ export function operationLabel(operation: unknown): string {
         "channelId",
         "eventNo",
         "scheduleNo",
+        "giveawayNo",
         "userId",
     ]
         .map((key) => named[key])

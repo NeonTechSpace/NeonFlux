@@ -54,6 +54,13 @@ const securityNotes: Partial<Record<MetadataLogsEventType, string>> = {
     "privilege-change":
         "Changed names the dangerous permissions. About: the role, or the member and the roles they gained",
     impersonation: "About: the member, then the staff member or owner whose name theirs closely matches",
+    "lockdown-change": "NeonFlux locked or restored the server's channels. The lockdown command shows them",
+    "anti-nuke-incident":
+        "About: the account anti-nuke reported. Changed names the response and its outcome. The anti-nuke command shows the incident",
+    "jail-change":
+        "NeonFlux set a jailed member back to the jail role, after a rejoin or after someone added other roles. About: the member. Changed names which, and its outcome",
+    "bot-rights":
+        "A staff member went over a limit of bot-only rights, or anti-nuke fired on them. About: the member. !mod rights status shows who is suspended",
     "alert-action":
         "NeonFlux acted on an alert because its action is turned on. Changed names the action and its outcome. Turn it off with the alerts command",
 }
@@ -67,7 +74,17 @@ export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
     if (event.type === "gateway-discontinuity")
         return event.outcome === "reconnected" ? 0 : event.outcome === "disconnected" ? 3 : 1
     if (event.type === "member-remove") return 1
-    if (["member-add", "role-create", "channel-create", "thread-create", "invite-create"].includes(event.type)) return 0
+    if (
+        [
+            "member-add",
+            "role-create",
+            "channel-create",
+            "thread-create",
+            "invite-create",
+            "webhook-message-create",
+        ].includes(event.type)
+    )
+        return 0
     if (
         [
             "role-delete",
@@ -75,6 +92,7 @@ export function metadataTone(event: MetadataLogsEvent): 0 | 1 | 2 | 3 {
             "thread-delete",
             "message-delete",
             "message-bulk-delete",
+            "webhook-message-delete",
             "backend-failure",
             "admission-failure",
             "delivery-failure",

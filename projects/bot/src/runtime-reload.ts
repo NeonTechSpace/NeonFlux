@@ -4,6 +4,12 @@ import type { Client } from "@neontechspace/fluxerly/effect"
 import { Effect } from "effect"
 import { alertRuntimes } from "./alerts-worker.ts"
 import { analyticsRuntimes } from "./analytics-worker.ts"
+import { antiNukeRuntimes } from "./antinuke-worker.ts"
+import { lockdownRuntimes } from "./lockdown-worker.ts"
+import { jailRuntimes } from "./jail-worker.ts"
+import { rightsRuntimes } from "./rights-memory.ts"
+import { boardRuntimes } from "./board-worker.ts"
+import { counterRuntimes } from "./counter-worker.ts"
 import { refreshPrefix } from "./general-settings.ts"
 import { helpDeskRuntimes } from "./helpdesk-worker.ts"
 import { levelingRechecks } from "./leveling.ts"
@@ -30,6 +36,19 @@ export function reloadServerRuntime(
         // Security alerts and their actions check in-memory settings
         case "alerts":
             return alertRuntimes.get(serverId)?.reload() ?? Effect.void
+        // A website lockdown waits for this server's worker, and anti-nuke checks in-memory settings
+        case "lockdown":
+            return lockdownRuntimes.get(serverId)?.notify() ?? Effect.void
+        case "antinuke":
+            return antiNukeRuntimes.get(serverId)?.reload() ?? Effect.void
+        // Jail and bot-only rights keep their settings in memory
+        case "jail":
+            return jailRuntimes.get(serverId)?.reload() ?? Effect.void
+        // Moderation staff may read the jail channel
+        case "moderation":
+            return jailRuntimes.get(serverId)?.staffChanged() ?? Effect.void
+        case "rights":
+            return rightsRuntimes.get(serverId)?.reload() ?? Effect.void
         case "helpdesk":
         case "helpdeskAnswer":
             return helpDeskRuntimes.get(serverId)?.reload() ?? Effect.void
@@ -50,11 +69,21 @@ export function reloadServerRuntime(
         // Logging pauses after a disabled answer and message text is kept only while message events are logged
         case "metadata":
             return metadataRechecks.get(serverId)?.() ?? Effect.void
+        // Counters run from memory and only rename, so a change is read again and checked at once
+        case "counters":
+        case "counter":
+            return counterRuntimes.get(serverId)?.reload(client) ?? Effect.void
+        // Boards run from memory, so a change is read again
+        case "boards":
+        case "board":
+            return boardRuntimes.get(serverId)?.reload ?? Effect.void
         // Counting stops while analytics is off, so the recorder reads the switch again and counts at once when it turned on
         case "analytics":
             return analyticsRuntimes.get(serverId)?.reload() ?? Effect.void
-        // The prefix and reply style are read again by the next command
+        // The prefix, reply style and command rules are read again by the next command
         case "general":
+        case "commandrules":
+        case "commandRule":
             return Effect.sync(() => refreshPrefix(serverId))
         default:
             return Effect.void

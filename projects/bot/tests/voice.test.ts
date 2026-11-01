@@ -3,7 +3,9 @@ import test from "node:test"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import type {
     VoiceGenerator,
+    VoiceJob,
     VoiceManageResult,
+    VoiceMemberOperation,
     VoiceQueryResult,
     VoiceRoom,
     VoiceRoomsResult,
@@ -28,6 +30,9 @@ import { createBotOptions } from "../src/bot.ts"
 import { processDashboardConfigurationPass } from "../src/dashboard-configuration.ts"
 import { parseServerScope } from "@neonflux/contracts/service"
 import { VoiceStoreError, type VoiceStore } from "../src/voice-store.ts"
+import { defaultJailSettings } from "@neonflux/contracts/jail"
+import { forgetJail, rememberJail } from "../src/jail-memory.ts"
+import { processVoiceMemberPass } from "../src/voice-management.ts"
 import { createVoiceRuntime, renderRoomName } from "../src/voice-worker.ts"
 import { claimed, fakeClient, mockBackend, quietSignal } from "./backend-fake.ts"
 
@@ -44,6 +49,7 @@ const generator = (fields: Partial<VoiceGenerator> = {}): VoiceGenerator => ({
     template: "{owner}'s room",
     userLimit: 4,
     region: null,
+    panel: false,
     revision: 1,
     createdAt: 0,
     updatedAt: 0,
@@ -61,6 +67,11 @@ function memoryStore(initial: { generators?: VoiceGenerator[]; rooms?: VoiceRoom
     const generators = new Map((initial.generators ?? []).map((value) => [value.channelId, value])),
         rooms = new Map((initial.rooms ?? []).map((value) => [value.channelId, value]))
     const calls: { method: string; operation: unknown }[] = []
+    const jobs: VoiceJob[] = [],
+        finished = new Map<string, string | undefined>(),
+        claims = new Map<string, readonly string[]>()
+    let paused = false,
+        finishFails = false
     const staff = (actor: ModerationActor) => actor.isOwner || actor.isAdministrator
     const fail = (status: number) => Effect.fail(new VoiceStoreError({ operation: "manage", status }))
     const store: VoiceStore = {
@@ -79,6 +90,7 @@ function memoryStore(initial: { generators?: VoiceGenerator[]; rooms?: VoiceRoom
                     room: found ?? null,
                     generators: [...generators.values()],
                     rooms: rooms.size,
+                    ...(paused ? { paused: true as const } : {}),
                 }
             }),
         manage: (input) =>
@@ -128,6 +140,22 @@ function memoryStore(initial: { generators?: VoiceGenerator[]; rooms?: VoiceRoom
                     rooms.set(op.channelId, moved)
                     return { type: "transferred", room: moved }
                 }
+                if (op.type === "update") {
+                    const current = rooms.get(op.channelId)
+                    if (!current) return { type: "updated", room: null }
+                    const { type: _type, channelId: _channel, heldAllow, lockGrants, ...change } = op,
+                        { heldAllow: _held, lockGrants: _grants, ...kept } = current
+                    const held = heldAllow ?? current.heldAllow,
+                        grants = lockGrants ?? current.lockGrants
+                    const next = {
+                        ...kept,
+                        ...change,
+                        ...(held && held !== "0" ? { heldAllow: held } : {}),
+                        ...(grants?.length ? { lockGrants: grants } : {}),
+                    }
+                    rooms.set(op.channelId, next)
+                    return { type: "updated", room: next }
+                }
                 if (!generators.has(op.generatorChannelId)) return { type: "refused", reason: "generator" }
                 const existing = [...rooms.values()].find((value) => value.ownerId === op.ownerId)
                 if (existing) return { type: "refused", reason: "owner", room: existing }
@@ -136,8 +164,48 @@ function memoryStore(initial: { generators?: VoiceGenerator[]; rooms?: VoiceRoom
                 rooms.set(created.channelId, created)
                 return { type: "created", room: created }
             }),
+        memberReady: () =>
+            Effect.sync(() => {
+                calls.push({ method: "memberReady", operation: null })
+                return { jobs: jobs.splice(0, 4) }
+            }),
+        memberStart: (input) =>
+            Effect.sync(() => {
+                if (claims.has(input.jobId)) return { started: false }
+                claims.set(input.jobId, input.roleIds)
+                return { started: true }
+            }),
+        memberFinish: (input) =>
+            Effect.suspend(() => {
+                if (finishFails) return fail(503)
+                finished.set(input.jobId, input.error)
+                return Effect.succeed({
+                    job: {
+                        id: input.jobId,
+                        actorId: ownerId,
+                        operation: { type: "lookup" } as VoiceMemberOperation,
+                        state: input.error ? ("failed" as const) : ("applied" as const),
+                        createdAt: 0,
+                        expiresAt: 120000,
+                    },
+                })
+            }),
     }
-    return { store, calls, generators, rooms }
+    return {
+        store,
+        calls,
+        generators,
+        rooms,
+        jobs,
+        finished,
+        claims,
+        setPaused: (value: boolean) => {
+            paused = value
+        },
+        setFinishFails: (value: boolean) => {
+            finishFails = value
+        },
+    }
 }
 
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
@@ -146,6 +214,9 @@ const segment = (path: string, index: number) => path.split("/")[index]!
 function platform(bot: Bot) {
     const f = bot.fixtures,
         created: string[] = []
+    // Fluxer's overwrites of each room, kept current by the bot's writes as the real service would
+    const overwriteState = new Map<string, { id: string; type: number; allow: string; deny: string }[]>()
+    const timedOut = new Set<string>()
     const botRole = f.role({ position: 20, permissions: Permissions.Administrator.toString() }),
         adminRole = f.role({ position: 10, permissions: Permissions.Administrator.toString() })
     bot.rest.respond("GET /guilds/:id", { body: f.guild({ owner_id: serverOwnerId }) })
@@ -158,11 +229,17 @@ function platform(bot: Bot) {
             body: f.member({
                 user: userId === f.ids.bot ? f.botUser() : f.user({ id: userId, username: `user${userId}` }),
                 roles: userId === f.ids.bot ? [botRole.id] : userId === adminId ? [adminRole.id] : [],
+                ...(timedOut.has(userId) ? { communication_disabled_until: "2099-01-01T00:00:00.000Z" } : {}),
             }),
         }
     })
     const read = bot.rest.respond("GET /channels/:id", (request) => ({
-        body: f.channel({ id: segment(request.path, 2), type: segment(request.path, 2) === categoryId ? 4 : 2 }),
+        body: f.channel({
+            id: segment(request.path, 2),
+            type: segment(request.path, 2) === categoryId ? 4 : 2,
+            permission_overwrites: overwriteState.get(segment(request.path, 2)) ?? [],
+            user_limit: limits.get(segment(request.path, 2)) ?? 0,
+        }),
     }))
     const create = bot.rest.respond(`POST /guilds/${f.ids.guild}/channels`, (request) => {
         const body = request.body as { name: string; parent_id?: string | null },
@@ -170,18 +247,52 @@ function platform(bot: Bot) {
         created.push(id)
         return { body: f.channel({ id, type: 2, name: body.name, parent_id: body.parent_id ?? null }) }
     })
-    const edit = bot.rest.respond("PATCH /channels/:id", (request) => ({
-        body: f.channel({ id: segment(request.path, 2), type: 2 }),
-    }))
+    const limits = new Map<string, number>()
+    const edit = bot.rest.respond("PATCH /channels/:id", (request) => {
+        const body = request.body as {
+            permission_overwrites?: { id: string; type: number; allow: string; deny: string }[]
+            user_limit?: number
+        }
+        if (body.permission_overwrites) overwriteState.set(segment(request.path, 2), body.permission_overwrites)
+        if (body.user_limit !== undefined) limits.set(segment(request.path, 2), body.user_limit)
+        return { body: f.channel({ id: segment(request.path, 2), type: 2 }) }
+    })
     const move = bot.rest.respond("PATCH /guilds/:id/members/:id", (request) => ({
         body: f.member({ user: f.user({ id: segment(request.path, 4) }) }),
     }))
     const remove = bot.rest.respond("DELETE /channels/:id", { status: 204 })
-    const overwrite = bot.rest.respond("PUT /channels/:id/permissions/:id", { status: 204 })
+    const overwrite = bot.rest.respond("PUT /channels/:id/permissions/:id", (request) => {
+        const body = request.body as { type: number; allow: string; deny: string },
+            id = segment(request.path, 4),
+            list = (overwriteState.get(segment(request.path, 2)) ?? []).filter((entry) => entry.id !== id)
+        overwriteState.set(segment(request.path, 2), [...list, { id, ...body }])
+        return { status: 204 }
+    })
+    const addReaction = bot.rest.respond("PUT /channels/:id/messages/:id/reactions/:id/@me", { status: 204 })
+    const removeReaction = bot.rest.respond("DELETE /channels/:id/messages/:id/reactions/:id/:id", { status: 204 })
+    const removeMessage = bot.rest.respond("DELETE /channels/:id/messages/:id", { status: 204 })
     const messages = bot.rest.respond("POST /channels/:id/messages", (request) => ({
         body: f.message({ channel_id: segment(request.path, 2), author: f.botUser() }),
     }))
-    return { created, member, read, create, edit, move, remove, overwrite, messages, roles, botRole, adminRole }
+    return {
+        created,
+        member,
+        read,
+        create,
+        edit,
+        move,
+        remove,
+        overwrite,
+        messages,
+        roles,
+        botRole,
+        adminRole,
+        addReaction,
+        removeReaction,
+        removeMessage,
+        overwriteState,
+        timedOut,
+    }
 }
 const voice = (bot: Bot, userId: string, channelId: string | null, connectionId: string) => ({
     guild_id: bot.fixtures.ids.guild,
@@ -2181,4 +2292,558 @@ test("a member Fluxer refuses to move, such as the server owner, is told where t
 test("a room name is cut without splitting an emoji and survives a lone surrogate in the owner's name", () => {
     assert.equal(renderRoomName("{owner}", `${"a".repeat(99)}😀`), "a".repeat(99))
     assert.equal(renderRoomName("{owner}'s room", "a\ud800b"), "a\ufffdb's room")
+})
+
+const panelReaction = (bot: Bot, userId: string, messageId: string, emoji: string, channelId = "7001") =>
+    bot.emit("MESSAGE_REACTION_ADD", {
+        guild_id: bot.fixtures.ids.guild,
+        channel_id: channelId,
+        message_id: messageId,
+        user_id: userId,
+        emoji: { name: emoji },
+    })
+const entryOf = (native: ReturnType<typeof platform>, id: string, channelId = "7001") =>
+    native.overwriteState.get(channelId)?.find((entry) => entry.id === id)
+const connect = String(Permissions.Connect),
+    access = String(Permissions.ViewChannel | Permissions.Connect)
+const lockEmoji = "\u{1F512}",
+    hideEmoji = "\u{1F648}",
+    upEmoji = "\u{1F53C}",
+    downEmoji = "\u{1F53D}",
+    claimEmoji = "\u{1F451}"
+
+test("a lock stops new members, keeps the owner, the bot and members inside, and show or hide do not change it", async () => {
+    await run({ generators: [generator()], rooms: [room("7001")] }, (bot, native, memory) =>
+        Effect.gen(function* () {
+            const guild = bot.fixtures.ids.guild
+            yield* say(bot, ownerId, "!voice lock")
+            yield* bot.idle()
+            yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1"), voice(bot, strangerId, "7001", "c2")])
+            yield* say(bot, ownerId, `!voice block <@${adminId}>`)
+            yield* bot.idle()
+            yield* say(bot, ownerId, "!voice lock")
+            yield* bot.idle()
+            assert.equal(entryOf(native, guild)!.deny, connect)
+            assert.equal(entryOf(native, ownerId)!.allow, access)
+            assert.equal(entryOf(native, bot.fixtures.ids.bot)!.allow, access)
+            assert.equal(entryOf(native, strangerId)!.allow, connect)
+            // A blocked member stays blocked, so a lock never gives back what block took
+            assert.equal(entryOf(native, adminId)!.allow, "0")
+            // A single edit replaces the list, so a large room costs one request
+            assert.equal(native.edit.requests().length, 1)
+            assert.equal(memory.rooms.get("7001")!.view?.locked, true)
+            yield* say(bot, ownerId, "!voice hide")
+            yield* bot.idle()
+            yield* say(bot, ownerId, "!voice show")
+            yield* bot.idle()
+            assert.equal(entryOf(native, guild)!.deny, connect, "show keeps the lock")
+            yield* say(bot, ownerId, `!voice allow <@${serverOwnerId}>`)
+            yield* bot.idle()
+            yield* say(bot, ownerId, "!voice unlock")
+            yield* bot.idle()
+            assert.equal(entryOf(native, guild)!.deny, "0")
+            assert.equal(entryOf(native, strangerId), undefined, "a member who could only rejoin loses that overwrite")
+            assert.equal(entryOf(native, serverOwnerId)!.allow, access, "an allowed member keeps theirs")
+            assert.equal(entryOf(native, adminId)!.deny, access, "a blocked member stays blocked")
+            assert.equal(memory.rooms.get("7001")!.view?.locked, false)
+            assert.deepEqual(replies(native), [
+                "NeonFlux is still reading who is in voice. Try again in a minute",
+                `<@${adminId}> can no longer see or join this room. Members already inside stay connected`,
+                "Room locked. Only you, members inside and members you allow can join",
+                "Room hidden from everyone without explicit access",
+                "Room visible again",
+                `<@${serverOwnerId}> can see and join this room`,
+                "Room unlocked. Members can join again",
+            ])
+        }),
+    )
+})
+
+test("a new owner of a locked room gets access, and a stranger cannot lock it", async () => {
+    await run({ generators: [generator()], rooms: [room("7001")] }, (bot, native) =>
+        Effect.gen(function* () {
+            yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1"), voice(bot, strangerId, "7001", "c2")])
+            yield* say(bot, strangerId, "!voice lock <#7001>")
+            yield* bot.idle()
+            assert.equal(native.edit.requests().length, 0)
+            yield* say(bot, ownerId, "!voice lock")
+            yield* bot.idle()
+            yield* say(bot, ownerId, `!voice transfer <@${strangerId}>`)
+            yield* bot.idle()
+            assert.equal(entryOf(native, strangerId)!.allow, access)
+        }),
+    )
+})
+
+test("a room owner sets the room's region with the generator's validation, and Fluxer's refusal is named", async () => {
+    await run({ generators: [generator()], rooms: [room("7001")] }, (bot, native, memory) =>
+        Effect.gen(function* () {
+            yield* say(bot, ownerId, "!voice region eu-west")
+            yield* say(bot, ownerId, "!voice region auto")
+            yield* say(bot, ownerId, "!voice region not*valid")
+            yield* bot.idle()
+            assert.deepEqual(
+                native.edit.requests().map((request) => request.body),
+                [{ rtc_region: "eu-west" }, { rtc_region: null }],
+            )
+            assert.equal(memory.rooms.get("7001")!.view?.region, null)
+            bot.rest.respond("PATCH /channels/:id", {
+                status: 400,
+                body: { code: "INVALID_FORM_BODY", message: "Invalid region" },
+            })
+            yield* say(bot, ownerId, "!voice region nowhere")
+            yield* bot.idle()
+            assert.deepEqual(replies(native), [
+                "Room region set to eu-west",
+                "Room region set to automatic",
+                "Regions are auto or a region ID of 1 to 64 letters, digits, dots, underscores or hyphens",
+                "Fluxer does not offer that region. Check the region ID, or use auto",
+            ])
+        }),
+    )
+})
+
+test("a new room gets a controls card with five reactions, unless its generator turned it off", async () => {
+    await run({ generators: [generator({ panel: true })] }, (bot, native, memory) =>
+        Effect.gen(function* () {
+            yield* snapshot(bot)
+            yield* bot.emit("VOICE_STATE_UPDATE", voice(bot, ownerId, generatorId, "c1"))
+            yield* bot.idle()
+            const roomId = native.created[0]!,
+                card = native.messages.requests().find((request) => segment(request.path, 2) === roomId)!
+            assert.equal((card.body as { embeds: { title: string }[] }).embeds[0]!.title, "Room controls")
+            assert.equal(native.addReaction.requests().length, 5)
+            assert.ok(memory.rooms.get(roomId)!.panelMessageId)
+            // Staff turn the card off, and the next room gets none
+            yield* say(bot, adminId, "!voice generator set <#5001> panel off")
+            yield* bot.idle()
+            assert.equal(memory.generators.get(generatorId)!.panel, false)
+            yield* bot.emit("VOICE_STATE_UPDATE", voice(bot, adminId, generatorId, "c3"))
+            yield* bot.idle()
+            assert.equal(native.addReaction.requests().length, 5)
+        }),
+    )
+})
+
+test("panel reactions apply the command's rule, the reaction goes either way and a refusal gets no reply", async () => {
+    const owned = { ...room("7001"), panelMessageId: "8001" }
+    await run({ generators: [generator()], rooms: [owned] }, (bot, native, memory) =>
+        Effect.gen(function* () {
+            yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1"), voice(bot, strangerId, "7001", "c2")])
+            const guild = bot.fixtures.ids.guild
+            const react = (userId: string, emoji: string) =>
+                panelReaction(bot, userId, "8001", emoji).pipe(Effect.andThen(bot.idle()))
+            const before = native.messages.requests().length
+            // A member who owns nothing is refused without a word, in every control
+            for (const emoji of [lockEmoji, hideEmoji, upEmoji, downEmoji]) yield* react(strangerId, emoji)
+            assert.equal(native.edit.requests().length, 0)
+            assert.equal(native.overwrite.requests().length, 0)
+            assert.equal(native.removeReaction.requests().length, 4)
+            // The owner toggles the lock and visibility from the card
+            yield* react(ownerId, lockEmoji)
+            assert.equal(entryOf(native, guild)!.deny, connect)
+            yield* react(ownerId, lockEmoji)
+            assert.equal(entryOf(native, guild)!.deny, "0")
+            yield* react(ownerId, hideEmoji)
+            assert.equal(entryOf(native, guild)!.deny, String(Permissions.ViewChannel))
+            yield* react(ownerId, hideEmoji)
+            assert.equal(entryOf(native, guild)!.deny, "0")
+            // The limit starts at the members inside, steps by one and a step never removes it
+            yield* react(ownerId, downEmoji)
+            yield* react(ownerId, upEmoji)
+            yield* react(ownerId, downEmoji)
+            yield* react(ownerId, downEmoji)
+            yield* react(ownerId, downEmoji)
+            assert.deepEqual(
+                native.edit
+                    .requests()
+                    .map((request) => (request.body as { user_limit?: number }).user_limit)
+                    .filter((limit) => limit !== undefined),
+                [2, 3, 2, 1, 1],
+            )
+            // Staff follow the room-command rule
+            yield* react(adminId, upEmoji)
+            assert.equal((native.edit.requests().at(-1)!.body as { user_limit: number }).user_limit, 2)
+            // A claim needs the member in this room and its owner gone
+            yield* react(strangerId, claimEmoji)
+            assert.equal(memory.rooms.get("7001")!.ownerId, ownerId)
+            yield* bot.emit("VOICE_STATE_UPDATE", voice(bot, ownerId, null, "c1"))
+            yield* react(adminId, claimEmoji)
+            assert.equal(memory.rooms.get("7001")!.ownerId, ownerId)
+            yield* react(strangerId, claimEmoji)
+            assert.equal(memory.rooms.get("7001")!.ownerId, strangerId)
+            assert.equal(native.messages.requests().length, before, "no reaction ever replies")
+            assert.equal(bot.failures().length, 0)
+        }),
+    )
+})
+
+test("DEFCON pauses panel reactions as it pauses the commands", async () => {
+    await run(
+        { generators: [generator()], rooms: [{ ...room("7001"), panelMessageId: "8001" }] },
+        (bot, native, memory) =>
+            Effect.gen(function* () {
+                yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1")])
+                memory.setPaused(true)
+                yield* panelReaction(bot, ownerId, "8001", lockEmoji)
+                yield* bot.idle()
+                assert.equal(native.edit.requests().length, 0)
+                assert.equal(native.removeReaction.requests().length, 1)
+            }),
+    )
+})
+
+test("a reaction on any other message reads nothing, also before the rooms load and after a restart once they do", async () => {
+    await run(
+        { generators: [generator()], rooms: [{ ...room("7001"), panelMessageId: "8001" }] },
+        (bot, native, memory) =>
+            Effect.gen(function* () {
+                const quiet = () => [bot.requests().length, memory.calls.length]
+                const start = quiet()
+                // Nothing is loaded until a voice event, so the card's first reaction after a restart costs nothing either
+                yield* panelReaction(bot, ownerId, "8001", lockEmoji)
+                yield* panelReaction(bot, ownerId, "9999", lockEmoji)
+                yield* bot.idle()
+                assert.deepEqual(quiet(), start)
+                yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1")])
+                yield* bot.idle()
+                const loaded = quiet()
+                yield* panelReaction(bot, ownerId, "9999", lockEmoji)
+                yield* bot.idle()
+                assert.deepEqual(quiet(), loaded)
+                // Rooms loaded from the backend bring their cards along
+                yield* panelReaction(bot, ownerId, "8001", lockEmoji)
+                yield* bot.idle()
+                assert.equal(entryOf(native, bot.fixtures.ids.guild)!.deny, connect)
+                // A reaction that is none of the card's is left alone
+                const removed = native.removeReaction.requests().length
+                yield* panelReaction(bot, ownerId, "8001", "\u{1F44D}")
+                yield* bot.idle()
+                assert.equal(native.removeReaction.requests().length, removed)
+            }),
+    )
+})
+
+test("!voice panel posts the card again and removes the old one, and the old card stops working", async () => {
+    await run(
+        { generators: [generator()], rooms: [{ ...room("7001"), panelMessageId: "8001" }] },
+        (bot, native, memory) =>
+            Effect.gen(function* () {
+                yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1")])
+                yield* say(bot, strangerId, "!voice panel <#7001>")
+                yield* bot.idle()
+                assert.equal(native.addReaction.requests().length, 0)
+                yield* say(bot, ownerId, "!voice panel")
+                yield* bot.idle()
+                assert.equal(native.addReaction.requests().length, 5)
+                assert.notEqual(memory.rooms.get("7001")!.panelMessageId, "8001")
+                assert.equal(segment(native.removeMessage.requests()[0]!.path, 4), "8001")
+                yield* panelReaction(bot, ownerId, "8001", lockEmoji)
+                yield* bot.idle()
+                assert.equal(native.edit.requests().length, 0)
+            }),
+    )
+})
+
+test("website requests recheck the room and the member fresh, and a refusal reaches the member's page", async () => {
+    const job = (id: string, actorId: string, operation: VoiceMemberOperation): VoiceJob => ({
+        id,
+        actorId,
+        operation,
+        state: "queued",
+        createdAt: 0,
+        expiresAt: 120000,
+    })
+    await run({ generators: [generator()], rooms: [room("7001")] }, (bot, native, memory) =>
+        Effect.gen(function* () {
+            yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1"), voice(bot, strangerId, "7001", "c2")])
+            const client = bot.client as unknown as Client,
+                runtime = createVoiceRuntime(memory.store, bot.fixtures.ids.guild)
+            yield* runtime.start(client)
+            yield* runtime.snapshot(
+                {
+                    guildId: bot.fixtures.ids.guild,
+                    voiceStates: [
+                        { userId: ownerId, channelId: "7001", connectionId: "c1" },
+                        { userId: strangerId, channelId: "7001", connectionId: "c2" },
+                    ],
+                } as unknown as VoiceStateSnapshot,
+                bot.client.shards[0]?.sessionEpoch ?? 0,
+                1,
+            )
+            memory.jobs.push(
+                job("1", ownerId, { type: "lookup" }),
+                job("2", ownerId, { type: "lock", roomId: "7001" }),
+                job("3", strangerId, { type: "rename", roomId: "7001", name: "Mine now" }),
+                job("4", ownerId, { type: "rename", roomId: "7001", name: "Study hall" }),
+            )
+            yield* processVoiceMemberPass(memory.store, runtime, bot.fixtures.ids.guild, client)
+            memory.jobs.push(
+                job("5", ownerId, { type: "limit", roomId: "7001", limit: 4 }),
+                job("6", ownerId, { type: "region", roomId: "7001", region: "eu-west" }),
+                job("7", ownerId, { type: "block", roomId: "7001", userId: ownerId }),
+                job("8", ownerId, { type: "transfer", roomId: "7001", userId: adminId }),
+            )
+            yield* processVoiceMemberPass(memory.store, runtime, bot.fixtures.ids.guild, client)
+            memory.jobs.push(job("9", ownerId, { type: "transfer", roomId: "7001", userId: strangerId }))
+            yield* processVoiceMemberPass(memory.store, runtime, bot.fixtures.ids.guild, client)
+            assert.deepEqual(Object.fromEntries(memory.finished), {
+                "1": undefined,
+                "2": undefined,
+                "3": "Only the room owner or the server owner, an Administrator or a moderation staff role with Manage channels can change this room",
+                "4": undefined,
+                "5": undefined,
+                "6": undefined,
+                "7": "The room owner and NeonFlux cannot be blocked",
+                "8": "They must be in your room",
+                "9": undefined,
+            })
+            assert.equal(entryOf(native, bot.fixtures.ids.guild)!.deny, connect)
+            assert.equal(memory.rooms.get("7001")!.ownerId, strangerId)
+            assert.deepEqual(
+                { ...memory.rooms.get("7001")!.view, observedAt: 0 },
+                {
+                    name: bot.fixtures.channel({ id: "7001" }).name,
+                    userLimit: 4,
+                    hidden: false,
+                    locked: true,
+                    region: "eu-west",
+                    observedAt: 0,
+                },
+            )
+            assert.equal(native.messages.requests().length, 0, "the website path posts nothing in chat")
+        }).pipe(Effect.scoped),
+    )
+})
+
+test("a room change Fluxer cannot confirm says so and is not repeated", async () => {
+    await run({ generators: [generator()], rooms: [room("7001")] }, (bot, native) =>
+        Effect.gen(function* () {
+            yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1")])
+            const failing = bot.rest.respond("PATCH /channels/:id", { status: 500, body: {} })
+            yield* say(bot, ownerId, "!voice lock")
+            yield* bot.idle()
+            assert.equal(failing.requests().length, 1)
+            assert.deepEqual(replies(native), [
+                "NeonFlux could not confirm this room change, and it may have applied. Check the room before trying again",
+            ])
+        }),
+    )
+})
+
+test("a lock or hide gives back an explicit allow for everyone, and a room without one gets none", async () => {
+    for (const held of [true, false])
+        await run({ generators: [generator()], rooms: [room("7001")] }, (bot, native, memory) =>
+            Effect.gen(function* () {
+                const guild = bot.fixtures.ids.guild
+                yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1")])
+                const allow = held ? String(Permissions.Connect | Permissions.ViewChannel) : "0"
+                native.overwriteState.set("7001", [{ id: guild, type: 0, allow, deny: "0" }])
+                const send = (content: string) => say(bot, ownerId, content).pipe(Effect.andThen(bot.idle()))
+                yield* send("!voice lock")
+                assert.equal(entryOf(native, guild)!.deny, connect)
+                assert.equal(entryOf(native, guild)!.allow, held ? String(Permissions.ViewChannel) : "0")
+                assert.equal(memory.rooms.get("7001")!.heldAllow, held ? connect : undefined)
+                yield* send("!voice hide")
+                assert.equal(entryOf(native, guild)!.allow, "0")
+                assert.equal(memory.rooms.get("7001")!.heldAllow, held ? access : undefined)
+                yield* send("!voice show")
+                assert.equal(entryOf(native, guild)!.allow, held ? String(Permissions.ViewChannel) : "0")
+                assert.equal(memory.rooms.get("7001")!.heldAllow, held ? connect : undefined)
+                assert.equal(entryOf(native, guild)!.deny, connect, "show keeps the lock")
+                yield* send("!voice unlock")
+                assert.deepEqual([entryOf(native, guild)!.allow, entryOf(native, guild)!.deny], [allow, "0"])
+                assert.equal(memory.rooms.get("7001")!.heldAllow, undefined)
+                // A second round starts clean, so nothing comes back twice
+                yield* send("!voice unlock")
+                assert.deepEqual([entryOf(native, guild)!.allow, entryOf(native, guild)!.deny], [allow, "0"])
+            }),
+        )
+})
+
+test("another bot in the room cannot claim it from the card", async () => {
+    const otherBot = "6030"
+    await run(
+        { generators: [generator()], rooms: [{ ...room("7001"), panelMessageId: "8001" }] },
+        (bot, native, memory) =>
+            Effect.gen(function* () {
+                bot.rest.respond(`GET /guilds/:id/members/${otherBot}`, {
+                    body: bot.fixtures.member({ user: bot.fixtures.user({ id: otherBot, bot: true }), roles: [] }),
+                })
+                yield* snapshot(bot, [voice(bot, otherBot, "7001", "c2")])
+                yield* panelReaction(bot, otherBot, "8001", claimEmoji)
+                yield* bot.idle()
+                assert.equal(memory.rooms.get("7001")!.ownerId, ownerId)
+                assert.equal(native.removeReaction.requests().length, 1)
+            }),
+    )
+})
+
+test("website requests and panel reactions refuse a timed-out member, and a request that could not be reported is never repeated", async () => {
+    const job = (id: string, actorId: string, operation: VoiceMemberOperation): VoiceJob => ({
+        id,
+        actorId,
+        operation,
+        state: "queued",
+        createdAt: 0,
+        expiresAt: 120000,
+    })
+    await run(
+        { generators: [generator()], rooms: [{ ...room("7001"), panelMessageId: "8001" }] },
+        (bot, native, memory) =>
+            Effect.gen(function* () {
+                yield* snapshot(bot, [voice(bot, ownerId, "7001", "c1"), voice(bot, strangerId, "7001", "c2")])
+                const client = bot.client as unknown as Client,
+                    runtime = createVoiceRuntime(memory.store, bot.fixtures.ids.guild)
+                yield* runtime.start(client)
+                yield* runtime.snapshot(
+                    {
+                        guildId: bot.fixtures.ids.guild,
+                        voiceStates: [
+                            { userId: ownerId, channelId: "7001", connectionId: "c1" },
+                            { userId: strangerId, channelId: "7001", connectionId: "c2" },
+                        ],
+                    } as unknown as VoiceStateSnapshot,
+                    bot.client.shards[0]?.sessionEpoch ?? 0,
+                    1,
+                )
+                const pass = processVoiceMemberPass(memory.store, runtime, bot.fixtures.ids.guild, client)
+                native.timedOut.add(ownerId)
+                memory.jobs.push(
+                    job("1", ownerId, { type: "rename", roomId: "7001", name: "Blocked" }),
+                    job("2", ownerId, { type: "transfer", roomId: "7001", userId: strangerId }),
+                )
+                yield* pass
+                yield* panelReaction(bot, ownerId, "8001", upEmoji)
+                yield* bot.idle()
+                const refusal = "You cannot change a voice room while you are timed out"
+                assert.deepEqual(Object.fromEntries(memory.finished), { "1": refusal, "2": refusal })
+                assert.equal(native.edit.requests().length, 0)
+                assert.equal(memory.rooms.get("7001")!.ownerId, ownerId)
+                native.timedOut.delete(ownerId)
+                // The change lands and its report fails. The next pass finds the same request and does not act again
+                memory.setFinishFails(true)
+                memory.jobs.push(job("3", ownerId, { type: "rename", roomId: "7001", name: "Study hall" }))
+                yield* pass
+                memory.setFinishFails(false)
+                memory.jobs.push(job("3", ownerId, { type: "rename", roomId: "7001", name: "Study hall" }))
+                yield* pass
+                assert.equal(native.edit.requests().length, 1)
+                assert.equal(memory.finished.has("3"), false)
+                // The member's fresh roles reach the backend's automod check
+                assert.deepEqual(memory.claims.get("3"), [bot.fixtures.ids.guild])
+            }).pipe(Effect.scoped),
+    )
+})
+
+test("unlock takes back only the Connect the lock gave, and leaves grants that were there before", async () => {
+    const guild = createFixtures().ids.guild
+    const earlierConnect = "6040",
+        viewer = "6041",
+        allowedLater = "6042"
+    await run({ generators: [generator()], rooms: [room("7001")] }, (bot, native, memory) =>
+        Effect.gen(function* () {
+            yield* snapshot(bot, [
+                voice(bot, ownerId, "7001", "c1"),
+                voice(bot, strangerId, "7001", "c2"),
+                voice(bot, earlierConnect, "7001", "c3"),
+                voice(bot, viewer, "7001", "c4"),
+                voice(bot, allowedLater, "7001", "c5"),
+            ])
+            const view = String(Permissions.ViewChannel)
+            native.overwriteState.set("7001", [
+                // A grant someone gave by hand, and one for a member who has left
+                { id: earlierConnect, type: 1, allow: connect, deny: "0" },
+                { id: "6043", type: 1, allow: connect, deny: "0" },
+                { id: viewer, type: 1, allow: view, deny: "0" },
+            ])
+            const send = (content: string) => say(bot, ownerId, content).pipe(Effect.andThen(bot.idle()))
+            yield* send("!voice lock")
+            assert.deepEqual(memory.rooms.get("7001")!.lockGrants, [strangerId, viewer, allowedLater])
+            assert.equal(entryOf(native, strangerId)!.allow, connect)
+            assert.equal(entryOf(native, viewer)!.allow, access)
+            yield* send(`!voice allow <@${allowedLater}>`)
+            assert.deepEqual(memory.rooms.get("7001")!.lockGrants, [strangerId, viewer])
+            yield* send("!voice unlock")
+            assert.equal(entryOf(native, guild)!.deny, "0")
+            assert.equal(entryOf(native, strangerId), undefined, "the lock's own grant goes")
+            assert.equal(entryOf(native, viewer)!.allow, view, "the lock's Connect goes and the rest stays")
+            assert.equal(entryOf(native, earlierConnect)!.allow, connect, "a grant from before stays")
+            assert.equal(entryOf(native, "6043")!.allow, connect, "so does one of a member who left")
+            assert.equal(entryOf(native, allowedLater)!.allow, access, "an allowed member keeps access")
+            assert.equal(memory.rooms.get("7001")!.lockGrants, undefined)
+        }),
+    )
+})
+
+test("a jailed member cannot change a room, be let in, take a room or get access from a lock", async () => {
+    const guild = createFixtures().ids.guild,
+        job = (id: string, actorId: string, operation: VoiceMemberOperation): VoiceJob => ({
+            id,
+            actorId,
+            operation,
+            state: "queued",
+            createdAt: 0,
+            expiresAt: 120000,
+        })
+    const jailedOwner = "6050",
+        jailedGuest = "6051"
+    // The guest's jail has an unknown outcome, which the command gate treats as jailed too
+    rememberJail(guild, defaultJailSettings(), [jailedOwner], [jailedOwner, jailedGuest])
+    try {
+        await run(
+            {
+                generators: [generator()],
+                rooms: [{ ...room("7001", jailedOwner), panelMessageId: "8001" }, room("7002", ownerId)],
+            },
+            (bot, native, memory) =>
+                Effect.gen(function* () {
+                    const states = [
+                        { userId: jailedOwner, channelId: "7001", connectionId: "c1" },
+                        { userId: strangerId, channelId: "7002", connectionId: "c2" },
+                        { userId: ownerId, channelId: "7002", connectionId: "c3" },
+                        { userId: jailedGuest, channelId: "7002", connectionId: "c4" },
+                    ]
+                    yield* snapshot(bot, [
+                        voice(bot, jailedOwner, "7001", "c1"),
+                        voice(bot, strangerId, "7002", "c2"),
+                        voice(bot, ownerId, "7002", "c3"),
+                        voice(bot, jailedGuest, "7002", "c4"),
+                    ])
+                    const client = bot.client as unknown as Client,
+                        runtime = createVoiceRuntime(memory.store, guild)
+                    yield* runtime.start(client)
+                    yield* runtime.snapshot(
+                        { guildId: guild, voiceStates: states } as unknown as VoiceStateSnapshot,
+                        bot.client.shards[0]?.sessionEpoch ?? 0,
+                        1,
+                    )
+                    memory.jobs.push(
+                        job("1", jailedOwner, { type: "rename", roomId: "7001", name: "Any text at all" }),
+                        job("2", jailedOwner, { type: "transfer", roomId: "7001", userId: strangerId }),
+                    )
+                    yield* processVoiceMemberPass(memory.store, runtime, guild, client)
+                    yield* panelReaction(bot, jailedOwner, "8001", lockEmoji)
+                    yield* bot.idle()
+                    const refusal = "You cannot change a voice room while you are jailed"
+                    assert.deepEqual(Object.fromEntries(memory.finished), { "1": refusal, "2": refusal })
+                    assert.equal(native.edit.requests().length, 0)
+                    assert.equal(memory.rooms.get("7001")!.ownerId, jailedOwner)
+                    const send = (content: string) => say(bot, ownerId, content).pipe(Effect.andThen(bot.idle()))
+                    yield* send(`!voice allow <@${jailedGuest}>`)
+                    yield* send(`!voice transfer <@${jailedGuest}>`)
+                    assert.equal(entryOf(native, jailedGuest, "7002"), undefined)
+                    assert.equal(memory.rooms.get("7002")!.ownerId, ownerId)
+                    assert.deepEqual(replies(native), [
+                        "A jailed member cannot be let into a voice room",
+                        "A jailed member cannot own a temporary voice room",
+                    ])
+                    yield* send("!voice lock")
+                    assert.equal(entryOf(native, jailedGuest, "7002"), undefined)
+                    assert.equal(entryOf(native, strangerId, "7002")!.allow, connect)
+                }).pipe(Effect.scoped),
+        )
+    } finally {
+        forgetJail(guild)
+    }
 })

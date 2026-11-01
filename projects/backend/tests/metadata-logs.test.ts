@@ -9,6 +9,10 @@ import type {
     MetadataLogsGrant,
     MetadataLogsRecord,
 } from "@neonflux/contracts/metadata-logs"
+import { DashboardConfigurationFamily } from "@neonflux/contracts/dashboard"
+import { MetadataLogsDashboardScope } from "@neonflux/contracts/metadata-logs"
+import { Schema } from "effect"
+import { metadataEvent } from "../convex/metadataLogsDomain.ts"
 import { adapterFixture } from "./adapter-fixture.ts"
 import { botCall } from "./bot-service.ts"
 import { defaultSettings } from "../convex/moderationDomain.ts"
@@ -631,7 +635,13 @@ test("A messages route whose every message event is silenced logs no message eve
     await f.route("messages", "35")
     const logged = async () => ((await f.read(await f.work({ type: "messages" }))) as { logged: boolean }).logged
     assert.equal(await logged(), true)
-    const types = ["message-update", "message-delete", "message-bulk-delete"]
+    const types = [
+        "message-update",
+        "message-delete",
+        "message-bulk-delete",
+        "webhook-message-update",
+        "webhook-message-delete",
+    ]
     for (const [index, eventType] of types.entries()) {
         await f.read(
             await f.manage({
@@ -706,6 +716,79 @@ test("Every channel mode logs any channel except exclusions and log channels, an
     assert.equal((await f.settings()).allChannels, false)
     assert.equal((await f.read(await f.admit(deletion("904", "36")))).reason, "excluded")
     assert.equal((await f.read(await f.admit(deletion("905", "31")))).admitted, true)
+})
+test("Webhook messages follow member message rules, and what webhooks post waits for its own switch and audit entry", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    await f.route("messages", "35")
+    const webhook = (
+        type: "webhook-message-create" | "webhook-message-update" | "webhook-message-delete",
+        messageId: string,
+        channelId: string,
+        extra: object = {},
+    ) =>
+        f.event({
+            category: "messages",
+            type,
+            source:
+                type === "webhook-message-delete"
+                    ? { kind: "message-delete", messageId }
+                    : { kind: "observation", sessionId: "b".repeat(32), sequence: Number(messageId) },
+            resourceIds: [messageId],
+            changedFields: [],
+            channelId,
+            authorBot: false,
+            privateChannel: false,
+            details: { webhookId: "880", webhookName: "Synthetic Feed", text: "Synthetic webhook text" },
+            ...extra,
+        })
+    assert.equal((await f.settings()).webhookPosts, false)
+    await f.read(
+        await f.manage({
+            type: "channels",
+            expectedRevision: (await f.settings()).revision,
+            allChannels: true,
+            messageChannelIds: [],
+            excludedChannelIds: ["32"],
+        }),
+    )
+    // Edits and deletions are logged at once, while a post waits for the switch
+    const edited = await f.read(await f.admit(webhook("webhook-message-update", "920", "36")))
+    assert.equal(edited.admitted, true)
+    assert.match(edited.record.presentation.embed.description, /Author: Synthetic Feed \(webhook 880\)/)
+    assert.match(edited.record.presentation.embed.title, /Webhook message edited/)
+    assert.equal((await f.read(await f.admit(webhook("webhook-message-delete", "921", "36")))).admitted, true)
+    assert.equal((await f.read(await f.admit(webhook("webhook-message-create", "922", "36")))).reason, "excluded")
+    // The record has no member author, so member data rights never find it
+    const authored = await f.backend.run((ctx) => ctx.db.query("metadataLogRecords").collect())
+    assert.ok(authored.every((row) => row.authorId === undefined))
+    await f.read(
+        await f.manage({
+            type: "webhook-posts",
+            expectedRevision: (await f.settings()).revision,
+            enabled: true,
+        }),
+    )
+    assert.equal((await f.settings()).webhookPosts, true)
+    const change = (await f.backend.run((ctx) => ctx.db.query("auditLogChanges").collect())).flatMap((row) =>
+        row.changes.filter((item) => item.path === "webhookPosts"),
+    )
+    assert.deepEqual(
+        change.map((item) => [item.before, item.after]),
+        [[false, true]],
+    )
+    assert.equal((await f.read(await f.admit(webhook("webhook-message-create", "923", "36")))).admitted, true)
+    // Excluded channels and the log channel itself stay out, so a log channel cannot log into itself
+    for (const [messageId, channelId] of [
+        ["924", "32"],
+        ["925", "35"],
+    ] as const)
+        assert.equal(
+            (await f.read(await f.admit(webhook("webhook-message-create", messageId, channelId)))).reason,
+            "excluded",
+        )
+    // A webhook record without its webhook is refused
+    await status(await f.admit(webhook("webhook-message-update", "926", "36", { details: { text: "x" } })), 400)
 })
 test("Message rules treat a thread as its parent channel for listed and excluded channels", async (t) => {
     const f = await fixture(t)
@@ -1022,6 +1105,51 @@ test("An uncertain post that has a message can be checked, so it is not forgotte
     await f.read(await f.outcome(grant, "uncertain", "700"))
     f.advance(200000)
     await status(await f.manage({ type: "forget", recordNo: record.recordNo, confirm: true }), 409)
+})
+test("A settings record names every dashboard family, so no website change aborts on its own log record", () => {
+    for (const family of DashboardConfigurationFamily.literals) {
+        assert.ok(Schema.is(MetadataLogsDashboardScope)(family), family)
+        metadataEvent(
+            {
+                category: "settings",
+                type: "settings-change",
+                source: { kind: "dashboard", jobId: "job1", scope: family },
+                observedAt: Date.now(),
+                actor: { kind: "configuration", userId: "10" },
+                resourceIds: [],
+                changedFields: ["configuration"],
+                count: 1,
+                outcome: "accepted",
+            },
+            true,
+        )
+    }
+})
+test("Every page of a walk reads up to the time of its first page, while the clock moves and with a stale or foreign cursor", async (t) => {
+    const f = await fixture(t)
+    await f.open()
+    for (let i = 0; i < 45; i++) await f.admitted()
+    const first = await f.read(await f.work({ type: "discover" }))
+    assert.equal(first.records.length, 20)
+    const bound = f.now()
+    assert.ok(first.nextCursor.startsWith(`${bound}:`), "the cursor carries its walk's time")
+    // Records due after the walk started wait for the next walk, as Convex accepts a cursor only for the query that made it
+    f.advance(1000)
+    const late = await f.admitted()
+    f.advance(1000)
+    const second = await f.read(await f.work({ type: "discover", cursor: first.nextCursor }))
+    assert.equal(second.records.length, 20)
+    assert.ok(second.nextCursor.startsWith(`${bound}:`), "the time stays the same on every page")
+    f.advance(1000)
+    const third = await f.read(await f.work({ type: "discover", cursor: second.nextCursor }))
+    const walked = [first, second, third].flatMap((page) => page.records.map((r: MetadataLogsRecord) => r.recordNo))
+    assert.equal(walked.length, 45)
+    assert.equal(new Set(walked).size, 45)
+    assert.equal(walked.includes(late.recordNo), false)
+    assert.equal(third.nextCursor, undefined)
+    // A new walk finds it, and a cursor from before this form starts a new walk rather than failing
+    const again = await f.read(await f.work({ type: "discover", cursor: "not-a-walk" }))
+    assert.equal(again.records.length, 20)
 })
 test("Indexed pages advance past twenty deferred entries without conflating query and work cursors", async (t) => {
     const f = await fixture(t)
@@ -1506,8 +1634,7 @@ test("New immutable embeds preserve category hues and semantic tones", async (t)
     await f.open()
     const { metadataEventTypes, metadataEventSelectors, metadataPalette, metadataPresentation, metadataContent } =
         await import("../convex/metadataLogsDomain.ts")
-    assert.equal(metadataEventTypes.length, 29)
-    assert.equal(metadataEventSelectors.length, 67)
+    assert.equal(metadataEventSelectors.length, metadataEventTypes.length + 38)
     const addition = await f.admitted(f.event({ type: "member-add", changedFields: [] })),
         departure = await f.admitted(f.event({ type: "member-remove", changedFields: [] })),
         modification = await f.admitted()

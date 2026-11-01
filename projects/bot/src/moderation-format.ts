@@ -41,6 +41,8 @@ export const actionNames: Record<ModerationActionType, string> = {
     unlock: "Unlock",
     quarantine: "Quarantine",
     release: "Release",
+    jail: "Jail",
+    unjail: "Unjail",
 }
 const outcomeWords: Record<ModerationCase["outcome"], string> = {
     pending: "in progress",
@@ -121,9 +123,11 @@ const caseBy = (value: ModerationCase) =>
           ? `Automod${value.ruleName ? ` rule ${value.ruleName}` : ""}`
           : value.origin === "penalty"
             ? "Automatic, warning limit"
-            : value.incident
-              ? `Security, ${incidentNames[value.incident].toLowerCase()}`
-              : "Security"
+            : value.origin === "jail"
+              ? "Automatic, jail length ended"
+              : value.incident
+                ? `Security, ${incidentNames[value.incident].toLowerCase()}`
+                : "Security"
 /** A case with its reason and a few facts. Its staff log and member notice show only when they did not arrive, and edits are counted with the command that lists them */
 function caseCard(value: ModerationCase, command: SafetyCommandText): Card {
     const undelivered = (
@@ -142,7 +146,7 @@ function caseCard(value: ModerationCase, command: SafetyCommandText): Card {
             ["Result", `${caseResult(value, command)}${value.voided ? ", voided" : ""}`],
             ...field(value.targetId, "Member", () => format.userMention(value.targetId!)),
             ...field(value.channelId, "Channel", () => format.channelMention(value.channelId!)),
-            ["By", caseBy(value)],
+            ["By", `${caseBy(value)}${value.viaRight ? `, through the ${value.viaRight} bot-only right` : ""}`],
             ["When", ago(value.createdAt)],
             ...field(value.linkedCaseNo, "Linked case", () => `Case #${value.linkedCaseNo}`),
             ...field(undelivered.length, "Not delivered", () =>
@@ -171,7 +175,7 @@ function caseHistoryCard(value: Extract<ModerationQueryResult, { type: "case-his
     }
 }
 const caseLine = (value: ModerationCase) =>
-    `**#${value.caseNo}** ${actionNames[value.action]}${subject(value)} by ${value.actorId ? format.userMention(value.actorId) : value.origin === "automod" ? "Automod" : value.origin === "penalty" ? "Automatic" : "Security"}, ${outcomeWords[value.outcome]}${value.voided ? ", voided" : ""}, ${ago(value.createdAt)}`
+    `**#${value.caseNo}** ${actionNames[value.action]}${subject(value)} by ${value.actorId ? format.userMention(value.actorId) : value.origin === "automod" ? "Automod" : value.origin === "penalty" || value.origin === "jail" ? "Automatic" : "Security"}, ${outcomeWords[value.outcome]}${value.voided ? ", voided" : ""}, ${ago(value.createdAt)}`
 
 const ruleTypeNames: Record<AutomodRuleType, string> = {
     spam: "Spam",
@@ -472,6 +476,9 @@ export function queryCard(result: ModerationQueryResult, view: SettingsView, com
                     ? undefined
                     : { count: result.openAppeals, more: result.moreOpenAppeals === true },
             )
+        // Only the bot reads this one, before an unjail
+        case "jail-record":
+            return { title: "Jail", description: `${result.roleIds.length} roles stored` }
         case "case":
             return caseCard(result.case, command)
         case "case-history":
@@ -554,6 +561,10 @@ export function manageConfirmation(
             return result.roleId
                 ? `Private data role: ${format.roleMention(result.roleId)}. Members with it and the server owner can view private cases on the website`
                 : "Private data role cleared. Only the server owner can view private cases on the website"
+        case "right-refused":
+            return result.reason === "limit"
+                ? `You went over the ${result.right} limit, so nothing was done and your bot-only rights are suspended until the server owner clears them`
+                : `Staff together reached the server's ceiling for ${result.right}, so nothing was done. Try again later`
     }
 }
 

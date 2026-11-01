@@ -82,6 +82,7 @@ export function publicCase(row: Doc<"moderationCases">): ModerationCase {
         voided: row.voided,
         correctionCount: row.erased ? 0 : row.correctionCount,
         ...(row.observation ? { observation: row.observation } : {}),
+        ...(row.viaRight ? { viaRight: row.viaRight } : {}),
     }
 }
 /** Deletes up to count of a case's corrections and says whether any are left */

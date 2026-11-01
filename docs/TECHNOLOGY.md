@@ -63,6 +63,18 @@ The idle counts below are checked by a [bot test](../projects/bot/tests/cost.tes
 | Worker request for due work | 1 |
 | Busiest dispatch | At most 28,800 passes of one call each, plus extra pages and one signal read for each change of the work signal |
 
+[Bluesky and X feeds](BACKEND.md#bluesky-and-x-feeds) add no call while a deployment follows no account. While it follows any, computed from the code and not read from a bill:
+
+| Feed polling per day | Count |
+| --- | --- |
+| Billed Convex calls of one tick | 3: The action, its claim and its record |
+| One Bluesky account | 288 ticks, so 864 calls and 288 reads |
+| One X account | 48 ticks, so 144 calls and 48 reads |
+| Worst case for any number of accounts | 1,440 ticks, so 4,320 calls and 72,000 reads |
+| Each post found, or each account looked up | 1 more call, plus the worker requests that send it |
+
+What X bills is bounded separately by its monthly read cap
+
 The [bill guard's](BACKEND.md#bill-guard) usage report adds 288 calls a day for each bot process, whether or not a budget is set
 
 ## Shared contracts

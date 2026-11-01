@@ -17,10 +17,14 @@ import { currentXp, readLeveling } from "./levelingStore.ts"
 import { decode, fail, object } from "./validation.ts"
 import { HELPDESK_ANSWER_LIMIT } from "@neonflux/contracts/helpdesk"
 import { STICKY_LIMIT } from "@neonflux/contracts/sticky"
+import { COMMAND_RULE_LIMIT } from "@neonflux/contracts/command-rules"
 import { CLEANUP_POLICY_LIMIT } from "@neonflux/contracts/cleanup"
 import { VOICE_GENERATOR_LIMIT } from "@neonflux/contracts/voice"
 import { YOUTUBE_LIMIT } from "@neonflux/contracts/youtube"
 import { TWITCH_LIMIT } from "@neonflux/contracts/twitch"
+import { FEED_LIMIT } from "@neonflux/contracts/feeds"
+import { COUNTER_LIMIT } from "@neonflux/contracts/counters"
+import { BOARD_LIMIT } from "@neonflux/contracts/boards"
 
 // Each query is indexed by the configured server. Caps are the features' own limits, so a larger family is corrupt. Drafts, templates and
 // ticket categories have no limit of their own, and events and schedules keep their cancelled and finished definitions beside the live
@@ -67,13 +71,21 @@ const BACKUP_CONFIG_PROJECTIONS = {
     temproles: { table: "temporaryRoleSettings", index: "by_server", cap: 1, path: "" },
     onboarding: { table: "onboardingSettings", index: "by_server", cap: 1, path: "" },
     sticky: { table: "stickyMessages", index: "by_channel", cap: STICKY_LIMIT, path: "" },
+    commandRule: { table: "commandRules", index: "by_command", cap: COMMAND_RULE_LIMIT, path: "" },
     alerts: { table: "alertSettings", index: "by_server", cap: 1, path: "" },
+    lockdown: { table: "lockdownSettings", index: "by_server", cap: 1, path: "" },
+    antinuke: { table: "antiNukeSettings", index: "by_server", cap: 1, path: "" },
     helpdesk: { table: "helpDeskSettings", index: "by_server", cap: 1, path: "" },
     helpdeskAnswer: { table: "helpDeskAnswers", index: "by_name", cap: HELPDESK_ANSWER_LIMIT, path: "" },
     showcase: { table: "showcaseSettings", index: "by_server", cap: 1, path: "" },
     profile: { table: "profileSettings", index: "by_server", cap: 1, path: "" },
     youtube: { table: "youtubeSubscriptions", index: "by_server", cap: YOUTUBE_LIMIT, path: "" },
     twitch: { table: "twitchSubscriptions", index: "by_server", cap: TWITCH_LIMIT, path: "" },
+    feeds: { table: "feedSubscriptions", index: "by_server", cap: FEED_LIMIT, path: "" },
+    counters: { table: "counterSettings", index: "by_server", cap: 1, path: "" },
+    counter: { table: "counters", index: "by_server", cap: COUNTER_LIMIT, path: "" },
+    boards: { table: "boardSettings", index: "by_server", cap: 1, path: "" },
+    board: { table: "boards", index: "by_server", cap: BOARD_LIMIT, path: "" },
 } as const satisfies Record<BackupConfigFamily, { table: TableNames; index: string; cap: number; path: string }>
 type Read = QueryCtx | MutationCtx
 type JsonSchema = { type: string; value?: unknown }

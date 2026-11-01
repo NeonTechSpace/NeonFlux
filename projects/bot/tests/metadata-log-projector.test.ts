@@ -357,6 +357,59 @@ test("stable sources and explicit observation sources do not invent update ident
     assert.throws(() => decode({ ...first, reason: "secret" }))
     assert.throws(() => decode({ ...first, actor: { kind: "audit", userId: f.ids.user } }))
 })
+test("an overwrite entry names its channel and its target as Fluxer records them, never a role as a channel", () => {
+    const entry = (actionType: number, targetId: string, options: object) =>
+        projectMetadataEvent(
+            "guildAuditLogEntryCreate",
+            {
+                guildId: f.ids.guild,
+                id: f.nextId(),
+                userId: f.ids.user,
+                targetId,
+                actionType,
+                options,
+                changes: [{ key: "deny", newValue: "2048" }],
+            },
+            scope,
+        )!
+    const shown = (e: MetadataLogsEvent) =>
+        metadataLogContent(1, decode(e) as MetadataLogsEvent, f.ids.guild).split("\n")
+    const role = shown(entry(13, "777", { channelId: f.ids.channel, type: 0 }))
+    assert.ok(role.includes(`**Channel**: <#${f.ids.channel}>`), role.join("\n"))
+    assert.ok(role.includes("**Permission overwrite for**: <@&777>"), role.join("\n"))
+    assert.equal(role.filter((line) => line.startsWith("About:")).length, 0)
+    assert.ok(
+        shown(entry(14, "778", { channelId: f.ids.channel, type: 1 })).includes("**Permission overwrite for**: <@778>"),
+    )
+    assert.ok(
+        shown(entry(15, f.ids.guild, { channelId: f.ids.channel, type: 0 })).includes(
+            "**Permission overwrite for**: Everyone",
+        ),
+    )
+})
+test("an audit entry shows a channel's recorded ID as its mention", () => {
+    const e = projectMetadataEvent(
+        "guildAuditLogEntryCreate",
+        {
+            guildId: f.ids.guild,
+            id: f.nextId(),
+            userId: f.ids.user,
+            targetId: "901",
+            actionType: 10,
+            changes: [
+                { key: "channel_id", newValue: "901" },
+                { key: "parent_id", newValue: "902" },
+                { key: "name", newValue: "general" },
+            ],
+        },
+        scope,
+    )!
+    assert.deepEqual(e.details?.changes, [
+        { field: "channel_id", after: "<#901>" },
+        { field: "parent_id", after: "<#902>" },
+        { field: "name", after: "general" },
+    ])
+})
 test("an audit reason cut at its limit never splits an emoji", () => {
     const e = projectMetadataEvent(
         "guildAuditLogEntryCreate",
@@ -388,7 +441,7 @@ test("message deletions, webhook changes and prunes from the audit log are logge
     assert.deepEqual(deleted.actor, { kind: "audit", userId: f.ids.user })
     assert.ok(lines(deleted).includes(`By: <@${f.ids.user}>`))
     assert.ok(lines(deleted).includes("Messages: 901"))
-    assert.ok(lines(deleted).includes(`**Channel_id**: <#${f.ids.channel}>`))
+    assert.ok(lines(deleted).includes(`**Channel**: <#${f.ids.channel}>`))
     const webhook = audit(50, "902", { changes: [{ key: "name", newValue: "Synthetic hook" }] })
     decode(webhook)
     assert.equal(metadataEventLabel(`audit-entry:${webhook.auditAction}`), "Audit: Webhook created")

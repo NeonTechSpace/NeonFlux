@@ -617,7 +617,7 @@ test("A posted reaction panel keeps, edits or replaces its posted message", asyn
             "Published in channel 999. Changes apply to this message, and reactions whose role is unchanged stay. Reactions to update: 🟢",
         ),
     )
-    assert.equal(kept.ui.queryByText(/require publishing a new panel message/), null)
+    assert.equal(kept.ui.queryByText(/require publishing a new panel message/) === null, true)
     fireEvent.change(kept.form.getByRole("textbox", { name: "Emoji for mapping 1" }), { target: { value: "🟣" } })
     await kept.submit()
     assert.deepEqual(kept.requests[0]?.operation, {

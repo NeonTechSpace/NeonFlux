@@ -13,6 +13,8 @@ import {
     backupStructureObject,
 } from "./backupValidators.ts"
 import { v } from "convex/values"
+import { antiNukeLimit } from "./antiNukeValidators.ts"
+import { lockdownChannelFields, lockdownCounts, lockdownOrigin, lockdownState } from "./lockdownValidators.ts"
 import {
     metadataCategoryCounts,
     metadataDeliveryValidator,
@@ -93,6 +95,8 @@ import {
     moderationCorrectionType,
     moderationWindowKind,
     moderationGrant,
+    botRight,
+    rightsLimit,
 } from "./moderationValidators.ts"
 
 import { suggestionState, suggestionChoice, suggestionCardState } from "./suggestionsValidators.ts"
@@ -119,6 +123,11 @@ import {
 } from "./structureValidators.ts"
 import { youtubeDeliveryState, youtubeMode, youtubePreview, youtubeProblem } from "./youtubeValidators.ts"
 import { twitchDeliveryState, twitchMode, twitchProblem } from "./twitchValidators.ts"
+import { feedDeliveryState, feedProblem, feedProvider } from "./feedValidators.ts"
+import { boardEntryState, boardProblem } from "./boardsValidators.ts"
+import { counterCountProblem, counterKind, counterProblem } from "./countersValidators.ts"
+import { reminderState } from "./remindersValidators.ts"
+import { giveawayDm, giveawayPhase, giveawayProblem, giveawayState } from "./giveawaysValidators.ts"
 
 export default defineSchema({
     // The single retention chain row. It holds the scheduled run's generation and lease, the last finished run and the passes isolated after failing
@@ -193,7 +202,7 @@ export default defineSchema({
         .index("by_entry", ["entryId"])
         .index("by_server", ["serverId"])
         .index("by_expiry", ["expiresAt"]),
-    // The member families hold website requests of the role picker, showcases and profiles beside configuration jobs, with the same expiry and one-day retention. attemptId is the publishing attempt of a showcase request
+    // The member families hold website requests of the role picker, showcases, profiles and voice rooms beside configuration jobs, with the same expiry and one-day retention. attemptId is the publishing attempt of a showcase request
     dashboardConfigurationJobs: defineTable({
         serverId: v.string(),
         family: v.union(
@@ -201,6 +210,7 @@ export default defineSchema({
             v.literal("member"),
             v.literal("member-showcase"),
             v.literal("member-profile"),
+            v.literal("member-voice"),
         ),
         actorId: v.string(),
         sessionId: v.id("dashboardSessions"),
@@ -213,6 +223,8 @@ export default defineSchema({
         cleanupAt: v.number(),
         error: v.optional(v.string()),
         attemptId: v.optional(v.id("publishingAttempts")),
+        // When the bot claimed a voice room request before acting on it, so a failed report never repeats the change
+        claimedAt: v.optional(v.number()),
     })
         .index("by_request", ["sessionId", "serverId", "requestId"])
         .index("by_work", ["serverId", "state", "createdAt"])
@@ -678,6 +690,8 @@ export default defineSchema({
         // Message events from every channel except the excluded ones. A row without it lists its channels, as rows did
         // before this choice existed
         allChannels: v.optional(v.boolean()),
+        // What webhooks post is logged too. Off until a server turns it on, and a row without it is off
+        webhookPosts: v.optional(v.boolean()),
         messageChannelIds: v.array(v.string()),
         excludedChannelIds: v.array(v.string()),
         retained: v.number(),
@@ -759,6 +773,8 @@ export default defineSchema({
         template: v.string(),
         userLimit: v.union(v.number(), v.null()),
         region: v.union(v.string(), v.null()),
+        // False stops the room controls card. Left out means on
+        panel: v.optional(v.boolean()),
         revision: v.number(),
         createdAt: v.number(),
         updatedAt: v.number(),
@@ -826,6 +842,7 @@ export default defineSchema({
         key: v.string(),
         action: v.union(v.literal("kickBots"), v.literal("deleteWebhooks"), v.literal("removePermissions")),
         targetId: v.string(),
+        targetName: v.optional(v.string()),
         permissions: v.optional(v.array(v.string())),
         outcome: v.union(v.literal("pending"), v.literal("succeeded"), v.literal("failed"), v.literal("uncertain")),
         createdAt: v.number(),
@@ -834,6 +851,179 @@ export default defineSchema({
         .index("by_server_key", ["serverId", "key"])
         .index("by_server_outcome", ["serverId", "outcome"])
         .index("by_expiry", ["expiresAt"]),
+    // The channels a server-wide lockdown leaves alone
+    lockdownSettings: defineTable({
+        serverId: v.string(),
+        exemptChannelIds: v.array(v.string()),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    }).index("by_server", ["serverId"]),
+    // A server's latest lockdown. A new one replaces it, and counts are kept per channel state so a status reads one row
+    lockdowns: defineTable({
+        serverId: v.string(),
+        state: lockdownState,
+        origin: lockdownOrigin,
+        reason: v.string(),
+        startedBy: v.optional(v.string()),
+        startedAt: v.number(),
+        endedBy: v.optional(v.string()),
+        endReason: v.optional(v.string()),
+        endedAt: v.optional(v.number()),
+        counts: lockdownCounts,
+        notesDue: v.optional(v.array(v.union(v.literal("started"), v.literal("ended")))),
+    }).index("by_server", ["serverId"]),
+    // One row per channel of the latest lockdown, holding what the channel's overwrites were before it. At most one row per channel of a
+    // server, which holds at most 500, and the next lockdown of the server replaces them
+    lockdownChannels: defineTable(lockdownChannelFields)
+        .index("by_server_channel", ["serverId", "channelId"])
+        .index("by_server_state", ["serverId", "state", "nextCheckAt"])
+        .index("by_global_due", ["active", "nextCheckAt"]),
+    // A server's jail role and channel, and how far the pass that writes the role's channel overwrites got
+    jailSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        roleId: v.optional(v.string()),
+        channelId: v.optional(v.string()),
+        setup: v.optional(
+            v.object({
+                state: v.union(v.literal("running"), v.literal("done")),
+                total: v.number(),
+                done: v.number(),
+                problems: v.array(
+                    v.object({ channelId: v.string(), state: v.union(v.literal("failed"), v.literal("uncertain")) }),
+                ),
+                moreProblems: v.number(),
+                updatedAt: v.number(),
+            }),
+        ),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    }).index("by_server", ["serverId"]),
+    // One row per jailed member, kept when they leave so a rejoin cannot escape. roleIds are the roles they get back, written before the
+    // one edit that takes them away. The row goes when the unjail is confirmed, and the jail's case keeps the history
+    jailRecords: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        state: v.union(
+            v.literal("jailing"),
+            v.literal("active"),
+            v.literal("jail-uncertain"),
+            v.literal("releasing"),
+            v.literal("release-uncertain"),
+        ),
+        roleIds: v.array(v.string()),
+        caseNo: v.number(),
+        releaseCaseNo: v.optional(v.number()),
+        actorId: v.optional(v.string()),
+        createdAt: v.number(),
+        releaseAt: v.optional(v.number()),
+        // Present while a release is due at nextCheckAt, so the work dispatcher reads only these
+        timed: v.optional(v.literal(true)),
+        nextCheckAt: v.optional(v.number()),
+    })
+        .index("by_server_user", ["serverId", "userId"])
+        .index("by_server_due", ["serverId", "timed", "nextCheckAt"])
+        .index("by_global_due", ["timed", "nextCheckAt"])
+        .index("by_member_data", ["userId", "serverId"]),
+    // Which roles hold which bot-only staff rights, and each right's limit. Off until the server owner turns it on
+    rightsSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        grants: v.array(v.object({ roleId: v.string(), rights: v.array(botRight) })),
+        limits: v.object({
+            kick: rightsLimit,
+            ban: rightsLimit,
+            timeout: rightsLimit,
+            purge: rightsLimit,
+            slowmode: rightsLimit,
+            lock: rightsLimit,
+            quarantine: rightsLimit,
+            jail: rightsLimit,
+        }),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    }).index("by_server", ["serverId"]),
+    // One row per action through a right, counted in the transaction that allows it. Rows last as long as the longest window a limit can have
+    rightsUsage: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        right: botRight,
+        at: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_member_right", ["serverId", "userId", "right", "at"])
+        .index("by_server_right", ["serverId", "right", "at"])
+        .index("by_expiry", ["expiresAt"]),
+    // A member whose bot-only rights are off until the owner clears them. It stays, whatever happens to the member's roles
+    rightsSuspensions: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        reason: v.union(v.literal("limit"), v.literal("anti-nuke")),
+        right: v.optional(botRight),
+        at: v.number(),
+    }).index("by_server_user", ["serverId", "userId"]),
+    // Anti-nuke settings, all off until a server turns them on. nextIncidentNo numbers the server's incidents
+    antiNukeSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        mode: v.union(v.literal("dry-run"), v.literal("enforce")),
+        limits: v.object({
+            bans: antiNukeLimit,
+            kicks: antiNukeLimit,
+            channels: antiNukeLimit,
+            roles: antiNukeLimit,
+        }),
+        response: v.union(v.literal("strip"), v.literal("kick"), v.literal("ban")),
+        lockdown: v.boolean(),
+        trustedIds: v.array(v.string()),
+        nextIncidentNo: v.number(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    }).index("by_server", ["serverId"]),
+    // A server's newest 200 anti-nuke incidents: What was observed, what was done and how it ended. A new incident past that deletes the oldest
+    antiNukeIncidents: defineTable({
+        serverId: v.string(),
+        incidentNo: v.number(),
+        actorId: v.string(),
+        actorKind: v.union(
+            v.literal("staff"),
+            v.literal("bot"),
+            v.literal("high"),
+            v.literal("owner"),
+            v.literal("trusted"),
+        ),
+        rule: v.string(),
+        counts: v.record(v.string(), v.number()),
+        firstAt: v.number(),
+        lastAt: v.number(),
+        mode: v.union(v.literal("dry-run"), v.literal("enforce")),
+        response: v.union(v.literal("strip"), v.literal("kick"), v.literal("ban"), v.literal("alert")),
+        outcome: v.union(
+            v.literal("alert"),
+            v.literal("pending"),
+            v.literal("none"),
+            v.literal("succeeded"),
+            v.literal("failed"),
+            v.literal("uncertain"),
+        ),
+        removedRoleIds: v.array(v.string()),
+        lockdown: v.union(
+            v.literal("none"),
+            v.literal("not-allowed"),
+            v.literal("started"),
+            v.literal("already-on"),
+            v.literal("failed"),
+        ),
+        restoredAt: v.optional(v.number()),
+        restoredBy: v.optional(v.string()),
+        restoreOutcome: v.optional(v.union(v.literal("succeeded"), v.literal("failed"), v.literal("uncertain"))),
+        restoreLeftRoleIds: v.optional(v.array(v.string())),
+        restoreGoneRoleIds: v.optional(v.array(v.string())),
+        createdAt: v.number(),
+    })
+        .index("by_server_number", ["serverId", "incidentNo"])
+        .index("by_server_actor", ["serverId", "actorId", "createdAt"])
+        .index("by_server_outcome", ["serverId", "outcome", "incidentNo"]),
     // Help desk settings. guardDueAt is the next thread budget pass while the guard is on, and warnedAt the last cap warning
     helpDeskSettings: defineTable({
         serverId: v.string(),
@@ -871,10 +1061,34 @@ export default defineSchema({
         ownerId: v.string(),
         generatorChannelId: v.string(),
         createdAt: v.number(),
+        // The room controls card in the room's chat, and what the bot last read of the room for its website page, including the lock
+        panelMessageId: v.optional(v.string()),
+        // Permission bits a lock or hide took from an explicit allow for everyone, in decimal, which unlock and show give back
+        heldAllow: v.optional(v.string()),
+        // The members a lock gave Connect so they can rejoin, which unlock takes back. Empty once unlocked
+        lockGrants: v.optional(v.array(v.string())),
+        view: v.optional(
+            v.object({
+                name: v.string(),
+                userLimit: v.number(),
+                hidden: v.boolean(),
+                locked: v.boolean(),
+                region: v.union(v.string(), v.null()),
+                observedAt: v.number(),
+            }),
+        ),
     })
         .index("by_channel", ["serverId", "channelId"])
         .index("by_owner", ["serverId", "ownerId"])
         .index("by_member_data", ["ownerId", "serverId"]),
+    // Rules for built-in commands, at most one per command. An empty list means every channel or role, and a rule has at least one limit
+    commandRules: defineTable({
+        serverId: v.string(),
+        command: v.string(),
+        channelIds: v.array(v.string()),
+        roleIds: v.array(v.string()),
+        updatedAt: v.number(),
+    }).index("by_command", ["serverId", "command"]),
     // Looking for group. Settings exist once a manager changed one. A group row lives while the group is open and is deleted when it starts,
     // is cancelled or expires, together with its member rows. The host is not a member row
     lfgSettings: defineTable({
@@ -2132,6 +2346,101 @@ export default defineSchema({
         .index("by_stream", ["streamId"])
         .index("by_channel", ["twitchChannelId", "publishedAt"])
         .index("by_expiry", ["expiresAt"]),
+    // Personal reminders' switch and limit, and how many reminders the server stores. A server without a row has them on
+    reminderSettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        memberLimit: v.number(),
+        stored: v.number(),
+    }).index("by_server", ["serverId"]),
+    // A member's reminder. Delivered and cancelled ones are deleted, and uncertain and undelivered ones expire after 30 days
+    reminders: defineTable({
+        serverId: v.string(),
+        userId: v.string(),
+        reminderNo: v.number(),
+        text: v.string(),
+        channelId: v.string(),
+        state: reminderState,
+        due: v.boolean(),
+        dueAt: v.number(),
+        nextCheckAt: v.number(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_number", ["serverId", "userId", "reminderNo"])
+        .index("by_server_due", ["serverId", "state", "nextCheckAt"])
+        .index("by_global_due", ["due", "nextCheckAt"])
+        .index("by_member_data", ["userId", "serverId"])
+        .index("by_expiry", ["expiresAt"]),
+    // Giveaways' switch and required role, and the next number. A server without a row has them on with no required role
+    giveawaySettings: defineTable({
+        serverId: v.string(),
+        enabled: v.boolean(),
+        requiredRoleId: v.union(v.string(), v.null()),
+        nextGiveawayNo: v.number(),
+    }).index("by_server", ["serverId"]),
+    // One giveaway. Entries live on Fluxer as reactions and are read only at a draw, so no entry is stored. hostId goes when the host
+    // deletes their data from a finished giveaway. draws counts recorded draws, and drawCount is how many winners the next one picks
+    giveaways: defineTable({
+        serverId: v.string(),
+        giveawayNo: v.number(),
+        hostId: v.optional(v.string()),
+        channelId: v.string(),
+        prize: v.string(),
+        winnerCount: v.number(),
+        requiredRoleId: v.optional(v.string()),
+        endsAt: v.number(),
+        createdAt: v.number(),
+        endedAt: v.optional(v.number()),
+        state: giveawayState,
+        phase: giveawayPhase,
+        due: v.boolean(),
+        nextCheckAt: v.number(),
+        postNo: v.optional(v.number()),
+        attemptId: v.optional(v.id("publishingAttempts")),
+        messageId: v.optional(v.string()),
+        problem: v.optional(giveawayProblem),
+        problemAt: v.optional(v.number()),
+        draws: v.number(),
+        drawCount: v.number(),
+        entrants: v.optional(v.number()),
+        capped: v.optional(v.boolean()),
+        expiresAt: v.number(),
+    })
+        .index("by_number", ["serverId", "giveawayNo"])
+        .index("by_server_state", ["serverId", "state"])
+        .index("by_server_due", ["serverId", "due", "nextCheckAt"])
+        .index("by_global_due", ["due", "nextCheckAt"])
+        .index("by_problem", ["serverId", "problemAt"])
+        .index("by_member_data", ["hostId", "serverId"])
+        .index("by_expiry", ["expiresAt"]),
+    // One winner of one draw. A winner's data deletion removes this row and keeps the giveaway
+    giveawayWinners: defineTable({
+        serverId: v.string(),
+        giveawayNo: v.number(),
+        userId: v.string(),
+        drawNo: v.number(),
+        dm: giveawayDm,
+        createdAt: v.number(),
+    })
+        .index("by_giveaway", ["serverId", "giveawayNo", "drawNo"])
+        .index("by_member_data", ["userId", "serverId"]),
+    // The counter channels' switch. A server without a row has them on
+    counterSettings: defineTable({ serverId: v.string(), enabled: v.boolean() }).index("by_server", ["serverId"]),
+    // At most 5 per server, one per channel. NeonFlux turns one off with a problem when its channel is gone or it may not rename it
+    counters: defineTable({
+        serverId: v.string(),
+        channelId: v.string(),
+        kind: counterKind,
+        roleId: v.optional(v.string()),
+        template: v.string(),
+        enabled: v.boolean(),
+        problem: v.optional(counterProblem),
+        countProblem: v.optional(counterCountProblem),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    }).index("by_server", ["serverId", "channelId"]),
     // At most 10 Twitch channels per server. NeonFlux turns one off with a problem when its destination is gone or it cannot post there
     twitchSubscriptions: defineTable({
         serverId: v.string(),
@@ -2165,6 +2474,142 @@ export default defineSchema({
         .index("by_server_due", ["serverId", "state", "nextCheckAt"])
         .index("by_global_due", ["state", "nextCheckAt"])
         .index("by_expiry", ["expiresAt"]),
+    // The boards' switch. A server without a row has them on
+    boardSettings: defineTable({ serverId: v.string(), enabled: v.boolean() }).index("by_server", ["serverId"]),
+    // At most 5 boards per server, each with its own emoji. posted counts its records of posts, which it keeps up to BOARD_ENTRY_LIMIT
+    boards: defineTable({
+        serverId: v.string(),
+        name: v.string(),
+        emoji: v.string(),
+        channelId: v.string(),
+        threshold: v.number(),
+        selfReactions: v.boolean(),
+        bots: v.boolean(),
+        ignoredChannelIds: v.array(v.string()),
+        problem: v.optional(boardProblem),
+        posted: v.number(),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+    }).index("by_server", ["serverId", "name"]),
+    // One record per board and message, created once. It holds no message text: The card's text exists only as posted, in the post's publishing
+    // attempts. authorId is cleared once a removal is queued. expiresAt is unset while a post stands. removeWanted keeps a removal asked for while
+    // the post's outcome is unknown, which runs once staff settle it
+    boardEntries: defineTable({
+        serverId: v.string(),
+        boardId: v.id("boards"),
+        sourceChannelId: v.string(),
+        sourceParentId: v.optional(v.string()),
+        sourceMessageId: v.string(),
+        authorId: v.optional(v.string()),
+        count: v.number(),
+        state: boardEntryState,
+        nextCheckAt: v.number(),
+        createdAt: v.number(),
+        expiresAt: v.optional(v.number()),
+        postNo: v.optional(v.number()),
+        attemptId: v.optional(v.id("publishingAttempts")),
+        postChannelId: v.optional(v.string()),
+        postMessageId: v.optional(v.string()),
+        postedAt: v.optional(v.number()),
+        countAt: v.optional(v.number()),
+        removeQueuedAt: v.optional(v.number()),
+        removeWanted: v.optional(v.boolean()),
+    })
+        .index("by_message", ["serverId", "sourceMessageId", "boardId"])
+        .index("by_source_channel", ["serverId", "sourceChannelId"])
+        .index("by_source_parent", ["serverId", "sourceParentId"])
+        .index("by_board", ["boardId", "state"])
+        .index("by_board_posted", ["boardId", "postedAt"])
+        .index("by_server_due", ["serverId", "state", "nextCheckAt"])
+        .index("by_global_due", ["state", "nextCheckAt"])
+        .index("by_expiry", ["expiresAt"])
+        .index("by_member_data", ["authorId", "serverId"]),
+    // One source per followed account, however many servers follow it. accountId is pending:<handle> until the lookup gives the stable ID.
+    // newestSeenId only moves forward, and the first successful read sets it. Sources read only while this table has rows
+    feedSources: defineTable({
+        provider: feedProvider,
+        accountId: v.string(),
+        handle: v.optional(v.string()),
+        name: v.optional(v.string()),
+        newestSeenId: v.optional(v.string()),
+        resolvedAt: v.optional(v.number()),
+        dueAt: v.number(),
+        failures: v.number(),
+        stopped: v.optional(v.boolean()),
+        lastError: v.optional(v.string()),
+        shapeChange: v.optional(v.boolean()),
+        lastReadAt: v.optional(v.number()),
+        lastItemAt: v.optional(v.number()),
+        // No enabled follow on a served server: Nothing reads it, and its next read is a first read again
+        idle: v.optional(v.boolean()),
+        // Where the search for a follow on a served server goes on, when one claim could not finish it
+        followScanAfter: v.optional(v.string()),
+        createdAt: v.number(),
+    })
+        .index("by_account", ["provider", "accountId"])
+        .index("by_handle", ["provider", "handle"])
+        .index("by_due", ["dueAt"]),
+    // At most 10 followed accounts per server. NeonFlux turns one off with a problem when its destination is gone or it cannot post there
+    feedSubscriptions: defineTable({
+        serverId: v.string(),
+        provider: feedProvider,
+        accountId: v.string(),
+        channelId: v.string(),
+        enabled: v.boolean(),
+        problem: v.optional(feedProblem),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        updatedBy: v.string(),
+        lastPostAt: v.optional(v.number()),
+    })
+        .index("by_server", ["serverId", "provider", "accountId"])
+        .index("by_source", ["provider", "accountId", "serverId"])
+        .index("by_source_enabled", ["provider", "accountId", "enabled", "serverId"]),
+    // Posts that passed selection and were new, at most 5 per source per tick. Kept a week, longer than any post stays deliverable
+    feedItems: defineTable({
+        provider: feedProvider,
+        accountId: v.string(),
+        itemId: v.string(),
+        publishedAt: v.number(),
+        text: v.string(),
+        url: v.string(),
+        image: v.optional(v.string()),
+        seenAt: v.number(),
+        expiresAt: v.number(),
+    })
+        .index("by_item", ["provider", "accountId", "itemId"])
+        .index("by_account", ["provider", "accountId", "publishedAt"])
+        .index("by_expiry", ["expiresAt"]),
+    // One post per server, account and post, created once. Deleted 30 days later with its tracked post
+    feedDeliveries: defineTable({
+        serverId: v.string(),
+        provider: feedProvider,
+        accountId: v.string(),
+        itemId: v.string(),
+        title: v.string(),
+        publishedAt: v.number(),
+        state: feedDeliveryState,
+        nextCheckAt: v.number(),
+        createdAt: v.number(),
+        expiresAt: v.number(),
+        postNo: v.optional(v.number()),
+        attemptId: v.optional(v.id("publishingAttempts")),
+    })
+        .index("by_item", ["serverId", "provider", "accountId", "itemId"])
+        .index("by_server_due", ["serverId", "state", "nextCheckAt"])
+        .index("by_global_due", ["state", "nextCheckAt"])
+        .index("by_expiry", ["expiresAt"]),
+    // The one poll chain: Its scheduled tick and generation, the sources it serves and the month's X reads
+    feedPoller: defineTable({
+        generation: v.number(),
+        scheduledId: v.optional(v.id("_scheduled_functions")),
+        nextTickAt: v.optional(v.number()),
+        lastTickAt: v.optional(v.number()),
+        sourceCount: v.number(),
+        xMonth: v.string(),
+        xReads: v.number(),
+    }),
     profiles: defineTable({
         serverId: v.string(),
         userId: v.string(),
@@ -2313,6 +2758,8 @@ export default defineSchema({
         dispatched: v.optional(v.boolean()),
         // The target was a bot account, which gets no member notice
         targetBot: v.optional(v.boolean()),
+        // The actor had no real permission and acted through this bot-only right
+        viaRight: v.optional(botRight),
     })
         .index("by_server_case", ["serverId", "caseNo"])
         .index("by_server_user", ["serverId", "targetId", "caseNo"])

@@ -21,7 +21,19 @@ import {
 } from "@neontechspace/fluxerly/effect"
 import { Cause, Clock, Data, Effect, Exit, Semaphore, type Types } from "effect"
 import { dmServerHint, serverLabel, serverOption, serverReply } from "./server-scope.ts"
-import { actionPermission, executeAction, observeAction, overwriteSnapshot } from "./action-executor.ts"
+import {
+    actionPermission,
+    executeAction,
+    observeAction,
+    overwriteSnapshot,
+    type JailLeftOut,
+} from "./action-executor.ts"
+import type { AntiNukeAction } from "@neonflux/contracts/anti-nuke"
+import { antiNukeRuntimes } from "./antinuke-worker.ts"
+import { confineOnly, holdJailed, jailSettingsOf, jailStaffChanged, letJailedGo, stopHolding } from "./jail-memory.ts"
+import { handleRightsCommand } from "./rights-management.ts"
+import { rightsHeldBy, rightsRuntimes } from "./rights-memory.ts"
+import type { RightsStore } from "./rights-store.ts"
 import type { BotConfig, BotRootConfig } from "./config.ts"
 import {
     actionNames,
@@ -78,6 +90,15 @@ export function moderationActor(authority: SafetyAuthority): ModerationActor {
         nativePermissionAuthorized: authority.nativePermissionAuthorized,
     }
 }
+/** What the backend needs to decide a bot-only right from, for an actor who has no real permission. Others act natively and send none */
+const rightEvidence = (authority: SafetyAuthority) =>
+    authority.nativePermissionAuthorized
+        ? {}
+        : {
+              originServerId: authority.guild.id,
+              rightRoleIds: authority.rightRoleIds,
+              ...(authority.channel && authority.actorViewsChannel ? { actorViewsChannel: true as const } : {}),
+          }
 export function actionContext(
     authority: SafetyAuthority,
     action?: ModerationActionType,
@@ -97,6 +118,8 @@ export function actionContext(
             : {}),
         ...(action === "lock" ? { botPostingPermissions: restorablePostingBits(authority.botServerPermissions) } : {}),
         ...(authority.target?.isBot ? { targetBot: true as const } : {}),
+        ...(action === "jail" && authority.target ? { targetRoleIds: [...authority.target.roleIds] } : {}),
+        ...rightEvidence(authority),
         ...(authority.channel &&
         "rateLimitPerUser" in authority.channel &&
         typeof authority.channel.rateLimitPerUser === "number"
@@ -159,7 +182,7 @@ export function initializeModeration(store: ModerationStore, config: BotConfig, 
 }
 
 // A post Fluxer refused, such as a DM to a member who closed them, did not arrive. Only an unknown result is uncertain
-function sendOutcome(operation: Effect.Effect<unknown, unknown>) {
+export function sendOutcome(operation: Effect.Effect<unknown, unknown>) {
     return Effect.gen(function* () {
         const result = yield* Effect.exit(operation)
         if (Exit.isFailure(result) && Cause.hasInterrupts(result.cause)) return yield* Effect.failCause(result.cause)
@@ -179,6 +202,8 @@ const noticeTitles = {
     timeout: "Timed out in",
     kick: "Kicked from",
     ban: "Banned from",
+    jail: "Jailed in",
+    unjail: "Released from jail in",
 } as const
 /** Sends the member's notice once. It never fails, so a notice that cannot go out never holds back the sanction beyond the DM's own 5 seconds */
 function sendNotice(
@@ -205,7 +230,7 @@ function sendNotice(
                 const length =
                     notice.action === "timeout" && notice.timeoutUntil
                         ? ` until ${at(Date.parse(notice.timeoutUntil))}`
-                        : notice.action === "ban" && notice.durationSeconds
+                        : (notice.action === "ban" || notice.action === "jail") && notice.durationSeconds
                           ? ` for ${duration(notice.durationSeconds)}`
                           : ""
                 const card: Card = {
@@ -249,6 +274,19 @@ function recordNotice(store: ModerationStore, serverId: string, notice: Moderati
     })
 }
 
+/** What anti-nuke counts an action through a right as. Only bans, kicks and unbans have counts of their own */
+const antiNukeActionOf = (action: ModerationActionType): AntiNukeAction =>
+    action === "ban" || action === "kick" || action === "unban" ? action : "restrict"
+/** What anti-nuke counts of a grant. A hacked moderator's !mod bans run under NeonFlux's name as much as a bot-only right does */
+export const antiNukeFedAction = (grant: Pick<ModerationActionGrant, "action" | "viaRight">) =>
+    grant.viaRight || grant.action === "ban" || grant.action === "kick" || grant.action === "unban"
+        ? antiNukeActionOf(grant.action)
+        : undefined
+const leftOutText = ({ deleted, above }: JailLeftOut) =>
+    [
+        ...above.map((id) => `${format.roleMention(id)}, which ranks above NeonFlux`),
+        ...deleted.map((id) => `Role ${id}, which was deleted`),
+    ].join("\n")
 /** Performs one grant and delivers its staff log and member notice */
 function performGrant(
     store: ModerationStore,
@@ -267,13 +305,23 @@ function performGrant(
             .dispatch({ serverId, actionId: grant.actionId, caseNo: grant.caseNo, dispatch: true })
             .pipe(
                 Effect.flatMap((claim) =>
-                    claim.notice
-                        ? sendNotice(client, serverId, grant, claim.notice, config).pipe(
-                              Effect.map((sent) => {
-                                  early = { notice: claim.notice!, sent }
-                              }),
-                          )
-                        : Effect.void,
+                    // The right this relied on was turned off, revoked or suspended since the reservation, so nothing goes out
+                    claim.rightWithdrawn
+                        ? Effect.fail(new ModerationHandlingError({ stage: "permissions" }))
+                        : claim.notice
+                          ? sendNotice(client, serverId, grant, claim.notice, config).pipe(
+                                Effect.map((sent) => {
+                                    early = { notice: claim.notice!, sent }
+                                }),
+                            )
+                          : Effect.void,
+                ),
+                // Only a dispatch the backend confirmed stops the hold, right before the edit, so the member update it causes is no role to
+                // take back, and a dispatch that failed leaves a rejoin held
+                Effect.tap(() =>
+                    Effect.sync(() => {
+                        if (grant.action === "unjail" && grant.targetId) stopHolding(serverId, grant.targetId)
+                    }),
                 ),
             )
         // A command's authority is trusted for 15 seconds, so a moderator revoked during a slow reservation never dispatches
@@ -281,15 +329,42 @@ function performGrant(
         // A grant that stopped being pending is never dispatched and its stored outcome is left alone
         const executed = expired
             ? { outcome: "failed" as const }
-            : yield* executeAction(client, serverId, actorId, grant, confirm, authority).pipe(
+            : // An action through a bot-only right reads the actor and target once more, so a fresh read decides it, not the command's
+              yield* executeAction(
+                  client,
+                  serverId,
+                  actorId,
+                  grant,
+                  confirm,
+                  grant.viaRight ? undefined : authority,
+              ).pipe(
                   Effect.catch((error) =>
                       error instanceof ModerationStoreError
                           ? Effect.fail(error)
                           : Effect.succeed({ outcome: "failed" as const }),
                   ),
               )
+        const { leftOut, ...recorded } = executed as typeof executed & { leftOut?: JailLeftOut }
+        if (grant.targetId) {
+            // Held only once confirmed, so a member update never sends a jail again whose outcome is unknown. The command gate and the backend's
+            // record keep such a member shut out until a read settles it
+            if (grant.action === "jail") {
+                if (executed.outcome === "succeeded") holdJailed(serverId, grant.targetId)
+                else if (executed.outcome === "uncertain") confineOnly(serverId, grant.targetId)
+            }
+            if (grant.action === "unjail") {
+                if (executed.outcome === "succeeded") letJailedGo(serverId, grant.targetId)
+                else if (executed.outcome === "uncertain") confineOnly(serverId, grant.targetId)
+                else holdJailed(serverId, grant.targetId)
+            }
+        }
+        // Its audit entry names NeonFlux, so this is the only record of what the member did through it. It comes before any bookkeeping that can
+        // fail, since the action already happened
+        const fed = antiNukeFedAction(grant)
+        if (fed && executed.outcome !== "failed")
+            yield* antiNukeRuntimes.get(serverId)?.observeBotAction(actorId, fed, client) ?? Effect.void
         if (early) yield* recordNotice(store, serverId, early.notice, early.sent)
-        const result = yield* store.outcome({ serverId, actionId: grant.actionId, caseNo: grant.caseNo, ...executed })
+        const result = yield* store.outcome({ serverId, actionId: grant.actionId, caseNo: grant.caseNo, ...recorded })
         if (!result.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
         // Staff type the log post's commands in the server, which needs no selector
         const command: SafetyCommandText = (feature, rest) => `${replyPrefix(serverId, serverId)}${feature} ${rest}`
@@ -302,7 +377,11 @@ function performGrant(
                         fields: [
                             ["Result", caseResult(log, command)],
                             ...(log.targetId ? [["Member", format.userMention(log.targetId)] as const] : []),
-                            ["By", format.userMention(actorId)],
+                            [
+                                "By",
+                                `${format.userMention(actorId)}${grant.viaRight ? `, through the ${grant.viaRight} bot-only right` : ""}`,
+                            ],
+                            ...(leftOut ? [["Roles left out", leftOutText(leftOut)] as const] : []),
                             ["Reason", reasonText(log.reason)],
                             ...(log.durationSeconds ? [["Duration", duration(log.durationSeconds)] as const] : []),
                             ["Details", code(command("mod", `show ${log.caseNo}`))],
@@ -338,6 +417,7 @@ function performGrant(
             outcome: executed.outcome,
             expired,
             logUncertain: Exit.isFailure(logDelivery),
+            ...(leftOut ? { leftOut } : {}),
             ...(notice ? { notice } : {}),
             ...(result.warningPenaltyDue ? { warningPenaltyDue: true as const } : {}),
         }
@@ -418,7 +498,25 @@ function lockSummary(owned: bigint) {
         : `The everyone overwrite now denies sending${owned === Permissions.SendMessages ? "" : " and the thread permissions NeonFlux holds"}. NeonFlux lacks ${missing.join(", ")} in this server, so those stay open. Grant them to NeonFlux to lock threads too`
 }
 
-function privateChannel(client: Client, userId: string, channelId?: string) {
+/** Whether a member outranks every one of these roles that still exists */
+const actorOutranks = (authority: Pick<SafetyAuthority, "guild" | "actor" | "roles">, roleIds: readonly string[]) => {
+    try {
+        return authority.roles
+            .filter((role) => roleIds.includes(role.id))
+            .every((role) =>
+                hierarchy.canManageRole({
+                    guild: authority.guild,
+                    actor: authority.actor,
+                    role,
+                    roles: authority.roles,
+                }),
+            )
+    } catch {
+        return false
+    }
+}
+
+export function privateChannel(client: Client, userId: string, channelId?: string) {
     return Effect.gen(function* () {
         const id = channelId ?? (yield* client.directMessages.open(userId, { timeoutMs: 5000 })).id
         yield* verifyPrivateAuthor(client, id, userId)
@@ -565,6 +663,7 @@ export function handleSafetyCommand(
     command: SafetyCommand,
     context: BotEventContext<"messageCreate">,
     privateInvocation = false,
+    rights?: RightsStore,
 ) {
     // The authority and action of a backend refusal, so its reply can name the fix
     let refused: { authority: SafetyAuthority; action: ModerationActionType } | undefined
@@ -585,6 +684,10 @@ export function handleSafetyCommand(
         const prefix = replyPrefix(config.serverId, message.guildId)
         if (command.kind === "help") {
             yield* respond(withPrefix(safetyHelp(name), prefix))
+            return
+        }
+        if (command.kind === "rights") {
+            yield* handleRightsCommand(rights, config, command.command, context)
             return
         }
         const source = { messageId: message.id, createdAt: yield* sourceTimestamp(message) }
@@ -652,7 +755,11 @@ export function handleSafetyCommand(
                 channelId: message.channelId,
             })
             purgeReadAt = yield* Clock.currentTimeMillis
-            if (!purgeAuthority.nativePermissionAuthorized) {
+            // Memory only decides whether to go on to the preview. The backend decides the purge from the stored grant
+            if (
+                !purgeAuthority.nativePermissionAuthorized &&
+                !rightsHeldBy(config.serverId, purgeAuthority.roleIds).includes("purge")
+            ) {
                 yield* respond(moderationFix("ACTOR_PERMISSION", purgeAuthority, "purge", client)!)
                 return
             }
@@ -742,7 +849,11 @@ export function handleSafetyCommand(
                     ? { permission: actionPermission(action.type)! }
                     : {}),
                 ...(action?.targetId
-                    ? { targetId: action.targetId, allowAbsentTarget: action.type === "ban" || action.type === "unban" }
+                    ? {
+                          targetId: action.targetId,
+                          allowAbsentTarget:
+                              action.type === "ban" || action.type === "unban" || action.type === "unjail",
+                      }
                     : {}),
                 ...(action?.channelId ? { channelId: action.channelId } : {}),
             }))
@@ -873,6 +984,9 @@ export function handleSafetyCommand(
                 observation,
             })
             if (!result.recorded) return yield* Effect.fail(new ModerationHandlingError({ stage: "outcome" }))
+            // The member as read settles a jail or unjail in doubt, so memory follows it
+            if (result.jailHeld !== undefined && record.case.targetId)
+                (result.jailHeld ? holdJailed : letJailedGo)(config.serverId, record.case.targetId)
             if (!dm) {
                 yield* replyCard(
                     context,
@@ -901,6 +1015,7 @@ export function handleSafetyCommand(
                 const recovery = yield* store.query({
                     serverId: config.serverId,
                     actor,
+                    ...rightEvidence(authority),
                     operation:
                         action.type === "unlock"
                             ? { type: "recovery-channel", channelId: action.channelId! }
@@ -914,6 +1029,36 @@ export function handleSafetyCommand(
                     linkedCaseNo: action.linkedCaseNo ?? recovery.recovery.caseNo,
                 }
                 nativeContext.recoveryGeneration = recovery.recovery.generation
+            }
+            // The actor must outrank what a release gives back, or a low-ranked moderator could hand a jailed senior member their roles. That
+            // holds for a later jail too, since a short new length is a release a minute later. A first jail has no record to compare
+            if (action.type === "unjail" || action.type === "jail") {
+                const first = action.type === "jail"
+                const record = yield* store
+                    .query({
+                        serverId: config.serverId,
+                        actor,
+                        ...rightEvidence(authority),
+                        operation: { type: "jail-record", targetId: action.targetId! },
+                    })
+                    .pipe(
+                        Effect.catchIf(
+                            (error) => first && error.status === 404,
+                            () => Effect.succeed(undefined),
+                        ),
+                    )
+                if (record && record.type !== "jail-record")
+                    return yield* Effect.fail(new ModerationHandlingError({ stage: "snapshot" }))
+                if (record && !authority.isOwner && !actorOutranks(authority, record.roleIds))
+                    nativeContext.actorCanManageTarget = false
+            }
+            // The fix for a role NeonFlux cannot use reads from memory, and the action checks it fresh again before it writes
+            if (action.type === "jail") {
+                const jailRole = authority.roles.find((role) => role.id === jailSettingsOf(config.serverId).roleId)
+                if (jailRole && !actorOutranks({ ...authority, actor: authority.bot }, [jailRole.id])) {
+                    yield* respond(fixSentence({ roles: [jailRole.id] }))
+                    return
+                }
             }
             operation = { type: "action", action, context: nativeContext }
         } else if (command.kind === "honeypot") {
@@ -939,6 +1084,11 @@ export function handleSafetyCommand(
         const result = yield* store.manage({ serverId: config.serverId, actor, ...source, operation })
         if (result.duplicate) return
         if (result.type === "settings") yield* applyDefconPresence(client, config, result.settings.defcon)
+        // Moderation staff may read the jail channel, so a change of them is written there
+        if (operation.type === "settings" && operation.patch.staffRoleIds?.moderation)
+            yield* jailStaffChanged(config.serverId)
+        if (result.type === "right-refused" && result.admitted)
+            yield* rightsRuntimes.get(config.serverId)?.notify() ?? Effect.void
         if (result.type === "case" && result.grant) {
             const outcome = yield* performActionGrant(
                 store,
@@ -954,7 +1104,10 @@ export function handleSafetyCommand(
                 linked = c.linkedCaseNo ? `. Linked to case #${c.linkedCaseNo}` : ""
             const done =
                 outcome.outcome === "uncertain"
-                    ? `is not confirmed yet. Run ${code(commandText("mod", `recover ${c.caseNo}`))} to check it`
+                    ? // A recovery check reads the member and needs the real permission, which a member acting through a right lacks
+                      result.grant.viaRight
+                        ? `is not confirmed yet. Someone with the real permission can check it with ${code(commandText("mod", `recover ${c.caseNo}`))}`
+                        : `is not confirmed yet. Run ${code(commandText("mod", `recover ${c.caseNo}`))} to check it`
                     : outcome.outcome
             const logged = outcome.logUncertain
                 ? ". The staff log may not have arrived, and NeonFlux does not send it again"
@@ -973,6 +1126,9 @@ export function handleSafetyCommand(
                 ? ". Your permissions were checked too long before the action, so nothing was done. Run the command again"
                 : ""
             const penalty = outcome.penaltyCaseNo ? `. Warning limit reached, see case #${outcome.penaltyCaseNo}` : ""
+            const leftOut = outcome.leftOut
+                ? `. Left out: ${[...outcome.leftOut.above.map((id) => format.roleMention(id)), ...outcome.leftOut.deleted.map((id) => `role ${id}`)].join(", ")}, ranked above NeonFlux or deleted`
+                : ""
             const lock =
                 c.action === "lock"
                     ? `. ${lockSummary(ownedPostingBits(result.grant))}. Other role or member grants may still permit them`
@@ -982,7 +1138,9 @@ export function handleSafetyCommand(
             const lasting = result.grant.durationSeconds
             const name = c.action === "ban" && !lasting ? "Permanent ban" : actionNames[c.action]
             const length =
-                lasting && ["ban", "timeout", "quarantine"].includes(c.action) ? ` for ${duration(lasting)}` : ""
+                lasting && ["ban", "timeout", "quarantine", "jail"].includes(c.action)
+                    ? ` for ${duration(lasting)}`
+                    : ""
             // A void is saved with its log case, which only the log delivery can fail
             if (operation.type === "case-void") {
                 yield* answer(context, `Case #${c.linkedCaseNo} voided. Logged as case #${c.caseNo}${logged}`)
@@ -990,7 +1148,7 @@ export function handleSafetyCommand(
             }
             yield* answer(
                 context,
-                `Case #${c.caseNo}: ${name}${c.targetId ? ` of ${format.userMention(c.targetId)}` : c.channelId ? ` in ${format.channelMention(c.channelId)}` : ""}${length} ${done}${linked}${expired}${notified}${logged}${penalty}${lock}`,
+                `Case #${c.caseNo}: ${name}${c.targetId ? ` of ${format.userMention(c.targetId)}` : c.channelId ? ` in ${format.channelMention(c.channelId)}` : ""}${length} ${done}${linked}${expired}${notified}${logged}${penalty}${lock}${leftOut}`,
             )
         } else
             yield* respond(

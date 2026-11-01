@@ -52,6 +52,8 @@ const familyNames: Partial<Record<string, string>> = {
     temproles: "Temporary role defaults",
     onboarding: "Newcomer checklist",
     alerts: "Security alerts",
+    lockdown: "Lockdown exempt channels",
+    antinuke: "Anti-nuke",
     helpdesk: "Help desk",
     helpdeskAnswer: "Saved answer",
     lfg: "Looking for group",
@@ -59,6 +61,12 @@ const familyNames: Partial<Record<string, string>> = {
     profile: "Profiles",
     youtube: "YouTube alerts for",
     twitch: "Twitch alerts for",
+    commandRule: "Command rule for",
+    feeds: "Feed posts for",
+    counters: "Counter channels",
+    counter: "Counter in channel",
+    boards: "Boards",
+    board: "Board",
 }
 const accessNames: Partial<Record<string, string>> = {
     rolepicker: "Role picker access",

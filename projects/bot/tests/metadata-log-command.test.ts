@@ -110,7 +110,7 @@ test("Status, categories and overrides are separate reports and overrides page w
 
 test("Every event type and audit action has a plain label", () => {
     for (const selector of metadataLogEventSelectors)
-        assert.match(metadataEventLabel(selector), /^[A-Z][A-Za-z ]+(: [A-Z][A-Za-z ]+)?$/, selector)
+        assert.match(metadataEventLabel(selector), /^[A-Z][A-Za-z -]+(: [A-Z][A-Za-z -]+)?$/, selector)
     assert.equal(metadataEventLabel("member-add"), "Member joined")
     assert.equal(metadataEventLabel("audit-entry:20"), "Audit: Member kicked")
     assert.equal(new Set(metadataLogEventSelectors.map(metadataEventLabel)).size, metadataLogEventSelectors.length)

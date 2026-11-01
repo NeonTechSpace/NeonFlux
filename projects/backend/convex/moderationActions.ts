@@ -8,9 +8,13 @@ import type {
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
+import { JAIL_RECORD_LIMIT } from "@neonflux/contracts/jail"
 import { warningLimit } from "@neonflux/contracts/moderation"
 import { DAY, LOCK_PERMISSIONS, lockMask, ownedPostingBits, retentionUntil, SEND_MESSAGES } from "./moderationDomain.ts"
 import { publicCase, state } from "./moderationStore.ts"
+import { jailedRows, publicJailSettings, readJailRecord, readJailSettings } from "./jailStore.ts"
+import { lockdownHolds } from "./lockdownStore.ts"
+import type { RightsVia } from "./rightsStore.ts"
 import { fail } from "./validation.ts"
 
 export function ownedOverwriteEqual(
@@ -77,6 +81,8 @@ export async function reserveAction(
         ruleName?: string
         blocked?: boolean
         now: number
+        /** The bot-only right the actor passed the native check through */
+        via?: RightsVia
     },
 ) {
     const { serverId, settings, context, origin, now } = options,
@@ -87,9 +93,18 @@ export async function reserveAction(
     let expectedOverwrite
     let expectedTimeoutUntil: string | null | undefined
     let lockBits: bigint | undefined
-    const userAction = ["warn", "kick", "ban", "unban", "timeout", "untimeout", "quarantine", "release"].includes(
-        input.type,
-    )
+    const userAction = [
+        "warn",
+        "kick",
+        "ban",
+        "unban",
+        "timeout",
+        "untimeout",
+        "quarantine",
+        "release",
+        "jail",
+        "unjail",
+    ].includes(input.type)
     const channelAction = ["delete", "purge", "slowmode", "lock", "unlock"].includes(input.type)
     if ((userAction && !input.targetId) || (channelAction && !input.channelId)) fail(400, "Invalid action target")
     if (input.type !== "log") {
@@ -186,6 +201,13 @@ export async function reserveAction(
             .withIndex("by_server_channel", (q) => q.eq("serverId", serverId).eq("channelId", input.channelId!))
             .take(1001)
         if (existing.some((r) => r.type === "lock")) fail(409, "Channel recovery already active")
+        // A lock taken now would remember the lockdown's denial as the channel's own and keep it after both end
+        if (await lockdownHolds(ctx, serverId, input.channelId!))
+            fail(
+                409,
+                "The server-wide lockdown already locks this channel. Lift it with !lockdown off first",
+                "REFUSED",
+            )
         expectedOverwrite = context.currentOverwrite
         lockBits = ownedPostingBits(LOCK_PERMISSIONS, context.botPostingPermissions)
         writeOverwrite = {
@@ -199,6 +221,37 @@ export async function reserveAction(
         if (input.linkedCaseNo !== undefined && input.linkedCaseNo !== recovery.caseNo)
             fail(409, "Recovery case mismatch")
         input.linkedCaseNo = recovery.caseNo
+    }
+    // A first jail stores the member's roles before anything is sent. A later jail of the same member changes only its length and reason,
+    // and an unconfirmed one must be checked first, since a repeat would store the jail role itself as the member's roles
+    let jailRoleId: string | undefined
+    const jailRecord =
+        input.type === "jail" || input.type === "unjail" ? await readJailRecord(ctx, serverId, input.targetId!) : null
+    if (input.type === "jail") {
+        const jail = publicJailSettings(await readJailSettings(ctx, serverId))
+        if (!jail.enabled || !jail.roleId || !jail.channelId)
+            fail(409, "Jail isn't set up. Run !jail setup, or turn it on with !jail module on", "REFUSED")
+        if (!context.targetRoleIds) fail(400, "Role snapshot required")
+        if (jailRecord && jailRecord.state !== "active")
+            fail(
+                409,
+                `Case #${jailRecord.releaseCaseNo ?? jailRecord.caseNo} of that member isn't confirmed yet. Check it with !mod recover first`,
+                "REFUSED",
+            )
+        if (!jailRecord) {
+            if ((await jailedRows(ctx, serverId, JAIL_RECORD_LIMIT)).length >= JAIL_RECORD_LIMIT)
+                fail(429, `A server can hold ${JAIL_RECORD_LIMIT} jailed members at once`, "REFUSED")
+            jailRoleId = jail.roleId
+        }
+    }
+    if (input.type === "unjail") {
+        if (!jailRecord) fail(404, "That member isn't jailed", "REFUSED")
+        if (jailRecord.state !== "active")
+            fail(
+                409,
+                `Case #${jailRecord.releaseCaseNo ?? jailRecord.caseNo} of that member isn't confirmed yet. Check it with !mod recover first`,
+                "REFUSED",
+            )
     }
     const current = await state(ctx, serverId)
     const caseNo = current.nextCaseNo
@@ -220,6 +273,7 @@ export async function reserveAction(
         ...(options.ruleName ? { ruleName: options.ruleName } : {}),
         ...(input.linkedCaseNo ? { linkedCaseNo: input.linkedCaseNo } : {}),
         ...(context.targetBot ? { targetBot: true } : {}),
+        ...(options.via ? { viaRight: options.via.right } : {}),
         createdAt: now,
         expiresAt: retentionUntil(settings, now),
         outcome: "pending",
@@ -252,6 +306,31 @@ export async function reserveAction(
         })
         recovery = (await ctx.db.get(recoveryId))!
     }
+    if (input.type === "jail") {
+        const releaseAt = input.durationSeconds ? now + input.durationSeconds * 1000 : undefined
+        if (jailRecord)
+            await ctx.db.patch(jailRecord._id, {
+                ...(releaseAt !== undefined ? { releaseAt, timed: true as const, nextCheckAt: releaseAt } : {}),
+            })
+        else
+            await ctx.db.insert("jailRecords", {
+                serverId,
+                userId: input.targetId!,
+                state: "jailing",
+                roleIds: context.targetRoleIds!.filter((id) => id !== jailRoleId),
+                caseNo,
+                ...(options.actor ? { actorId: options.actor.userId } : {}),
+                createdAt: now,
+                ...(releaseAt !== undefined ? { releaseAt } : {}),
+            })
+    }
+    if (input.type === "unjail")
+        await ctx.db.patch(jailRecord!._id, {
+            state: "releasing",
+            releaseCaseNo: caseNo,
+            timed: undefined,
+            nextCheckAt: undefined,
+        })
     if (recovery) {
         const reversal = ["release", "unlock"].includes(input.type)
             ? { reversalState: { generation: recovery.generation, status: recovery.status as "active" | "uncertain" } }
@@ -277,6 +356,9 @@ export async function reserveAction(
         ...(expectedOverwrite ? { expectedOverwrite } : {}),
         ...(lockBits !== undefined ? { ownedPermissions: String(lockBits) } : {}),
         ...(recovery ? { recoveryId: recovery._id } : {}),
+        ...(options.via ? { viaRight: options.via.right, rightRoleIds: [...options.via.roleIds] } : {}),
+        ...(jailRoleId ? { jailRoleId, expectedRoleIds: [...context.targetRoleIds!] } : {}),
+        ...(input.type === "unjail" ? { restoreRoleIds: [...jailRecord!.roleIds] } : {}),
     }
     await ctx.db.patch(id, { grant })
     return { case: publicCase((await ctx.db.get(id))!), grant }

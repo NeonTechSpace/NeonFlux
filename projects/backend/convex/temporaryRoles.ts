@@ -14,6 +14,7 @@ import {
 import type { MutationCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { serviceMutation, serviceQuery } from "./serviceGuard.ts"
+import { dropJailedRole } from "./jailStore.ts"
 import { actor, administrator } from "./moderationDomain.ts"
 import { configurationRevision } from "./configurationRevision.ts"
 import { changeConfiguration } from "./configurationChange.ts"
@@ -107,6 +108,25 @@ async function releaseTemporaryReference(
 }
 
 /**
+ * A temporary role that ended during a jail, or whose ownership a rejoin ends, does not come back with the unjail. As outside a jail, that holds
+ * only for a role NeonFlux added and no other feature still needs, so it reads before the grant's reference goes, and a role a panel or level
+ * reward requires stays stored
+ */
+async function dropEndedFromJail(
+    ctx: MutationCtx,
+    serverId: string,
+    member: Pick<RolesMemberContext, "userId" | "joinedAt">,
+    roleId: string,
+) {
+    const owner = await roleOwner(ctx, serverId, member, roleId)
+    if (
+        owner?.owned &&
+        !(await ownerReferences(ctx, owner._id)).some((x) => x.desired && x.consumerKey !== TEMPORARY_ROLE_KEY)
+    )
+        await dropJailedRole(ctx, serverId, member.userId, roleId)
+}
+
+/**
  * The role change a grant needs now. Before its end the member should hold the role, and after it NeonFlux removes the role, but only
  * when it added the role itself and no other feature still needs it. A grant whose role needs no removal is deleted here
  */
@@ -152,8 +172,10 @@ export async function evaluateTemporaryRole(
                 )
                 return { ...(await result("reserved")), grant }
             }
-            await releaseTemporaryReference(ctx, serverId, member, roleId, now)
         }
+        await dropEndedFromJail(ctx, serverId, member, roleId)
+        if (owner && refs.some((x) => x.consumerKey === TEMPORARY_ROLE_KEY))
+            await releaseTemporaryReference(ctx, serverId, member, roleId, now)
         await ctx.db.delete(row._id)
         return result("unchanged")
     }
@@ -368,6 +390,9 @@ export const work = serviceMutation({
             const moved: Doc<"temporaryRoleGrants">[] = []
             for (const row of rows) {
                 if (Date.parse(row.joinedAt) >= joined) continue
+                // Rejoining ends the old membership's ownership, so a role left in the stored roles would come back owned by nothing and stay for
+                // good. A running grant gives it back itself after the release, with ownership
+                await dropEndedFromJail(ctx, serverId, row, row.roleId)
                 await releaseTemporaryReference(ctx, serverId, row, row.roleId, now)
                 if (now >= row.endsAt) {
                     await ctx.db.delete(row._id)
@@ -418,6 +443,7 @@ export const work = serviceMutation({
                 return { type: "recorded", recorded: true, held: true }
             }
         }
+        await dropEndedFromJail(ctx, serverId, row, row.roleId)
         await releaseTemporaryReference(ctx, serverId, { userId: row.userId, joinedAt: row.joinedAt }, row.roleId, now)
         await ctx.db.delete(row._id)
         return { type: "recorded", recorded: true }

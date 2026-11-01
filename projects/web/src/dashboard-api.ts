@@ -30,6 +30,8 @@ export const dashboardApi = {
     rolePickerRequest: api.rolePicker.request,
     showcaseMember: api.showcases.member,
     showcaseRequest: api.showcases.request,
+    voiceMember: api.voice.member,
+    voiceRequest: api.voice.request,
     profileMember: api.profiles.member,
     profileRequest: api.profiles.request,
     profileRemove: api.profiles.remove,

@@ -21,10 +21,11 @@ import {
 import { Effect, Schema } from "effect"
 import { createBackendRequest } from "./backend-http.ts"
 import type { BackendConfig } from "./config.ts"
-import { readServerManagerAuthority, withPrefix } from "./general-settings.ts"
+import { managerReadFailed, readServerManagerAuthority, withPrefix } from "./general-settings.ts"
 import { nextPosition, noNextPage, pageKey, rememberPosition } from "./paging.ts"
 import { fixSentence, labelList, permissionNames, sentenceList } from "./permission-fix.ts"
 import { ago, clip, code, notSetUp, replyCard, replyText } from "./reply-style.ts"
+import { rightsAboveDefault, type BotRight, type RightsSettings } from "@neonflux/contracts/rights"
 import { readAuthenticatedBotId, readSafetyAuthority } from "./safety-permissions.ts"
 import { alertActionPermissions } from "./alerts-worker.ts"
 
@@ -153,7 +154,12 @@ const features: Record<DashboardOverviewSection, { name: string; permissions: bi
     voice: {
         name: "Temporary voice rooms",
         permissions:
-            Permissions.ManageChannels | Permissions.MoveMembers | Permissions.ManageRoles | Permissions.Connect,
+            Permissions.ManageChannels |
+            Permissions.MoveMembers |
+            Permissions.ManageRoles |
+            Permissions.Connect |
+            Permissions.AddReactions |
+            Permissions.ManageMessages,
         on: 'Add a generator with `!voice generator add "Join to create"`',
     },
     analytics: { name: "Analytics", permissions: 0n, on: "Turn it on with `!stats on`" },
@@ -192,12 +198,70 @@ const features: Record<DashboardOverviewSection, { name: string; permissions: bi
         on: "Follow a channel with `!youtube add <channel-ID> #channel`",
         setup: "Fix what `!youtube status` names, then turn each channel back on with `!youtube add <channel-ID> #channel`",
     },
+    lockdown: {
+        name: "Server-wide lockdown",
+        permissions: Permissions.ManageRoles,
+        on: "Start one with `!lockdown on [reason]`, and leave a channel out with `!lockdown exempt add #channel`",
+    },
+    jail: {
+        name: "Jail",
+        permissions: Permissions.ManageRoles | Permissions.ManageChannels,
+        on: "Start with `!jail setup`, then jail a member with `!mod jail @member [length] [reason]`",
+        setup: "Finish it with `!jail setup`, which makes the role and channel and closes the other channels",
+    },
+    rights: {
+        name: "Bot-only staff rights",
+        permissions: 0n,
+        on: "Only the server owner turns it on, with `!mod rights on`. Then `!mod rights grant @role <rights>`",
+        setup: "Give a role something to do with `!mod rights grant @role <rights>`, or turn it off with `!mod rights off`",
+    },
+    antinuke: {
+        name: "Anti-nuke",
+        permissions: Permissions.ViewAuditLog | Permissions.ManageRoles | Permissions.KickMembers,
+        on: "Turn it on with `!antinuke module on`, which starts in dry-run. It needs View activity log to see what accounts do",
+        setup: "Choose where its alerts go with `!logs channel #channel`, or turn on metadata logs and send the security category to a staff channel with `!logs metadata route security`",
+    },
     // Alerts need permissions only in their channels, which NeonFlux checks before each alert
     twitch: {
         name: "Twitch alerts",
         permissions: 0n,
         on: "Follow a streamer with `!twitch add <login> #channel`",
         setup: "Fix what `!twitch status` names, then turn each streamer back on with `!twitch add <login> #channel`",
+    },
+    // A reminder goes by DM, and NeonFlux checks a channel only when a DM cannot be sent
+    reminders: {
+        name: "Personal reminders",
+        permissions: 0n,
+        on: "Turn them on with `!remind module on`",
+        setup: "Turn them on with `!remind module on`",
+    },
+    // A giveaway's card needs permissions only in its channel, which NeonFlux checks before it posts
+    giveaways: {
+        name: "Giveaways",
+        permissions: 0n,
+        on: "Turn them on with `!giveaway module on`, then start one with `!giveaway start 1d 1 #channel <prize>`",
+        setup: "Fix what `!giveaway list` names",
+    },
+    // A counter is renamed with Manage channels. Its own channel may grant it, and a rename Fluxer refuses says so
+    counters: {
+        name: "Counter channels",
+        permissions: 0n,
+        on: 'Add one with `!counter add members #channel "Members: {count}"`',
+        setup: 'Fix what `!counter list` names, then turn each counter back on with `!counter set #channel "Name: {count}"`',
+    },
+    // Posts need permissions only in their channels, which NeonFlux checks before each post
+    boards: {
+        name: "Boards",
+        permissions: 0n,
+        on: "Add one with `!board add stars ⭐ #starboard`",
+        setup: "Fix what `!board list` names, then turn each board back on with `!board set <name> channel #channel`",
+    },
+    // Posts need permissions only in their channels, which NeonFlux checks before each post
+    feeds: {
+        name: "Bluesky and X feeds",
+        permissions: 0n,
+        on: "Follow an account with `!feed add bluesky <handle> #channel`",
+        setup: "Fix what `!feed status` names, then turn each account back on with `!feed add bluesky <handle> #channel`",
     },
 }
 const featureName = (feature: DashboardOverviewSection | "general") =>
@@ -352,7 +416,9 @@ function readSafetyAudit(
         if (on("moderation"))
             for (const staffClass of Object.keys(staffPermissions) as StaffClass[]) {
                 for (const role of roles.filter((role) => status.staffRoleIds[staffClass].includes(role.id))) {
-                    const held = role.permissions | (everyone?.permissions ?? 0n)
+                    // A right the role holds through NeonFlux stands in for the permission its commands would check
+                    const held =
+                        role.permissions | (everyone?.permissions ?? 0n) | rightPermissions(status.rights, role.id)
                     const lacking =
                         (held & Permissions.Administrator) !== 0n ? 0n : staffPermissions[staffClass] & ~held
                     if (lacking)
@@ -364,6 +430,18 @@ function readSafetyAudit(
                         })
                 }
             }
+        // Limits above the default let a hacked staff account do more through NeonFlux before anything stops it
+        if (status.rights?.grants.length) {
+            const raised = rightsAboveDefault(status.rights.limits)
+            if (raised.length) problems.push({ kind: "rights-limits", rights: [...raised] })
+        }
+        // Anti-nuke can only alert about members who hold these, so the owner should know while it is on
+        if (on("antinuke")) {
+            const botId = yield* readAuthenticatedBotId(client),
+                bot = yield* client.members.fetch({ guildId: serverId, userId: botId }, { timeoutMs: 5000 })
+            const above = risky.filter((role) => !hierarchy.canManageRole({ guild, actor: bot, role, roles }))
+            if (above.length) problems.push({ kind: "antinuke-rank", roles: above.map(named) })
+        }
         const bypassing = roleGrantingFeatures.filter(on)
         if ((guild.verificationLevel ?? 0) > 0 && bypassing.length)
             problems.push({ kind: "verification-bypass", features: bypassing })
@@ -371,6 +449,22 @@ function readSafetyAudit(
     })
 }
 
+const rightBits: Record<BotRight, bigint> = {
+    kick: Permissions.KickMembers,
+    ban: Permissions.BanMembers,
+    timeout: Permissions.ModerateMembers,
+    purge: Permissions.ManageMessages,
+    slowmode: Permissions.ManageChannels,
+    lock: Permissions.ManageRoles,
+    quarantine: Permissions.ModerateMembers,
+    jail: Permissions.ManageRoles,
+}
+/** The real permissions a role needs no longer because it holds their rights */
+const rightPermissions = (rights: RightsSettings | undefined, roleId: string) =>
+    (rights?.grants.find((grant) => grant.roleId === roleId)?.rights ?? []).reduce(
+        (bits, right) => bits | rightBits[right],
+        0n,
+    )
 const staffCommands: Record<StaffClass, string> = {
     moderation: "!mod",
     security: "!security",
@@ -378,9 +472,16 @@ const staffCommands: Record<StaffClass, string> = {
     automod: "!automod",
     appeals: "!appeal",
 }
-type Safety = Extract<SetupProblem, { kind: "dangerous-role" | "staff-permissions" | "verification-bypass" }>
+type Safety = Extract<
+    SetupProblem,
+    { kind: "dangerous-role" | "staff-permissions" | "verification-bypass" | "antinuke-rank" | "rights-limits" }
+>
 const isSafety = (problem: SetupProblem): problem is Safety =>
-    problem.kind === "dangerous-role" || problem.kind === "staff-permissions" || problem.kind === "verification-bypass"
+    problem.kind === "dangerous-role" ||
+    problem.kind === "staff-permissions" ||
+    problem.kind === "verification-bypass" ||
+    problem.kind === "antinuke-rank" ||
+    problem.kind === "rights-limits"
 /** A safety warning as a sentence that names its fix */
 function safetyText(problem: Safety) {
     const them = (names: readonly string[]) => (names.length > 1 ? "them" : "it")
@@ -388,6 +489,10 @@ function safetyText(problem: Safety) {
         return problem.members === undefined
             ? `The everyone role gives ${labelList(problem.permissions)} to every member. Remove ${them(problem.permissions)} from that role`
             : `${format.roleMention(problem.role.id)} gives ${labelList(problem.permissions)} to ${problem.members} members. Keep ${them(problem.permissions)} on a role only trusted staff hold`
+    if (problem.kind === "antinuke-rank")
+        return `Anti-nuke cannot stop members holding ${sentenceList(problem.roles.map((role) => format.roleMention(role.id)))}, which rank at or above NeonFlux. Move NeonFlux's role above them`
+    if (problem.kind === "rights-limits")
+        return `Bot-only staff rights are on with limits above the default for ${sentenceList([...problem.rights])}. A hacked staff account can do that much through NeonFlux before it is stopped. Lower them with \`!mod rights limit\``
     if (problem.kind === "staff-permissions")
         return `The ${problem.staffClass} staff role ${format.roleMention(problem.role.id)} lacks ${labelList(problem.permissions)}, which its ${staffCommands[problem.staffClass]} commands need. Grant ${them(problem.permissions)} to the role`
     return (
@@ -452,8 +557,9 @@ export function handleHealthCommand(
     context: BotEventContext<"messageCreate">,
 ) {
     return Effect.gen(function* () {
-        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) {
-            yield* reply(context, managerOnly)
+        const manager = yield* readServerManagerAuthority(context.client, serverId, context.message.author.id)
+        if (!manager) {
+            yield* reply(context, manager === undefined ? managerReadFailed : managerOnly)
             return
         }
         const view = args[0],
@@ -558,8 +664,9 @@ export function handleSetupCommand(
     context: BotEventContext<"messageCreate">,
 ) {
     return Effect.gen(function* () {
-        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) {
-            yield* reply(context, managerOnly)
+        const manager = yield* readServerManagerAuthority(context.client, serverId, context.message.author.id)
+        if (!manager) {
+            yield* reply(context, manager === undefined ? managerReadFailed : managerOnly)
             return
         }
         if (!store) {
@@ -633,6 +740,14 @@ const areas: Record<Area, string> = {
     helpdesk: "Help desk",
     youtube: "YouTube alerts",
     twitch: "Twitch alerts",
+    lockdown: "Lockdown",
+    antinuke: "Anti-nuke",
+    jail: "Jail",
+    rights: "Bot-only rights",
+    feeds: "Bluesky and X feeds",
+    counters: "Counter channels",
+    boards: "Boards",
+    giveaways: "Giveaways",
     removals: "Role removals",
 }
 const areaOf = (entry: RecoveryEntry): Area =>
@@ -671,8 +786,14 @@ export function handleRecoveryCommand(
     context: BotEventContext<"messageCreate">,
 ) {
     return Effect.gen(function* () {
-        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) {
-            yield* reply(context, "Only the server owner or members with Manage community can read the recovery inbox")
+        const manager = yield* readServerManagerAuthority(context.client, serverId, context.message.author.id)
+        if (!manager) {
+            yield* reply(
+                context,
+                manager === undefined
+                    ? managerReadFailed
+                    : "Only the server owner or members with Manage community can read the recovery inbox",
+            )
             return
         }
         const last = args.at(-1),

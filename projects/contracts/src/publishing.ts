@@ -20,6 +20,9 @@ import { MilestonesDeliveryContext } from "./milestones.ts"
 import { SuggestionsCardContext } from "./suggestions.ts"
 import { YoutubeDeliveryContext } from "./youtube.ts"
 import { TwitchDeliveryContext } from "./twitch.ts"
+import { FeedDeliveryContext } from "./feeds.ts"
+import { BoardDeliveryContext } from "./boards.ts"
+import { GiveawayDeliveryContext } from "./giveaways.ts"
 
 // Drafts, templates and the posts NeonFlux tracks, see docs/BOT.md#publishing-and-scheduled-publishing
 
@@ -74,6 +77,9 @@ export const PublishingDispatchRequest = Schema.Struct({
     suggestionContext: optional(SuggestionsCardContext),
     youtubeContext: optional(YoutubeDeliveryContext),
     twitchContext: optional(TwitchDeliveryContext),
+    feedContext: optional(FeedDeliveryContext),
+    boardContext: optional(BoardDeliveryContext),
+    giveawayContext: optional(GiveawayDeliveryContext),
     dashboardContext: optional(DashboardPublishingContext),
 })
 export type PublishingDispatchRequest = typeof PublishingDispatchRequest.Type

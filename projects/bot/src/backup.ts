@@ -1235,13 +1235,21 @@ const familyNames: Partial<Record<string, string>> = {
     temproles: "Temporary role defaults",
     onboarding: "Newcomer checklist",
     alerts: "Security alerts",
+    lockdown: "Lockdown exempt channels",
+    antinuke: "Anti-nuke",
     helpdesk: "Help desk",
     helpdeskAnswer: "Saved answer",
+    commandRule: "Command rule",
     lfg: "Looking for group",
     showcase: "Showcases",
     profile: "Profiles",
     youtube: "YouTube alerts for",
     twitch: "Twitch alerts for",
+    feeds: "Feed posts for",
+    counters: "Counter channels",
+    counter: "Counter in channel",
+    boards: "Boards",
+    board: "Board",
 }
 const accessNames: Partial<Record<string, string>> = {
     rolepicker: "Role picker access",
@@ -1268,6 +1276,7 @@ function itemTarget(i: {
     if (i.family === "cleanupPolicy") return `Message cleanup in ${format.channelMention(i.sourceId)}`
     if (i.family === "voiceGenerator") return `Voice generator ${format.channelMention(i.sourceId)}`
     if (i.family === "sticky") return `Sticky message in ${format.channelMention(i.sourceId)}`
+    if (i.family === "commandRule") return `Rule for !${i.sourceId}`
     if (i.family === "access") return accessNames[i.sourceId] ?? `${capital(i.sourceId)} access`
     if (i.family === "milestoneRoute") return `${capital(i.sourceId)} posts`
     const kind = i.sourceId.slice(0, i.sourceId.indexOf("_")),

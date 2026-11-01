@@ -3005,3 +3005,82 @@ test("A category asks 25 questions and takes 250 support roles, and its ticket c
     assert.equal(stored.answers.length, 25)
     assert(stored.answers.every((answer: string) => answer === "Synthetic private answer"))
 })
+
+test("A jailed member can open only a private ticket, since a public one shows their text to the whole server", async (test) => {
+    const f = fixture(test),
+        c = await f.configure("public", ["Synthetic question"], "90")
+    const draft = await f.draft(c)
+    await f.t.run((ctx) =>
+        ctx.db.insert("jailRecords", {
+            serverId: "1",
+            userId: requester.userId,
+            state: "active",
+            roleIds: [],
+            caseNo: 1,
+            createdAt: 1,
+        }),
+    )
+    const refused = await f.submit(draft)
+    assert.equal(refused.status, 403)
+    assert.match(((await refused.json()) as { error: string }).error, /only a private ticket/)
+    const opened = await f.intake({ type: "open", categoryName: c.name, expectedCategoryRevision: c.revision })
+    assert.equal(opened.status, 403)
+    assert.match(((await opened.json()) as { error: string }).error, /only a private ticket/)
+})
+
+test("A jailed member can still open a private ticket", async (test) => {
+    const f = fixture(test),
+        c = await f.configure("private", ["Synthetic question"])
+    await f.t.run((ctx) =>
+        ctx.db.insert("jailRecords", {
+            serverId: "1",
+            userId: requester.userId,
+            state: "active",
+            roleIds: [],
+            caseNo: 1,
+            createdAt: 1,
+        }),
+    )
+    const opened = await f.intake({ type: "open", categoryName: c.name, expectedCategoryRevision: c.revision })
+    assert.equal(opened.status, 200)
+})
+
+const jailRequester = (f: ReturnType<typeof fixture>) =>
+    f.t.run((ctx) =>
+        ctx.db.insert("jailRecords", {
+            serverId: "1",
+            userId: requester.userId,
+            state: "active",
+            roleIds: [],
+            caseNo: 1,
+            createdAt: 1,
+        }),
+    )
+test("A public ticket stays closed while its requester is jailed, whoever asks", async (test) => {
+    const f = fixture(test),
+        open = await f.opened(await f.configure("public", ["Synthetic question"], "90")),
+        closed = await f.transition("close", open.ticket, open.channel)
+    await jailRequester(f)
+    for (const actor of [requester, support]) {
+        const refused = await f.manage(
+            { type: "reopen", ticketNo: closed.ticket.ticketNo, expectedGeneration: closed.ticket.generation },
+            actor,
+            closed.channel,
+        )
+        assert.equal(refused.status, 409)
+        assert.match(((await refused.json()) as { error: string }).error, /stays closed while its requester is jailed/)
+    }
+})
+
+test("A private ticket of a jailed requester still reopens", async (test) => {
+    const f = fixture(test),
+        open = await f.opened(),
+        closed = await f.transition("close", open.ticket, open.channel)
+    await jailRequester(f)
+    const reopened = await f.manage(
+        { type: "reopen", ticketNo: closed.ticket.ticketNo, expectedGeneration: closed.ticket.generation },
+        requester,
+        closed.channel,
+    )
+    assert.equal(reopened.status, 200)
+})

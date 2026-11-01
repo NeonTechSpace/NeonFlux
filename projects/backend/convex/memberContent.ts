@@ -12,9 +12,9 @@ import { internal } from "./_generated/api.js"
 import { decode, fail } from "./validation.ts"
 import { ringWork } from "./workSignal.ts"
 
-// Website requests of showcases and profiles. They share the dashboard job table under their own families, and the bot
+// Website requests of showcases, profiles and voice rooms. They share the dashboard job table under their own families, and the bot
 // handles them with a fresh read of the member, as role picker requests do
-type MemberContentFamily = "member-showcase" | "member-profile"
+type MemberContentFamily = "member-showcase" | "member-profile" | "member-voice"
 const MEMBER_REQUEST_MS = 120000
 // Request records follow the dashboard job retention of one day
 const MEMBER_REQUEST_RETENTION_MS = 86400000
@@ -104,13 +104,13 @@ export async function memberRequestJob(
         fail(403, "Member request grant mismatch")
     return job
 }
-/** Up to four queued requests the bot can still act on, oldest first */
+/** Up to four queued requests the bot can still act on and has not claimed, oldest first */
 export async function readyMemberRequests(ctx: Pick<QueryCtx, "db">, serverId: string, family: MemberContentFamily) {
     const rows = await ctx.db
         .query("dashboardConfigurationJobs")
         .withIndex("by_family_work", (q) => q.eq("serverId", serverId).eq("family", family).eq("state", "queued"))
         .take(8)
-    return rows.filter((row) => row.expiresAt > Date.now()).slice(0, 4)
+    return rows.filter((row) => row.expiresAt > Date.now() && row.claimedAt === undefined).slice(0, 4)
 }
 /** The member's recent requests, newest first */
 export const recentMemberRequests = (

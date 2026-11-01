@@ -97,7 +97,7 @@ test("voice values are validated like other text settings, with clear errors", (
         ["transfer", "<@88>", "<@89>"],
         ["claim", "<#77>"],
         ["kick", "<@88>"],
-        ["lock"],
+        ["lock", "now"],
         ["generator", "set", "55", "unknown", "x"],
         ["generator", "remove"],
     ]) {
@@ -107,4 +107,34 @@ test("voice values are validated like other text settings, with clear errors", (
     assert.equal(voicePublic(parseVoiceCommand(["rename", "Room"])), true)
     assert.equal(voicePublic(parseVoiceCommand(["generator", "list"])), false)
     assert.equal(voicePublic(parseVoiceCommand(["bogus"])), false)
+})
+
+test("lock, unlock, panel and region parse with an optional room, and generators set the card", () => {
+    assert.deepEqual(parseVoiceCommand(["lock"]), { type: "lock" })
+    assert.deepEqual(parseVoiceCommand(["UNLOCK", "<#100000000000001>"]), {
+        type: "unlock",
+        roomId: "100000000000001",
+    })
+    assert.deepEqual(parseVoiceCommand(["panel"]), { type: "panel" })
+    assert.deepEqual(parseVoiceCommand(["panel", "<#100000000000001>"]), { type: "panel", roomId: "100000000000001" })
+    assert.deepEqual(parseVoiceCommand(["lock", "now"]), { error: "Check the voice command syntax. Use !voice help" })
+    assert.deepEqual(parseVoiceCommand(["region", "eu-west"]), { type: "region", region: "eu-west" })
+    assert.deepEqual(parseVoiceCommand(["region", "AUTO"]), { type: "region", region: null })
+    assert.deepEqual(parseVoiceCommand(["region", "<#100000000000001>", "auto"]), {
+        type: "region",
+        roomId: "100000000000001",
+        region: null,
+    })
+    for (const args of [["region"], ["region", "not*valid"], ["region", "a", "b"]])
+        assert.match((parseVoiceCommand(args) as { error: string }).error, /^Regions are auto/)
+    assert.deepEqual(parseVoiceCommand(["generator", "set", "<#100000000000001>", "panel", "OFF"]), {
+        type: "generator-set",
+        channelId: "100000000000001",
+        patch: { panel: false },
+    })
+    assert.deepEqual(parseVoiceCommand(["generator", "set", "<#100000000000001>", "panel", "maybe"]), {
+        error: "Check the voice command syntax. Use !voice help",
+    })
+    assert.ok(voicePublic({ type: "lock" }))
+    assert.ok(voicePublic({ type: "region", region: null }))
 })

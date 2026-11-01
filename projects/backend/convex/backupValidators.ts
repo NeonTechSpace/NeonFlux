@@ -1,4 +1,5 @@
 import { v } from "convex/values"
+import { antiNukeLimit } from "./antiNukeValidators.ts"
 import { moderationSettings, automodRule } from "./moderationValidators.ts"
 import { responseReply, responseTrigger, responseKind } from "./responseValidators.ts"
 import { publishingContent, publishingKind } from "./publishingValidators.ts"
@@ -10,6 +11,8 @@ import { milestoneKind, milestoneFold, milestoneTemplate } from "./milestonesVal
 import { metadataRouteValidator, metadataEventRouteValidator } from "./metadataLogsValidators.ts"
 import { eventsCalendar, eventsTemplate } from "./eventsValidators.ts"
 import { scheduleCalendar, scheduleSource } from "./schedulesValidators.ts"
+import { counterKind } from "./countersValidators.ts"
+import { feedProvider } from "./feedValidators.ts"
 import { memberAccessFields } from "./rolePickerValidators.ts"
 import { temporaryRoleDefault } from "./temporaryRolesValidators.ts"
 import { onboardingStep } from "./onboardingValidators.ts"
@@ -92,6 +95,7 @@ export const backupConfigValues = {
         routes: v.array(v.object(metadataRoute)),
         eventRoutes: v.array(v.object(metadataEventRoute)),
         allChannels: v.optional(v.boolean()),
+        webhookPosts: v.optional(v.boolean()),
         messageChannelIds: v.array(v.string()),
         excludedChannelIds: v.array(v.string()),
     }),
@@ -127,6 +131,7 @@ export const backupConfigValues = {
         template: v.string(),
         userLimit: nullNumber,
         region: nullString,
+        panel: v.optional(v.boolean()),
     }),
     lfg: v.object({
         enabled: v.boolean(),
@@ -160,6 +165,21 @@ export const backupConfigValues = {
         completionRoleId: nullString,
     }),
     sticky: v.object({ channelId: v.string(), content: v.string(), intervalSeconds: v.number() }),
+    commandRule: v.object({ command: v.string(), channelIds: v.array(v.string()), roleIds: v.array(v.string()) }),
+    lockdown: v.object({ exemptChannelIds: v.array(v.string()) }),
+    antinuke: v.object({
+        enabled: v.boolean(),
+        mode: v.union(v.literal("dry-run"), v.literal("enforce")),
+        limits: v.object({
+            bans: antiNukeLimit,
+            kicks: antiNukeLimit,
+            channels: antiNukeLimit,
+            roles: antiNukeLimit,
+        }),
+        response: v.union(v.literal("strip"), v.literal("kick"), v.literal("ban")),
+        lockdown: v.boolean(),
+        trustedIds: v.array(v.string()),
+    }),
     alerts: v.object({
         invites: v.boolean(),
         bots: v.boolean(),
@@ -190,6 +210,24 @@ export const backupConfigValues = {
     profile: v.object({ enabled: v.boolean(), cooldownSeconds: nullNumber }),
     youtube: v.object({ youtubeChannelId: v.string(), channelId: v.string() }),
     twitch: v.object({ twitchChannelId: v.string(), channelId: v.string() }),
+    feeds: v.object({ provider: feedProvider, accountId: v.string(), channelId: v.string() }),
+    counters: enabled,
+    counter: v.object({
+        channelId: v.string(),
+        kind: counterKind,
+        roleId: v.optional(v.string()),
+        template: v.string(),
+    }),
+    boards: enabled,
+    board: v.object({
+        name: v.string(),
+        emoji: v.string(),
+        channelId: v.string(),
+        threshold: v.number(),
+        selfReactions: v.boolean(),
+        bots: v.boolean(),
+        ignoredChannelIds: v.array(v.string()),
+    }),
 }
 const entry = <K extends keyof typeof backupConfigValues>(family: K) =>
     v.object({ family: v.literal(family), sourceId: v.string(), value: backupConfigValues[family] })
@@ -225,13 +263,21 @@ const backupConfigObject = v.union(
     entry("temproles"),
     entry("onboarding"),
     entry("sticky"),
+    entry("commandRule"),
     entry("alerts"),
+    entry("lockdown"),
+    entry("antinuke"),
     entry("helpdesk"),
     entry("helpdeskAnswer"),
     entry("showcase"),
     entry("profile"),
     entry("youtube"),
     entry("twitch"),
+    entry("feeds"),
+    entry("counters"),
+    entry("counter"),
+    entry("boards"),
+    entry("board"),
 )
 // One XP item of a plan, see BackupXpPage in the contracts
 const backupXpPage = v.object({

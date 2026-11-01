@@ -190,7 +190,7 @@ test("A removal after a change elsewhere removes the current subscription withou
     const { ui, calls, update } = setup({ configured: true, subscriptions: [followed] })
     update({ configured: true, subscriptions: [{ ...followed, channelId: "124", enabled: true }] })
     const remove = section(ui, `Stop alerts for Synthetic Channel (${UC})`)
-    assert.equal(remove.queryByText("Changed elsewhere"), null)
+    assert.equal(remove.queryByText("Changed elsewhere") === null, true)
     await clickOnce(remove, "Remove channel")
     assert.deepEqual(calls, [{ type: "remove", youtubeChannelId: UC }])
 })

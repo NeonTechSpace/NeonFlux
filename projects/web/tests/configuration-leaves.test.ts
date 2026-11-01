@@ -202,7 +202,7 @@ test("The warning limit edits its count, days and length, and switching it off s
     }
     const { ui, calls } = setup(SafetySettings, "moderation", saved)
     const form = section(ui, "Warning limit")
-    assert.equal(form.queryByText(/Automod mode is dry run/), null)
+    assert.equal(form.queryByText(/Automod mode is dry run/) === null, true)
     fireEvent.click(form.getByLabelText("Warning limit enabled"))
     await submit(form)
     assert.deepEqual(calls[0]?.operation, { type: "settings", patch: { warningPenaltyEnabled: false } })
@@ -297,7 +297,7 @@ test("Keep cases chooses a number of days or until erased, and a words rule expl
     const { ui, calls } = setup(SafetySettings, "moderation", moderation)
     const staff = section(ui, "Moderation and staff")
     assert.equal((staff.getByLabelText("Keep cases") as HTMLSelectElement).value, "keep")
-    assert.equal(staff.queryByLabelText("Days to keep cases"), null)
+    assert.equal(staff.queryByLabelText("Days to keep cases") === null, true)
     fireEvent.change(staff.getByLabelText("Keep cases"), { target: { value: "days" } })
     fireEvent.change(staff.getByLabelText("Days to keep cases"), { target: { value: "90" } })
     await submit(staff)
@@ -318,7 +318,7 @@ test("Keep cases chooses a number of days or until erased, and a words rule expl
         ],
     )
     const create = section(kept.ui, "Create automod rule")
-    assert.equal(create.queryByText("Whole words. Put * at the start or end to match part of a word"), null)
+    assert.equal(create.queryByText("Whole words. Put * at the start or end to match part of a word") === null, true)
     fireEvent.change(create.getByLabelText("Rule type"), { target: { value: "words" } })
     assert.ok(create.getByText("Whole words. Put * at the start or end to match part of a word"))
     assert.ok(create.getByText("Up to 1000 entries"))
@@ -651,7 +651,7 @@ test("Level-up messages are off, where members level up or in one picked channel
     assert.deepEqual(
         await levelUp(undefined, (form) => {
             assert.equal((form.getByLabelText("Level-up messages") as HTMLSelectElement).value, "off")
-            assert.equal(form.queryByLabelText("Only levels with a reward role"), null)
+            assert.equal(form.queryByLabelText("Only levels with a reward role") === null, true)
             fireEvent.change(form.getByLabelText("Level-up messages"), { target: { value: "here" } })
             fireEvent.click(form.getByLabelText("Only levels with a reward role"))
         }),
@@ -751,7 +751,7 @@ test("Leveling exclusions take more than 50 pasted channels and roles, and each 
     // Replacing a list is clearing it and pasting the new one, and an ID that matches no channel stays in the box
     for (const name of ["Remove all excluded XP channels", "Remove all excluded XP roles"]) {
         fireEvent.click(form.getByRole("button", { name, hidden: true }))
-        assert.equal(form.queryByRole("button", { name, hidden: true }), null)
+        assert.equal(form.queryByRole("button", { name, hidden: true }) === null, true)
     }
     paste("Excluded XP channels", `${channelIds.map((id) => `<#${id}>`).join(", ")}\n9999`)
     assert.equal(
@@ -1072,7 +1072,7 @@ test("A counted repeat whose dates have all started opens its form with no count
     await openEditors(ui)
     const form = section(ui, "Event calendar meetup")
     assert.ok(form.getByText(/Every date of this repeat has started\. Choose how it ends/))
-    assert.equal(form.queryByLabelText("Number of dates"), null)
+    assert.equal(form.queryByLabelText("Number of dates") === null, true)
     fireEvent.change(form.getByLabelText("Ends"), { target: { value: "count" } })
     fireEvent.change(form.getByLabelText("Number of dates"), { target: { value: "3" } })
     await submit(form)

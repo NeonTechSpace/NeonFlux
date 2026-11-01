@@ -3,17 +3,32 @@ import type { AfkStore } from "./afk-store.ts"
 import { countOptionalSkip } from "./costs.ts"
 
 /** Per-message work the bot may skip. Moderation, protections and commands are never limited */
-type OptionalWork = "afk" | "responses" | "custom" | "levels" | "analytics" | "sticky" | "helpdesk"
+type OptionalWork =
+    | "afk"
+    | "responses"
+    | "custom"
+    | "levels"
+    | "analytics"
+    | "sticky"
+    | "helpdesk"
+    | "webhook-posts"
+    | "webhook-edits"
+    | "boards"
 
-// Only the autoresponder check has a token bucket. A server may spend a burst at once and then the refill rate, so one very busy
-// server cannot take a large share of the backend calls every server shares, and a refusal counts into the cost summary. Custom
+// The autoresponder check, logged webhook posts and logged webhook edits have token buckets. A server may spend a burst at once and then the refill rate,
+// so one very busy server cannot take a large share of the backend calls every server shares, and a refusal counts into the cost
+// summary. A webhook can post far faster than a member, so a logged post waits on 30 at once and then 30 a minute. A status webhook
+// can edit one message all day, so a webhook's logged edits and deletions together take 30 at once and then one a minute. Custom
 // commands run on the member's own prefixed message, AFK memory skips the backend for members it knows have no status, and XP
 // keeps one pending message per member behind the backend's own cooldown, so none of them needs a rate limit. Analytics counts
 // in memory and sends at most one request per five minutes per server. A sticky repost costs one backend call and waits for its
 // channel's interval, so at most five channels per server repost once per interval each. A new post in a help desk forum costs
-// one backend call for its reply reminder, bounded by how fast members start posts. Only the bill guard pauses these
+// one backend call for its reply reminder, bounded by how fast members start posts. A reaction on a board's emoji costs a read of its
+// message, at most one per message in its wait, and a backend call only at the board's threshold. Only the bill guard pauses these
 export const optionalWorkLimits = {
     responses: { burst: 30, perMinute: 60 },
+    "webhook-posts": { burst: 30, perMinute: 30 },
+    "webhook-edits": { burst: 30, perMinute: 1 },
 } as const satisfies Partial<Record<OptionalWork, { readonly burst: number; readonly perMinute: number }>>
 
 /** One server's admission for optional work. It is refused while the bill guard pauses optional work or the server's bucket is empty */
@@ -23,7 +38,7 @@ export function createOptionalWork(paused: () => boolean) {
         Clock.currentTimeMillis.pipe(
             Effect.map((now) => {
                 if (paused()) return false
-                if (kind !== "responses") return true
+                if (kind !== "responses" && kind !== "webhook-posts" && kind !== "webhook-edits") return true
                 const limit = optionalWorkLimits[kind],
                     bucket = buckets.get(kind) ?? { tokens: limit.burst, at: now }
                 bucket.tokens = Math.min(limit.burst, bucket.tokens + ((now - bucket.at) * limit.perMinute) / 60000)

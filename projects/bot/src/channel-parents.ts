@@ -6,7 +6,7 @@ import { noticeThread, threadForgets } from "./thread-memory.ts"
 // read. Either way the thread is taught to thread memory
 export class ChannelParentError extends Data.TaggedError("ChannelParentError")<{}> {}
 
-function readKnownChannel(client: Client, channelId: string) {
+export function readKnownChannel(client: Client, channelId: string) {
     return Effect.suspend(() => {
         const forgets = threadForgets(client)
         return client.channels.get(channelId).pipe(

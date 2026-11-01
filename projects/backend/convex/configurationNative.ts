@@ -10,13 +10,18 @@ import type { QueryCtx, MutationCtx } from "./_generated/server.js"
 import { configurationOperation, configurationCritical } from "./configurationDomain.ts"
 import { decode, object, fail, requireId } from "./validation.ts"
 import { alertInviteList } from "./alertsDomain.ts"
+import { antiNukeRestoreContext } from "./antiNukeDomain.ts"
+import { lockdownPlanContext } from "./lockdownDomain.ts"
+import { jailSetupContext } from "./jailDomain.ts"
+import { rightsOperation } from "./rightsDomain.ts"
+import { rightsOwnerOnly } from "@neonflux/contracts/rights"
 import { validateEventCalendar } from "./eventsDomain.ts"
 import { cleanupContext } from "./cleanupDomain.ts"
 import { cleanupAuthority } from "./cleanupStore.ts"
 import { ticketContext } from "./ticketDomain.ts"
 import { validateScheduleCalendar } from "./schedulesDomain.ts"
-import { actor, administrator } from "./moderationDomain.ts"
-import { readSettings } from "./moderationStore.ts"
+import { actor, administrator, authorize } from "./moderationDomain.ts"
+import { config as moderationConfig, readSettings } from "./moderationStore.ts"
 import { composerContext } from "./publishingContext.ts"
 import { currentTemplate } from "./publishing.ts"
 import { followedTemplate } from "./greetings.ts"
@@ -227,8 +232,29 @@ export async function configurationNativeTarget(
         if (op.type === "generator-add" && typeof op.categoryId === "string") channels.add(requireId(op.categoryId))
     }
     if (family === "sticky" && op.type === "set") channels.add(requireId(op.channelId))
+    // Only added exempt channels are checked, so a stored channel that was deleted since does not block the change
+    if (family === "lockdown" && op.type === "exempt" && op.exempt === true) channels.add(requireId(op.channelId))
+    if (family === "jail") {
+        if (op.type === "channel" || (op.type === "setup" && typeof op.channelId === "string"))
+            channels.add(requireId(op.channelId))
+        if (op.type === "role") roles.add(requireId(op.roleId))
+    }
+    // A grant needs a role NeonFlux can see, and a revoke must work for a role deleted since
+    if (family === "rights" && op.type === "grant") roles.add(requireId(op.roleId))
+    if (family === "commandrules" && op.type === "set") {
+        add(op.channelIds, channels)
+        add(op.roleIds, roles)
+    }
     if (family === "youtube" && op.type === "add") channels.add(requireId(op.channelId))
     if (family === "twitch" && op.type === "add") channels.add(requireId(op.channelId))
+    if (family === "feeds" && op.type === "add") channels.add(requireId(op.channelId))
+    if (family === "boards" && typeof op.channelId === "string" && op.type !== "ignore")
+        channels.add(requireId(op.channelId))
+    if (family === "counters" && (op.type === "add" || op.type === "set")) channels.add(requireId(op.channelId))
+    if (family === "counters" && op.type === "add" && typeof op.roleId === "string") roles.add(requireId(op.roleId))
+    if (family === "giveaways" && op.type === "start") channels.add(requireId(op.channelId))
+    if (family === "giveaways" && op.type === "settings" && typeof patch.requiredRoleId === "string")
+        roles.add(requireId(patch.requiredRoleId))
     if (family === "lfg")
         for (const key of ["channelId", "generatorChannelId"])
             if (typeof patch[key] === "string") channels.add(requireId(patch[key]))
@@ -261,6 +287,11 @@ export async function configurationNativeTarget(
         family === "presets" ||
         // An alert action spends NeonFlux's own permissions, so only the owner or an Administrator turns one on
         (family === "alerts" && op.type === "action" && op.enabled === true) ||
+        // Anti-nuke acts on staff with NeonFlux's own permissions, so all of it belongs to the owner or an Administrator
+        family === "antinuke" ||
+        // Jail and bot-only rights change who NeonFlux acts for and how, so they belong to the owner or an Administrator
+        family === "jail" ||
+        family === "rights" ||
         staffChange
     )
         target.requiresOwnerAdmin = true
@@ -284,6 +315,21 @@ export async function configurationNativeOperation(
     if (target.requiresOwnerAdmin && !administrator(who)) fail(403, "Owner or Administrator permission required")
     // Only the server owner chooses who may view private cases
     if (family === "moderation" && op.type === "private-role" && !who.isOwner) fail(403, "Owner permission required")
+    // The same owner-only changes as in chat, from the bot's fresh read of the member who asked
+    if (family === "rights" && rightsOwnerOnly(rightsOperation(raw)) && !who.isOwner)
+        fail(
+            403,
+            "Only the server owner can make this change. An Administrator can turn rights off or revoke them",
+            "REFUSED",
+        )
+    // A lockdown follows the rule of !security lock, whoever manages the server otherwise
+    if (family === "lockdown")
+        authorize(
+            who,
+            moderationConfig(await readSettings(ctx, serverId)),
+            "security",
+            op.type === "off" || op.type === "settle",
+        )
     const proofs = input.references ?? []
     for (const [type, ids] of [
         [
@@ -322,6 +368,11 @@ export async function configurationNativeOperation(
     // An invite refresh or revocation carries the page of invites the bot read afterwards, with their codes
     else if (family === "alerts" && (op.type === "invites-refresh" || op.type === "invite-revoke"))
         op.invites = alertInviteList(input.context, input.observedAt)
+    // A lockdown carries the channels the bot read, and a restore what the bot did with the member's roles
+    else if (family === "lockdown" && op.type === "on") op.plan = lockdownPlanContext(input.context)
+    else if (family === "antinuke" && op.type === "restore") op.result = antiNukeRestoreContext(input.context)
+    // A jail setup carries the role and channel the bot found or made
+    else if (family === "jail" && op.type === "setup") Object.assign(op, jailSetupContext(input.context))
     else if (family === "tickets") {
         context = ticketContext(input.context)
         if (

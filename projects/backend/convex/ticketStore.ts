@@ -16,6 +16,7 @@ import {
 import type { MutationCtx, QueryCtx } from "./_generated/server.js"
 import type { Doc } from "./_generated/dataModel.js"
 import { administrator } from "./moderationDomain.ts"
+import { jailHolds } from "./jailStore.ts"
 import { memberRecoveries } from "./moderationStore.ts"
 import { protectedStaffRoles } from "./rolesStore.ts"
 import { fail, integer } from "./validation.ts"
@@ -46,6 +47,11 @@ export async function ticketProtection(ctx: TicketRead, serverId: string, contex
     const recoveries = await memberRecoveries(ctx, serverId, context.actor.userId)
     if (recoveries.count > 10) fail(403, "Ticket member restricted")
     if (recoveries.cases.some((action) => action?.action === "quarantine")) fail(403, "Ticket member restricted")
+}
+/** A public ticket shows its text to the whole server, which would carry a jailed member's text out of the jail channel */
+export async function refuseJailedPublicTicket(ctx: TicketRead, serverId: string, userId: string, visibility: string) {
+    if (visibility !== "private" && (await jailHolds(ctx, serverId, userId)))
+        fail(403, "While you are jailed you can open only a private ticket", "REFUSED")
 }
 export const readTicketSettings = (ctx: TicketRead, serverId: string) =>
     ctx.db

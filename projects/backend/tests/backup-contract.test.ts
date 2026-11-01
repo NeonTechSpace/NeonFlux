@@ -1,3 +1,4 @@
+import { defaultAntiNukeSettings } from "@neonflux/contracts/anti-nuke"
 import assert from "node:assert/strict"
 import nodeTest, { after, type TestContext } from "node:test"
 import { createRequire } from "node:module"
@@ -1664,6 +1665,11 @@ async function authoredConfig(): Promise<BackupConfigObject[]> {
             value: { channelId: "31", content: "Synthetic sticky", intervalSeconds: 30 },
         },
         {
+            family: "commandRule",
+            sourceId: "rank",
+            value: { command: "rank", channelIds: ["31"], roleIds: ["40"] },
+        },
+        {
             family: "alerts",
             sourceId: "alerts",
             value: {
@@ -1707,10 +1713,41 @@ async function authoredConfig(): Promise<BackupConfigObject[]> {
             sourceId: youtubeChannel,
             value: { youtubeChannelId: youtubeChannel, channelId: "31" },
         },
+        { family: "lockdown", sourceId: "lockdown", value: { exemptChannelIds: ["31"] } },
+        {
+            family: "antinuke",
+            sourceId: "antinuke",
+            value: { ...defaultAntiNukeSettings(), enabled: true, trustedIds: ["21"] },
+        },
         {
             family: "twitch",
             sourceId: "synthetic",
             value: { twitchChannelId: "synthetic", channelId: "31" },
+        },
+        { family: "counters", sourceId: "counters", value: { enabled: false } },
+        {
+            family: "counter",
+            sourceId: "31",
+            value: { channelId: "31", kind: "role", roleId: "40", template: "Staff: {count}" },
+        },
+        { family: "boards", sourceId: "boards", value: { enabled: false } },
+        {
+            family: "board",
+            sourceId: "stars",
+            value: {
+                name: "stars",
+                emoji: "⭐",
+                channelId: "31",
+                threshold: 3,
+                selfReactions: false,
+                bots: false,
+                ignoredChannelIds: [],
+            },
+        },
+        {
+            family: "feeds",
+            sourceId: "bluesky_did_plc_syntheticaaaaaaaaaaaaaaa",
+            value: { provider: "bluesky", accountId: "did:plc:syntheticaaaaaaaaaaaaaaa", channelId: "31" },
         },
     ]
 }

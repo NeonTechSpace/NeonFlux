@@ -80,6 +80,7 @@ function statusCard(s: MetadataLogsSettings, checks: Checks, command: Command): 
                       ? `From ${plural(s.messageChannelIds.length, "channel")}${s.excludedChannelIds.length ? `, ${s.excludedChannelIds.length} excluded` : ""}`
                       : "From no channels yet",
             ],
+            ...(s.webhookPosts ? [["Webhook posts", "Logged"] as const] : []),
             ...(gone.length ? [["Channels that no longer exist", channels(gone)] as const] : []),
             ...(lacking.length ? [["NeonFlux lacks permissions in", channels(lacking)] as const] : []),
             ...(unchecked.length ? [["Could not check permissions in", channels(unchecked)] as const] : []),
@@ -185,6 +186,7 @@ const recordCard = (r: MetadataLogsRecord, command: (rest: string) => string): C
                 ? [["About", r.event.resourceIds.map(mention).join(", ")] as const]
                 : []),
             ...(r.event.channelId ? [["Channel", format.channelMention(r.event.channelId)] as const] : []),
+            ...(r.event.details?.webhookName ? [["Webhook", r.event.details.webhookName] as const] : []),
             ["When", ago(r.event.observedAt)],
             ["Log post", r.delivery ? deliveryStatus(r.delivery, command) : "None"],
         ],
@@ -386,6 +388,10 @@ function changed(change: MetadataLogChange) {
     switch (change.type) {
         case "module":
             return `Metadata logs are now ${onOff(change.enabled).toLowerCase()}`
+        case "webhook-posts":
+            return change.enabled
+                ? "What webhooks post is now logged, up to 30 at once and then 30 a minute. Excluded channels still apply"
+                : "What webhooks post is no longer logged. Their edits and deletions still are, at most 30 at once and then one a minute"
         case "route":
             return `${capital(change.category)} events ${change.enabled ? "now post" : "are off. When on they post"} in ${destination(change.channelId, change.ownerId)}`
         case "clear":
@@ -504,7 +510,7 @@ function manageMetadataLogs(
             }
             applied = change
             operation =
-                change.type === "module" || change.type === "channels"
+                change.type === "module" || change.type === "channels" || change.type === "webhook-posts"
                     ? { ...change, expectedRevision: revision }
                     : change.type === "route"
                       ? { ...change, expectedRevision: routeRevision(change.category), recipientOwner: recipient! }

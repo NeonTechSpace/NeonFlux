@@ -1,5 +1,16 @@
 import { v } from "convex/values"
 
+export const botRight = v.union(
+    v.literal("kick"),
+    v.literal("ban"),
+    v.literal("timeout"),
+    v.literal("purge"),
+    v.literal("slowmode"),
+    v.literal("lock"),
+    v.literal("quarantine"),
+    v.literal("jail"),
+)
+export const rightsLimit = v.object({ count: v.number(), minutes: v.number() })
 export const moderationAction = v.union(
     v.literal("log"),
     v.literal("warn"),
@@ -15,12 +26,15 @@ export const moderationAction = v.union(
     v.literal("unlock"),
     v.literal("quarantine"),
     v.literal("release"),
+    v.literal("jail"),
+    v.literal("unjail"),
 )
 export const moderationOrigin = v.union(
     v.literal("manual"),
     v.literal("automod"),
     v.literal("security"),
     v.literal("penalty"),
+    v.literal("jail"),
 )
 export const moderationCaseOutcome = v.union(
     v.literal("pending"),
@@ -142,4 +156,9 @@ export const moderationGrant = v.object({
     expectedOverwrite: v.optional(permissionOverwrite),
     ownedPermissions: v.optional(v.string()),
     recoveryId: v.optional(v.string()),
+    viaRight: v.optional(botRight),
+    rightRoleIds: v.optional(v.array(v.string())),
+    jailRoleId: v.optional(v.string()),
+    expectedRoleIds: v.optional(v.array(v.string())),
+    restoreRoleIds: v.optional(v.array(v.string())),
 })

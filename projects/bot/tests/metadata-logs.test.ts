@@ -403,6 +403,7 @@ test("Adapter preserves disabled event destinations and rejects incomplete desti
         routes: metadataLogCategories.map((category) => ({ category, revision: 1, enabled: false })),
         eventRoutes: [route],
         allChannels: false,
+        webhookPosts: false,
         messageChannelIds: [],
         excludedChannelIds: [],
         retained: 0,
@@ -987,6 +988,7 @@ test("metadata changes read the current revisions right before the write", async
         routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })),
         eventRoutes: [],
         allChannels: false,
+        webhookPosts: false,
         messageChannelIds: [],
         excludedChannelIds: [],
         retained: 0,
@@ -1111,6 +1113,7 @@ test("channel lists take one channel added or removed in chat, applied to the li
         routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })),
         eventRoutes: [],
         allChannels: true,
+        webhookPosts: false,
         messageChannelIds: [],
         excludedChannelIds: ["901"],
         retained: 0,
@@ -1190,6 +1193,7 @@ test("a metadata change whose write fails gets a reply that says what to do", as
         routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })),
         eventRoutes: [],
         allChannels: false,
+        webhookPosts: false,
         messageChannelIds: [],
         excludedChannelIds: [],
         retained: 0,
@@ -1686,6 +1690,7 @@ function crowdedSettings() {
                 : { eventType, revision: 1, enabled: true, channelId: destinations[7 + i / 2]!, ownerId: f.ids.user },
         ),
         allChannels: false,
+        webhookPosts: false,
         messageChannelIds: ids(50),
         excludedChannelIds: ids(50),
         retained: 9500,
@@ -1766,7 +1771,10 @@ test("metadata status stays a short summary with every category and override rou
                     const note =
                         "Send `!logs metadata categories` for each category and `!logs metadata overrides` for event overrides"
                     const fields = [
-                        ["Event overrides", "67, 33 turned off"],
+                        [
+                            "Event overrides",
+                            `${metadataLogEventSelectors.length}, ${Math.floor(metadataLogEventSelectors.length / 2)} turned off`,
+                        ],
                         ["Message events", "From 50 channels, 50 excluded"],
                         ["Channels that no longer exist", `${mentions(destinations.slice(25, 30))} and 1 more`],
                         ["NeonFlux lacks permissions in", `${mentions(destinations.slice(0, 5))} and 15 more`],
@@ -1807,6 +1815,7 @@ test("metadata status of a quiet server shows only the state, message events and
         routes: metadataLogCategories.map((category) => ({ category, revision: 1, enabled: false })),
         eventRoutes: [],
         allChannels: false,
+        webhookPosts: false,
         messageChannelIds: [],
         excludedChannelIds: [],
         retained: 7999,
@@ -1852,29 +1861,36 @@ test("metadata categories and event overrides show plain labels in their own rep
                 ])
                 const pages: Body[] = [yield* send("!logs metadata overrides")]
                 // A list started in a server channel continues there
-                for (let i = 0; i < 6; i++) pages.push(yield* send("!logs metadata overrides next"))
+                const pageCount = Math.ceil(metadataLogEventSelectors.length / 10)
+                for (let i = 1; i < pageCount; i++) pages.push(yield* send("!logs metadata overrides next"))
                 const lines = pages.map((page) => page.embeds![0]!.description!.split("\n").slice(0, -1))
                 // A list page shows 10 entries, the hint to remove one and Next
                 for (const page of pages) assertShort(page, 13)
                 assert.deepEqual(
                     lines.map((page) => page.length),
-                    [10, 10, 10, 10, 10, 10, 7],
+                    Array.from({ length: pageCount }, (_, i) =>
+                        i < pageCount - 1 ? 10 : metadataLogEventSelectors.length - 10 * (pageCount - 1),
+                    ),
                 )
                 assert.deepEqual(lines[0]!.slice(0, 2), [
                     `**Member joined**: On in <#${destinations[7]}>, owner <@${f.ids.user}>`,
                     "**Member changed**: Off, so it never posts",
                 ])
-                assert.deepEqual(lines[2]!.slice(8, 10), [
-                    `**Security alert action**: On in <#${destinations[21]}>, owner <@${f.ids.user}>`,
-                    "**Audit: Server changed**: Off, so it never posts",
-                ])
+                for (const label of ["Security alert action", "Audit: Server changed", "Webhook message edited"])
+                    assert.ok(
+                        lines.flat().some((line) => line.startsWith(`**${label}**: `)),
+                        label,
+                    )
                 assert.equal(
                     pages[0]!.embeds![0]!.description!.split("\n").at(-1),
                     "Send `!logs metadata inherit <event>` to remove one",
                 )
                 assert.deepEqual(
                     pages.map((page) => page.embeds![0]!.fields),
-                    [...Array(6).fill([{ name: "Next", value: "`!logs metadata overrides next`" }]), undefined],
+                    [
+                        ...Array(pageCount - 1).fill([{ name: "Next", value: "`!logs metadata overrides next`" }]),
+                        undefined,
+                    ],
                 )
                 assert.equal(
                     (yield* send("!logs metadata overrides next")).content,
@@ -2155,7 +2171,7 @@ test("a server that logs message events keeps message text from its start, so th
             Effect.sync(() => {
                 asked.push(input.operation.type)
                 return input.operation.type === "messages"
-                    ? ({ type: "messages", logged } as const)
+                    ? ({ type: "messages", logged, webhookPosts: false } as const)
                     : ({ type: "work", records: [] } as const)
             })
         await Effect.runPromise(
@@ -2215,6 +2231,7 @@ test("reading logs keeps the message text, and a logs change keeps it only while
         routes: metadataLogCategories.map((category, index) => ({ category, revision: index + 1, enabled: false })),
         eventRoutes: [],
         allChannels: true,
+        webhookPosts: false,
         messageChannelIds: [],
         excludedChannelIds: [],
         retained: 0,
@@ -2233,7 +2250,7 @@ test("reading logs keeps the message text, and a logs change keeps it only while
         Effect.sync(() => {
             asked.push(input.operation.type)
             return input.operation.type === "messages"
-                ? ({ type: "messages", logged } as const)
+                ? ({ type: "messages", logged, webhookPosts: false } as const)
                 : ({ type: "work", records: [] } as const)
         })
     await Effect.runPromise(
@@ -2297,7 +2314,7 @@ test("only the latest messages read decides, a failed read at a start keeps noth
     const answers: Effect.Effect<MetadataLogsWorkResult, MetadataLogsStoreError>[] = []
     r.store.work = () => answers.shift()!
     const failed = Effect.fail(new MetadataLogsStoreError({ operation: "work", status: 503 }))
-    const answer = (logged: boolean) => Effect.succeed({ type: "messages", logged } as const)
+    const answer = (logged: boolean) => Effect.succeed({ type: "messages", logged, webhookPosts: false } as const)
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
@@ -2384,7 +2401,7 @@ test("only the latest messages read decides, a failed read at a start keeps noth
 test("an admission answered after a recheck leaves the message text setting to the recheck, in both orders", async () => {
     const r = state()
     const reads: boolean[] = []
-    r.store.work = () => Effect.succeed({ type: "messages", logged: reads.shift()! } as const)
+    r.store.work = () => Effect.succeed({ type: "messages", logged: reads.shift()!, webhookPosts: false } as const)
     await Effect.runPromise(
         Effect.scoped(
             Effect.gen(function* () {
@@ -2469,7 +2486,7 @@ test("a deleted message of another bot stays out of message logs, while a member
     r.store.work = (input) =>
         Effect.succeed(
             input.operation.type === "messages"
-                ? ({ type: "messages", logged: true } as const)
+                ? ({ type: "messages", logged: true, webhookPosts: false } as const)
                 : ({ type: "work", records: [] } as const),
         )
     await Effect.runPromise(

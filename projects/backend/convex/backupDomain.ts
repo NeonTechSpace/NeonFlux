@@ -138,9 +138,12 @@ export function backupConfigRule(item: BackupConfigObject) {
         // Their shape is all their rules. A new family is listed here or above, so none is restored unchecked by accident
         case "access":
         case "alerts":
+        case "antinuke":
+        case "lockdown":
         case "analytics":
         case "cleanup":
         case "cleanupPolicy":
+        case "commandRule":
         case "events":
         case "general":
         case "helpdesk":
@@ -159,6 +162,11 @@ export function backupConfigRule(item: BackupConfigObject) {
         case "tickets":
         case "youtube":
         case "twitch":
+        case "feeds":
+        case "counters":
+        case "counter":
+        case "boards":
+        case "board":
             break
     }
 }
@@ -173,7 +181,8 @@ export const backupDiff = (before: unknown, after: unknown) => valueDiff(before,
 export const backupSwitchPath = (path: string, family?: string) =>
     /(^|\.)([a-z]\w*Enabled|enabled)$/.test(path) ||
     (family === "alerts" &&
-        /^(invites|bots|webhooks|privileges|impersonation|kickBots|deleteWebhooks|removePermissions)$/.test(path))
+        /^(invites|bots|webhooks|privileges|impersonation|kickBots|deleteWebhooks|removePermissions)$/.test(path)) ||
+    (family === "antinuke" && path === "lockdown")
 /**
  * A setting with the optional values an archive may leave out filled in with what absent means, so a server that never set them and one that
  * set them to their defaults compare equal. Only identity and the shown changes use it
@@ -202,6 +211,11 @@ export function backupNormalized(item: BackupConfigObject): BackupConfigObject {
             return { ...item, value: { ...item.value, threads: item.value.threads ?? false } }
         case "general":
             return { ...item, value: { ...item.value, replyStyle: item.value.replyStyle ?? "embed" } }
+        // These lists are sets, so the same IDs in another order are no change
+        case "lockdown":
+            return { ...item, value: { exemptChannelIds: [...item.value.exemptChannelIds].sort() } }
+        case "antinuke":
+            return { ...item, value: { ...item.value, trustedIds: [...item.value.trustedIds].sort() } }
         // Expected bots and webhooks are sets, so the same IDs in another order are no change
         case "alerts":
             return {

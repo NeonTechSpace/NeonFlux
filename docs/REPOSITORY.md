@@ -15,7 +15,7 @@ For the selected stack and version pins, see [technology choices](TECHNOLOGY.md)
 | [projects/contracts/](../projects/contracts/) | The shared contracts package `@neonflux/contracts` |
 | [projects/web/](../projects/web/) | The dashboard and web verification package `@neonflux/web` |
 | [projects/site/](../projects/site/) | The public site package `@neonflux/site`, with the homepage, feature pages and public docs |
-| [projects/evals/](../projects/evals/) | Labeled cases for the deceptive link judge, the lookalike name check and the typo hints, and the [baseline](../projects/evals/baseline.json) of cases they fail today, as [the contributing guide](CONTRIBUTING.md#detector-evals) describes |
+| [projects/evals/](../projects/evals/) | Labeled cases for the deceptive link judge, the lookalike name check, the typo hints, the feed post selection, anti-nuke and board visibility, and the [baseline](../projects/evals/baseline.json) of cases they fail today, as [the contributing guide](CONTRIBUTING.md#detector-evals) describes |
 | [projects/scripts/](../projects/scripts/) | The [heavy-task gate](../projects/scripts/heavy.mjs) that limits concurrent machine-heavy package scripts, with [its test](../projects/scripts/heavy.test.mjs), the [Effect typecheck runner](../projects/scripts/effect-tsc.mjs), the [lint runner](../projects/scripts/lint.mjs) and the repository scans it runs, each with a test that plants a violation |
 
 The workspace [manifest](../projects/package.json), [workspace configuration](../projects/pnpm-workspace.yaml) and generated [lockfile](../projects/pnpm-lock.yaml) own shared dependency management.
@@ -33,7 +33,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
   [signalled-worker.ts](../projects/bot/src/signalled-worker.ts) is the wake-driven loop workers can share with
   [contained.ts](../projects/bot/src/contained.ts), which logs a failed background effect without stopping its worker.
   Its warnings name their cause only with the values [cause-fields.ts](../projects/bot/src/cause-fields.ts) lists
-- [costs.ts](../projects/bot/src/costs.ts) counts the process's Fluxer requests, backend requests and events. [usage.ts](../projects/bot/src/usage.ts) reports the backend calls to the bill guard and keeps its state, and [optional-work.ts](../projects/bot/src/optional-work.ts) holds the admission that the bill guard pauses, the one per-server bucket for autoresponder checks and the memory of members known to have no AFK status
+- [costs.ts](../projects/bot/src/costs.ts) counts the process's Fluxer requests, backend requests and events. [usage.ts](../projects/bot/src/usage.ts) reports the backend calls to the bill guard and keeps its state, and [optional-work.ts](../projects/bot/src/optional-work.ts) holds the admission that the bill guard pauses, the per-server buckets for autoresponder checks and logged webhook posts and the memory of members known to have no AFK status
 - [channel-parents.ts](../projects/bot/src/channel-parents.ts) is the one source of thread parents, including the forum a command in a forum post counts as in, from Fluxerly's channel cache and one read for a channel it does not hold. [thread-memory.ts](../projects/bot/src/thread-memory.ts) keeps the last seen state of threads for metadata logs, [resource-memory.ts](../projects/bot/src/resource-memory.ts) that of roles, channels, members and servers, [message-revisions.ts](../projects/bot/src/message-revisions.ts) recent messages and [audit-changes.ts](../projects/bot/src/audit-changes.ts) reads audit entries' before and after values for logs and security alerts. Ticket transcripts read a ticket channel and its public threads forward in [ticket-transcripts.ts](../projects/bot/src/ticket-transcripts.ts), which [ticket-worker.ts](../projects/bot/src/ticket-worker.ts) runs whenever a save is due, and [ticket-panels.ts](../projects/bot/src/ticket-panels.ts) keeps a server's ticket panels and opens a ticket from a panel reaction, and message cleanup picks the next active thread of a policy channel in [cleanup-evidence.ts](../projects/bot/src/cleanup-evidence.ts), each with its own Fluxer read
 - [suggestion-forum.ts](../projects/bot/src/suggestion-forum.ts) adds and applies the status tags of suggestion posts in a forum destination, and [events.ts](../projects/bot/src/events.ts) starts and closes event discussion threads
 - [protections.ts](../projects/bot/src/protections.ts) sends messages and joins to automod and security, including webhook and other bots' messages for a server that checks them, and remembers whether each server does, so their messages cost nothing while it is off
@@ -86,6 +86,7 @@ The [Node version file](../projects/.node-version) owns the exact development ru
 - [change-table.tsx](../projects/web/src/change-table.tsx) shows changed settings with their before and after values, for the backup restore check and the audit log's Details
 - [server-export.tsx](../projects/web/src/server-export.tsx) holds the owner's server export download, and [dashboard-tour.tsx](../projects/web/src/dashboard-tour.tsx) holds the first-visit dashboard tour
 - [showcase-settings.tsx](../projects/web/src/showcase-settings.tsx) holds the showcase and profile sections, and [showcase-member.tsx](../projects/web/src/showcase-member.tsx) and [profile-member.tsx](../projects/web/src/profile-member.tsx) hold their member pages
+- [voice-room-member.tsx](../projects/web/src/voice-room-member.tsx) holds a room owner's member page, and [command-rules-settings.tsx](../projects/web/src/command-rules-settings.tsx) the Command rules section
 - [structure-editor.tsx](../projects/web/src/structure-editor.tsx) holds the server structure editor, whose live diff [structure-diff.ts](../projects/web/src/structure-diff.ts) builds from the change functions in the [structure contracts](../projects/contracts/src/structure.ts) that the backend's [structureDomain.ts](../projects/backend/convex/structureDomain.ts) merge also uses
 - `src/routeTree.gen.ts` is generated by TanStack Router and kept in version control. Nitro builds `.output/`, which stays ignored
 - `tests/` holds component and server handler tests
@@ -126,16 +127,26 @@ The requests and answers between them live in the feature's module of the [contr
 | Events, birthdays and suggestions | `event`, `events`, `milestone`, `suggestion` | `events`, `milestones`, `suggestions` | `events`, `milestones`, `suggestions` |
 | Message cleanup and metadata logs | `cleanup`, `metadata-log` | `cleanup`, `metadataLogs` | `cleanup`, `metadata-logs` |
 | Security alerts and invites | `alerts` | `alerts` | `alerts` |
+| Server-wide lockdown | `lockdown` | `lockdown` | `lockdown` |
+| Anti-nuke | `antinuke` | `antiNuke` | `anti-nuke` |
+| Jail | `jail` | `jail` | `jail` |
+| Bot-only staff rights | `rights` | `rights` | `rights` |
 | Selective backup | `backup` | `backup` | `backup`, `permission-names` |
 | Readable server export | `server-export` | `serverExport` | `server-export` |
 | Server structure editor on the website | `structure` | `structure` | `structure` |
 | Server analytics | `analytics` | `analytics` | `analytics` |
-| Temporary voice rooms | `voice` | `voice` | `voice` |
+| Temporary voice rooms, their controls card and website page | `voice` | `voice` | `voice` |
+| Rules for built-in commands | `command-rules` | `commandRules` | `command-rules` |
 | Looking for group | `lfg` | `lfg` | `lfg` |
 | Help, setup, health, recovery inbox and permission fixes | `help`, `setup-check`, `permission-fix` | `setupCheck`, `recovery` | `setup` |
 | Twitch live alerts and the EventSub callback | `twitch` | `twitch`, `http` | `twitch` |
+| Bluesky and X feeds | `feed` | `feed` | `feeds` |
 | YouTube upload alerts and the WebSub callback | `youtube` | `youtube`, `http` | `youtube` |
 | Sticky messages, dashboard link and member list order | `sticky`, `sidebar`, `memberlist` | `sticky`, `sidebar`, `memberList` | `sticky`, `sidebar`, `member-list` |
+| Counter channels | `counter` | `counters` | `counters` |
+| Starboards and other boards | `board` | `boards` | `boards` |
+| Personal reminders | `remind` | `reminders` | `reminders` |
+| Giveaways by reaction | `giveaway` | `giveaways` | `giveaways` |
 | Multi-server scope and installations | `server-scope`, `server-runtime`, `install-note` | `serverScope`, `serviceGuard`, `installations` | `service` |
 | Background work dispatch | `work-dispatcher` | `workDispatch`, `workSignal` | `service` |
 | Optional work limits and the bill guard | `optional-work`, `usage` | `usage` | `service` |

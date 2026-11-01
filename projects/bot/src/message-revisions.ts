@@ -1,13 +1,13 @@
 import type { Client, Message } from "@neontechspace/fluxerly/effect"
 import { cutText } from "@neonflux/contracts/common"
-import { METADATA_TEXT, metadataSlice } from "@neonflux/contracts/metadata-logs"
+import { METADATA_TEXT, METADATA_WEBHOOK_NAME, metadataSlice } from "@neonflux/contracts/metadata-logs"
 
 // Link previews arrive as message updates that repeat everything else. Features read an update only for an edit, a pin
 // change or a flag change, so an update whose edit time, pin status and flags all match the last observation is skipped.
 // Absent values mean unknown and never match, and a message outside the bounded memory is always processed.
 // Fluxer sends an edited message without its earlier text, so metadata logs show the text this memory kept. It keeps a
 // server message's text, author and attachments only while that server posts message events to a log channel, and never
-// a DM's
+// a DM's. A webhook message is kept the same way, under the webhook's ID and name instead of an author
 const revision = (message: Pick<Message, "editedAt" | "pinned" | "flags">) =>
     message.editedAt === undefined || message.pinned === undefined || message.flags === undefined
         ? undefined
@@ -33,6 +33,9 @@ export interface RememberedMessage {
     readonly guildId?: string
     readonly authorId?: string
     readonly authorBot?: boolean
+    /** The webhook that wrote it, kept whether or not its text is, so its deletion is known to be a webhook's */
+    readonly webhookId?: string
+    readonly webhookName?: string
     readonly text?: string
     readonly attachments?: readonly RememberedAttachment[]
     readonly attachmentCount?: number
@@ -56,11 +59,14 @@ export function createMessageRevisions(limit = messageRevisionLimit, textBytes =
         byServer = new Map<string, Set<string>>()
     // The servers whose message events reach a log channel, which the backend's answers report
     const keeping = new Set<string>()
-    // Messages of bots, webhooks and the system, which logs leave out. A deletion names no author flags, so this is how
-    // it is known to be one of theirs. Only the IDs are kept, up to the same count as the messages
+    // Messages of other bots and the system, which logs leave out. A deletion names no author flags, so this is how it is
+    // known to be one of theirs. Only the IDs are kept, up to the same count as the messages
     const excluded = new Set<string>()
-    // Other bots, webhooks and the system keep only their IDs, never their text
-    const other = (message: Message) => message.author.isBot || message.author.isSystem || !!message.webhookId
+    // Other bots and the system keep only their IDs, never their text. Fluxer may mark a webhook's author as a bot, and a
+    // webhook message still counts as a webhook's
+    const webhookOf = (message: Message) =>
+        message.webhookId && !message.author.isSystem ? message.webhookId : undefined
+    const other = (message: Message) => !webhookOf(message) && (message.author.isBot || !!message.author.isSystem)
     const exclude = (message: Message) => {
         if (!other(message)) return
         excluded.delete(message.id)
@@ -84,19 +90,21 @@ export function createMessageRevisions(limit = messageRevisionLimit, textBytes =
         const old = drop(message.id),
             value = revision(message),
             guildId = message.guildId ?? old?.guildId,
-            kept = guildId !== undefined && keeping.has(guildId) && !other(message)
-        if (value === undefined && !kept) return old
+            kept = guildId !== undefined && keeping.has(guildId) && !other(message),
+            webhookId = webhookOf(message),
+            webhookName = webhookId ? cutText(message.author.username, METADATA_WEBHOOK_NAME) : ""
+        if (value === undefined && !kept && !webhookId) return old
         const attachments = kept ? attachmentsOf(message) : []
         const entry: Entry = {
             revision: value,
             ...(message.editedAt !== undefined ? { editedAt: message.editedAt } : {}),
             ...(message.pinned !== undefined ? { pinned: message.pinned } : {}),
             ...(message.flags !== undefined ? { flags: message.flags } : {}),
+            ...(webhookId ? { webhookId, ...(webhookName ? { webhookName } : {}) } : {}),
             ...(kept
                 ? {
                       guildId,
-                      authorId: message.author.id,
-                      authorBot: message.author.isBot,
+                      ...(webhookId ? {} : { authorId: message.author.id, authorBot: message.author.isBot }),
                       text: metadataSlice(message.content, MESSAGE_TEXT_LIMIT),
                       ...(attachments.length ? { attachments } : {}),
                       ...(message.attachments.length > attachments.length
@@ -106,11 +114,13 @@ export function createMessageRevisions(limit = messageRevisionLimit, textBytes =
                 : guildId !== undefined
                   ? { guildId }
                   : {}),
-            bytes: kept
-                ? 2 *
-                  (Math.min(message.content.length, MESSAGE_TEXT_LIMIT) +
-                      attachments.reduce((n, a) => n + a.name.length + (a.url?.length ?? 0), 0))
-                : 0,
+            bytes:
+                2 *
+                (webhookName.length +
+                    (kept
+                        ? Math.min(message.content.length, MESSAGE_TEXT_LIMIT) +
+                          attachments.reduce((n, a) => n + a.name.length + (a.url?.length ?? 0), 0)
+                        : 0)),
         }
         seen.set(message.id, entry)
         if (guildId !== undefined) {
@@ -134,7 +144,7 @@ export function createMessageRevisions(limit = messageRevisionLimit, textBytes =
                 after = revision(message)
             return { needed: after === undefined || before?.revision !== after, previous: before as RememberedMessage }
         },
-        /** Notes a message of a bot, a webhook or the system that the router does not otherwise remember */
+        /** Notes a message of another bot or the system that the router does not otherwise remember */
         observed: exclude,
         /** Removes a deleted message and returns what the memory knew of it */
         deleted: (id: string): RememberedMessage | undefined => {

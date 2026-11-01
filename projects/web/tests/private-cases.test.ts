@@ -405,3 +405,40 @@ test("A member without Manage community reaches private cases only through the m
     assert.ok(shared.getByRole("heading", { name: "Private cases" }))
     assert.ok(shared.queryByRole("navigation", { name: "Configuration sections" }) === null)
 })
+
+test("Pressing the button of the view already open loads it again instead of waiting forever", async () => {
+    const live = liveClient(() => ({ status: "ok", data: { type: "cases", cases: [] } }))
+    const ui = render(
+        createElement(PrivateCasesSection, { client: live.client, sessionToken: "synthetic-session", serverId: "2" }),
+    )
+    await act(async () => {})
+    assert.equal(live.views.length, 1)
+    assert.ok(ui.getByText("No cases"))
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Cases" }))
+    })
+    assert.equal(live.views.length, 2)
+    assert.ok(ui.getByText("No cases"))
+    assert.equal(ui.queryByText("Loading…") === null, true)
+})
+
+test("Pressing the member whose history is open stays on that history", async () => {
+    const live = liveClient(() => ({
+        status: "ok",
+        data: { type: "cases", cases: [record(3, { targetId: "21" })] },
+    }))
+    const ui = render(
+        createElement(PrivateCasesSection, { client: live.client, sessionToken: "synthetic-session", serverId: "2" }),
+    )
+    await act(async () => {})
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "History of member 21" }))
+    })
+    assert.deepEqual(live.views.at(-1), { type: "history", userId: "21" })
+    const asked = live.views.length
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "History of member 21" }))
+    })
+    assert.equal(live.views.length, asked)
+    assert.equal(ui.queryByText("Loading…") === null, true)
+})

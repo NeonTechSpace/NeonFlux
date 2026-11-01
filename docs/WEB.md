@@ -190,13 +190,29 @@ The Events section has **Discussion threads**, the same switch as `!event thread
 
 ### Channel logs
 
-Choose a destination and a responsible Owner or Administrator for each category. Events can use the category route, use their own channel and owner, or be turned off. Message events come from every channel except the excluded ones, or from only the listed channels, up to 500 in each list. Logs show message text, earlier values and audit reasons, never private ticket content. The Security alerts group carries the alerts the next section turns on
+Choose a destination and a responsible Owner or Administrator for each category. Events can use the category route, use their own channel and owner, or be turned off. Message events come from every channel except the excluded ones, or from only the listed channels, up to 500 in each list. Logs show message text, earlier values and audit reasons, never private ticket content. Edits and deletions of webhook messages are logged like member messages, at most 30 at once and then one a minute per server, and **Log what webhooks post** in the **Webhook posts** form also logs their posts, at most 30 at once and then 30 a minute per server. The Security alerts group carries the alerts the next section turns on
 
 ### Security alerts
 
 The Security alerts section under Moderation has one switch for each alert: Invite logs, unexpected bots, unexpected webhooks, privilege changes and impersonation, all off at first, with the same rules as `!alerts`. Under the bots, webhooks and privileges alerts, a second switch turns on their action: kick unexpected bots, delete unexpected webhooks or remove gained permissions. Turning an action on needs the server owner or an Administrator, which the bot checks when it applies the change, and other managers see that note. Any manager can turn one off. Alerts reach staff only through the Security alerts group in Channel logs, which belongs in a channel only staff can read, since invite logs show invite codes. **Expected bots** and **Expected webhooks** each edit their whole list of up to 8,192 IDs in one save. Each takes many IDs pasted at once, separated by spaces, commas or lines, to add to the list or replace it, leaves entries that are not IDs in the box, and **Remove all expected bots** or **Remove all expected webhooks** clears it, so a removed ID raises alerts again
 
 **Refresh invite list** has the bot read the server's invites with its own permissions, which needs Manage community, and shows the newest 100 with code, channel, creator ID, uses, expiry and flags for invites that never expire or have unlimited uses. **Show older invites** and **Show newer invites** have the bot read the next or the previous 100. Tick the confirmation and choose **Revoke invite** to have the bot read the current invites and delete that one, and the list stays on its page. A revoked invite cannot be restored. See [security alerts and invites](BOT.md#security-alerts-and-invites)
+
+### Server-wide lockdown
+
+The Server-wide lockdown section under Moderation shows the lockdown's state, how many channels are locked, waiting, left alone, restored, failed or uncertain, and names up to 10 problem channels. **Start lockdown** and **Lift lockdown** take an optional reason and need their confirmation ticked, under the same rules as `!lockdown`, including Manage roles on the member, and the bot reads the channels when it applies the change. While a lockdown is being lifted neither shows, and after one that ended owing channels **Repeat restoring channels** replaces **Start lockdown**. A refused change shows its reason. **Read uncertain channels** has the bot read them without writing, and **Repeat failed channels** tries failed channels again while the lockdown is on. **Exempt channels** saves its whole list, for the next lockdown. See [server-wide lockdown](BOT.md#server-wide-lockdown)
+
+### Jail
+
+The Jail section under Moderation shows the role, the channel, how many members are jailed, how far setup got and the channels it could not change. **Run setup** has the bot find or make the role and channel, then close the other channels, and can name the channel to use. **Jail on**, **Jail role** and **Jail channel** have the settings of `!jail`, each with its own save. It shows only how many are jailed, since names follow the rule of private cases and `!jail list` shows them. Only the server owner or an Administrator can change them, which the bot checks when it applies the change. Jailing and releasing a member run only in chat, so there is no such button. See [jail](BOT.md#jail)
+
+### Bot-only staff rights
+
+The Bot-only staff rights section under Moderation states what the feature can and cannot limit, and has the settings of `!mod rights`: The switch, a form that grants rights to a role, a revoke for each role, each right's limit and **Clear a member** by ID. It shows how many members are suspended and not who, since any server manager reads it, and `!mod rights status` names them for staff. Only the server owner turns it on, grants, changes limits and clears a suspension, and the owner or an Administrator can turn it off or revoke, also at DEFCON 1. The bot checks that with a fresh read when it applies the change. Moderating runs only in chat, so no section can act on a member through a right. See [bot-only staff rights](BOT.md#bot-only-staff-rights)
+
+### Anti-nuke
+
+The Anti-nuke section under Moderation has the settings of `!antinuke`: The switch, the mode, the response, the four limits, whether an incident may start the lockdown, and the whole list of trusted accounts, each with its own save. Only the server owner or an Administrator can change them, which the bot checks when it applies the change. **Incidents** shows only how many are kept and how many are not confirmed, since incidents name accounts. The list itself is under [Private cases](#private-cases), as **Anti-nuke incidents**, for the owner and the private data role, and each view goes into the audit log. There an incident with roles to give back offers **Give roles back from incident** with its own confirmation, and one NeonFlux could not confirm offers **Read incident**, which reads the member and sends nothing. Both also need the server owner or an Administrator, as in chat, which the list says, since only the bot can check it. The list shows how the newest such request went and reads itself again once a request made there finished. The recovery inbox and the audit log name the incident, not the account. See [anti-nuke](BOT.md#anti-nuke)
 
 ### Analytics
 
@@ -290,7 +306,17 @@ archive or its key
 
 The Temporary voice section adds, configures and removes generators with the same settings as `!voice generator`: The generator name, the category for new rooms, the room name template, an optional default member limit and a fixed region or automatic routing. Leave the category, limit or region empty for top-level rooms, no limit or automatic routing. The section also shows how many generators and live rooms the server has
 
-Adding a generator has the bot create its voice channel, and a new name renames the generator channel. If the backend rejects an add, the bot deletes the channel it just created. Removing a generator keeps its channel. Room owner controls, such as rename and hide, stay in chat. See [temporary voice rooms](BOT.md#temporary-voice-rooms)
+Adding a generator has the bot create its voice channel, and a new name renames the generator channel. If the backend rejects an add, the bot deletes the channel it just created. Removing a generator keeps its channel. A generator's form also turns the room controls card on or off for its new rooms. See [temporary voice rooms](BOT.md#temporary-voice-rooms)
+
+### Your voice room
+
+A member of a server with a generator signs in and opens Your voice room. A manager finds it under Control my voice room in the Temporary voice section. It lists the room the member owns, since a member owns at most one per server, with its name, member limit, lock, visibility and region as the bot last read them. The page asks the bot to read the room again when it opens without a read in the last ten minutes, and on request
+
+The page can lock, unlock, hide, show, rename, set the limit, set the region, allow, block and give the room to someone. Allow, block and giving the room take a member ID or mention, since the page does not list the members inside. Each action is a request that shows as pending. The bot then reads the member and the room fresh and applies the same rule as the chat command, so the website never decides who may change a room, and a refusal shows with its reason. The server's automod rules check a new room name with the member's current roles, and a timed-out or jailed member is refused. The bot claims each request once, so one it could not report is never repeated and shows as unconfirmed. Requests follow the limit of five a minute with two pending, and a request whose sign-in ended never reaches the bot
+
+### Command rules
+
+The Command rules section under Community sets the same [rules for built-in commands](BOT.md#rules-for-built-in-commands) as `!commands`. Choose a command from those a rule can limit, the channels it works in and the roles that can use it, leaving a list empty for every channel or everyone. Each saved rule can be changed or removed. The bot checks that the channels and roles exist before it saves, and the audit log records every change
 
 ### Looking for group
 
@@ -311,6 +337,28 @@ Each followed channel shows whether its alerts are on, why NeonFlux turned them 
 The Twitch alerts section under Messaging follows up to 10 streamers by Twitch login or `twitch.tv/<login>` link, in a text, announcement or forum channel. It has the same alert channel, restart and removal settings as `!twitch`. Each streamer shows its display name and current login, connection or lookup error, revocation reason, latest notification, latest post and last known stream. Unknown logins stay visible with their error
 
 Saving an alert channel moves and restarts alerts. An already live stream posts nothing on add. Without deployment credentials the section offers no add form. Chat and dashboard share revisions and settings history. See [Twitch live alerts](BOT.md#twitch-live-alerts)
+
+### Bluesky and X feeds
+
+The Bluesky and X feeds section under Messaging follows up to 10 accounts by handle or profile link, in a text, announcement or forum channel. It has the same channel, restart and removal settings as `!feed`. Each account shows its name and handle, last check, latest post, last post sent and any problem
+
+Saving a channel moves and restarts the posts. Nothing published before the follow is posted. X can be chosen only where the deployment holds an X key, and the section says so when a deployment has spent its monthly X reads. Chat and dashboard share revisions and settings history. See [Bluesky and X feeds](BOT.md#bluesky-and-x-feeds)
+
+### Counter channels
+
+The Counter channels section under Community has the switch for every counter and adds up to 5, like `!counter`. Choose what a counter counts, server members or the members of one role, the voice, text or announcement channel or category it renames and a name with `{count}` in it. Each counter shows whether it is on, why NeonFlux turned it off and when its count cannot be read, and it can change its name, which turns it back on, or be removed, which leaves the channel's name as it is. Chat and dashboard share revisions and settings history. See [the bot guide](BOT.md#counter-channels) for how often channels are checked
+
+### Personal reminders
+
+The Personal reminders section under Community has the switch and how many reminders each member keeps, like `!remind module` and `!remind limit`. It shows nothing about any member's reminders
+
+### Giveaways
+
+The Giveaways section under Community has the switch and the role a member needs to win, starts a giveaway and lists the 25 newest. Each shows its state, winners, the winners it could not tell by DM and any problem, with the forms that apply: End now and Cancel for a running one and Draw again for an ended one. Each is queued for the bot like other changes, and the card and draw follow as they do for `!giveaway`. The channel list offers text and announcement channels
+
+### Boards
+
+The Boards section under Community has the switch for every board and adds up to 5, like `!board`. Choose a name, an emoji as text or a custom emoji's markup, a text or announcement channel and the reactions a message needs. Each board also has whether an author's own reaction counts, whether messages of bots and webhooks can be reposted, up to 25 ignored channels and removal. A stopped board names its fix, and saving it turns it back on. Every change reaches the audit log, and posts it already made stay where they are
 
 ### Dashboard link
 

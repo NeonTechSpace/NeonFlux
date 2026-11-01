@@ -18,9 +18,13 @@ import { forgetSuggestion } from "./suggestionsCleanup.ts"
 import { terminalSuggestion } from "./suggestionsDomain.ts"
 import { dirtySuggestion, suggestionCount } from "./suggestionsStore.ts"
 import { removeShowcase } from "./showcases.ts"
+import { queueBoardRemoval } from "./boardsStore.ts"
+import { ringWork } from "./workSignal.ts"
 import { removeMetadataAuthor, removeMetadataRecord } from "./metadataLogsStore.ts"
 import { cancelMemberRequests } from "./memberContent.ts"
 import { PROFILE_FAMILY } from "./profilesDomain.ts"
+import { removeReminder } from "./remindersStore.ts"
+import { releaseGiveawayPost } from "./giveawaysStore.ts"
 import { decode } from "./validation.ts"
 
 // Member data rights. Every table that stores data about a member under their user ID is listed here with an index
@@ -358,6 +362,20 @@ export const MEMBER_DATA: readonly Entry[] = [
         }),
         { keep: CASES },
     ),
+    // The roles a jailed member gets back. The row ends with the unjail, and the jail's own case keeps the history
+    entry(
+        "jailRecords",
+        "userId",
+        "Jail",
+        (row) => ({
+            caseNo: row.caseNo,
+            state: row.state,
+            roleIds: row.roleIds,
+            createdAt: row.createdAt,
+            releaseAt: row.releaseAt,
+        }),
+        { keep: CASES },
+    ),
     // Staff changes to the reason of a case about the member. Erasing the case deletes them
     entry(
         "moderationCorrections",
@@ -390,7 +408,7 @@ export const MEMBER_DATA: readonly Entry[] = [
         "voiceRooms",
         "ownerId",
         "Temporary voice room",
-        (row) => ({ channelId: row.channelId, createdAt: row.createdAt }),
+        (row) => ({ channelId: row.channelId, createdAt: row.createdAt, name: row.view?.name }),
         { keep: "Kept while your room exists, and removed when its channel is deleted" },
     ),
     entry(
@@ -466,6 +484,28 @@ export const MEMBER_DATA: readonly Entry[] = [
         },
     ),
     entry(
+        "boardEntries",
+        "authorId",
+        "Board posts of your messages",
+        (row) => ({
+            sourceChannelId: row.sourceChannelId,
+            sourceMessageId: row.sourceMessageId,
+            postChannelId: row.postChannelId,
+            postMessageId: row.postMessageId,
+            count: row.count,
+            createdAt: row.createdAt,
+            postedAt: row.postedAt,
+        }),
+        {
+            remove: async (ctx, row) => {
+                // The post is queued for removal, and the record keeps only where it is until then. An unknown outcome is settled by staff first
+                if (!(await queueBoardRemoval(ctx, row, Date.now()))) return IN_PROGRESS
+                await ringWork(ctx)
+                return 1
+            },
+        },
+    ),
+    entry(
         "metadataLogRecords",
         "authorId",
         "Message and member logs",
@@ -507,6 +547,56 @@ export const MEMBER_DATA: readonly Entry[] = [
         deleteRow,
     ),
     entry(
+        "reminders",
+        "userId",
+        "Reminders",
+        (row) => ({
+            reminderNo: row.reminderNo,
+            text: row.text,
+            channelId: row.channelId,
+            dueAt: row.dueAt,
+            state: row.state,
+            createdAt: row.createdAt,
+        }),
+        {
+            remove: async (ctx, row) => {
+                await removeReminder(ctx, row)
+                return 1
+            },
+        },
+    ),
+    entry(
+        "giveawayWinners",
+        "userId",
+        "Giveaways you won",
+        (row) => ({ giveawayNo: row.giveawayNo, drawNo: row.drawNo, dm: row.dm, createdAt: row.createdAt }),
+        // Only the member's ID leaves the giveaway, which keeps its other winners. The card already in the channel stays, as with other messages NeonFlux sent
+        deleteRow,
+    ),
+    entry(
+        "giveaways",
+        "hostId",
+        "Giveaways you host",
+        (row) => ({
+            giveawayNo: row.giveawayNo,
+            prize: row.prize,
+            state: row.state,
+            endsAt: row.endsAt,
+            createdAt: row.createdAt,
+        }),
+        {
+            remove: async (ctx, row) => {
+                if (row.phase !== "done")
+                    return "A running giveaway keeps its host until it ends. Delete again after that"
+                // The card's tracked post names the host, so it goes too, unless its outcome is still unknown
+                if (row.postNo !== undefined && !(await releaseGiveawayPost(ctx, row.serverId, row.postNo)))
+                    return IN_PROGRESS
+                await ctx.db.patch(row._id, { hostId: undefined, postNo: undefined, attemptId: undefined })
+                return 1
+            },
+        },
+    ),
+    entry(
         "temporaryRoleGrants",
         "userId",
         "Temporary roles",
@@ -538,6 +628,9 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     ticketTranscriptPages: "Part of a ticket, kept with it",
     memberAccessLists: STAFF_SETTING,
     roleSettings: STAFF_SETTING,
+    counters: STAFF_SETTING,
+    boards: STAFF_SETTING,
+    feedSubscriptions: STAFF_SETTING,
     dashboardSessions:
         "A website sign-in, not server data. It ends at sign-out, after 30 days without use and at most 90 days after sign-in",
     dashboardPrivateAccessJobs:
@@ -551,6 +644,19 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     // Its invite list names each invite's creator as Fluxer shows it to staff, and the next refresh replaces it
     alertSettings: "Server security settings and the invite list staff last read from Fluxer",
     alertActions: SECURITY,
+    // Names the staff member who started or lifted it. A server keeps only its latest lockdown
+    lockdowns: STAFF,
+    lockdownChannels:
+        "Holds channel overwrites and no member, except when a member overwrite of NeonFlux itself is stored",
+    lockdownSettings: STAFF,
+    // Names the account the incident stopped. A server keeps its newest 200 incidents
+    antiNukeIncidents: SECURITY,
+    antiNukeSettings: STAFF_SETTING,
+    jailSettings: STAFF_SETTING,
+    rightsSettings: STAFF_SETTING,
+    // Each counts what a staff member did through NeonFlux to limit it, and a usage row ends within a day
+    rightsUsage: SECURITY,
+    rightsSuspensions: SECURITY,
     memberDataDeletions:
         "Records only that you deleted your data in a server and when, so restoring a backup made before cannot bring it back. Kept while NeonFlux keeps the server's data, since a backup can be restored at any time",
 }

@@ -88,5 +88,36 @@
         "member rules | !rulers used to live here",
         "member shelf,shell | !shelp",
         "member void | !voic"
+    ],
+    "anti-nuke/train": [
+        "slow burn across channels and roles",
+        "slow burn of bans over half an hour",
+        "slow burn of channel deletes",
+        "slow burn of kicks over an hour",
+        "slow burn of role deletes"
+    ],
+    "anti-nuke/holdout": [
+        "slow-burn-01",
+        "slow-burn-02",
+        "slow-burn-03",
+        "slow-burn-04",
+        "slow-burn-05",
+        "via-bot-03",
+        "via-bot-04"
+    ],
+    "lockdown/train": [],
+    "lockdown/holdout": [],
+    "feed-posts/train": [],
+    "feed-posts/holdout": [
+        "bluesky-original-05",
+        "x-original-04",
+        "x-quote-06"
+    ],
+    "board-visibility/train": [],
+    "board-visibility/holdout": [
+        "public-to-public-03",
+        "public-to-public-33",
+        "role-deny-on-source-27",
+        "role-deny-on-source-57"
     ]
 }

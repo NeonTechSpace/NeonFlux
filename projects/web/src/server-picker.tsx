@@ -8,6 +8,7 @@ const memberFeatureLabels = {
     rolepicker: "role picker",
     showcase: "showcases",
     profile: "profile",
+    voice: "voice room",
     private: "private cases",
 } as const
 // A server named with an emoji or a flag starts with that whole symbol, not half of it
@@ -107,7 +108,7 @@ export function ServerPicker({
             <h2 id="member-select-title">Your member features</h2>
             <p className="muted">
                 Servers where you can claim or drop roles yourself with the role picker, post showcases, edit your
-                profile, or view private cases when the server gives you its private data role
+                profile, control your voice room, or view private cases when the server gives you its private data role
             </p>
             <ul className="server-grid">
                 {joined.map((server) => {

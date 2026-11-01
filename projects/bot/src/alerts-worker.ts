@@ -24,7 +24,8 @@ import type { AlertsStore } from "./alerts-store.ts"
 import { contained, warnFailure } from "./contained.ts"
 import { namesLookAlike } from "./alerts-names.ts"
 import type { MetadataLogsStore } from "./metadata-log-store.ts"
-import { createMetadataObservationSession } from "./metadata-log-projector.ts"
+import { createMetadataObservationSession, metadataWebhookName } from "./metadata-log-projector.ts"
+import { createWebhookNames } from "./metadata-log-webhooks.ts"
 import { auditBits, auditNames, auditRoleChange, sameAuditName } from "./audit-changes.ts"
 import {
     nativeBotAccount,
@@ -74,7 +75,7 @@ export const alertActionPermissions = {
     removePermissions: Permissions.ManageRoles,
 } as const satisfies Record<AlertAction, bigint>
 /** A native action's result, classified like moderation actions: a call proven unsent or refused by Fluxer failed */
-const nativeOutcome = (operation: Effect.Effect<unknown, unknown>) =>
+export const nativeOutcome = (operation: Effect.Effect<unknown, unknown>) =>
     Effect.gen(function* () {
         const result = yield* Effect.exit(operation)
         if (Exit.isFailure(result) && Cause.hasInterrupts(result.cause)) return yield* Effect.failCause(result.cause)
@@ -108,6 +109,7 @@ export function createSecurityAlerts(
     metadata: MetadataLogsStore,
     serverId: string,
     notify: () => Effect.Effect<void>,
+    webhookNames = createWebhookNames(),
 ) {
     let settings: AlertSettings = {
         invites: false,
@@ -221,7 +223,13 @@ export function createSecurityAlerts(
             }),
         )
     // A new webhook is deleted unless the owner, NeonFlux or an expected bot created it. Changed webhooks are only reported
-    const deleteWebhook = (entryId: string, webhookId: string, creatorId: string, client: Client) =>
+    const deleteWebhook = (
+        entryId: string,
+        webhookId: string,
+        creatorId: string,
+        name: string | undefined,
+        client: Client,
+    ) =>
         act(
             Effect.gen(function* () {
                 const botId = yield* readAuthenticatedBotId(client)
@@ -236,6 +244,7 @@ export function createSecurityAlerts(
                         action: "deleteWebhooks",
                         targetId: webhookId,
                         actorId: creatorId,
+                        ...(name ? { targetName: name } : {}),
                     },
                 }
                 if (authority.botPermissionAuthorized)
@@ -451,13 +460,15 @@ export function createSecurityAlerts(
                     (entry.actionType === 50 || entry.actionType === 51) &&
                     !settings.expectedWebhookIds.includes(target)
                 ) {
+                    const webhookName = metadataWebhookName(yield* webhookNames.ofAudit(client, target, entry))
                     const recorded = yield* send("webhook-change", {
                         ...proof,
                         resourceIds: [target],
                         changedFields: [entry.actionType === 50 ? "created" : "updated"],
+                        ...(webhookName.webhookName ? { details: webhookName } : {}),
                     })
                     if (recorded && entry.actionType === 50 && settings.deleteWebhooks && actorId)
-                        yield* deleteWebhook(entry.id, target, actorId, client)
+                        yield* deleteWebhook(entry.id, target, actorId, webhookName.webhookName, client)
                 }
                 if (!settings.privileges) return
                 if (entry.actionType === 30 || entry.actionType === 31) {
@@ -472,7 +483,9 @@ export function createSecurityAlerts(
                             yield* removePermissions(entry.id, target, actorId, gained, client)
                     }
                     // A member given a role is only reported, since NeonFlux removes only roles it granted
-                } else if (entry.actionType === 25) {
+                    // Fluxer records a change of the whole list as a member update, with the roles among its changes, and adding or
+                    // removing one role as a role update
+                } else if (entry.actionType === 24 || entry.actionType === 25) {
                     const added = auditRoleChange(entry.changes).added
                     if (!added.length) return
                     const roles =

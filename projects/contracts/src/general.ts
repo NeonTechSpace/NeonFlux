@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { CommandRules } from "./command-rules.ts"
 import { Id, Int, Millis, origin } from "./common.ts"
 
 // General settings: the command prefix and reply style, which chat and the website share under one revision, and the bot's nickname
@@ -33,7 +34,14 @@ export const GeneralNickname = Schema.Struct({
 export type GeneralNickname = typeof GeneralNickname.Type
 export const GeneralGetRequest = Schema.Struct({ serverId: Id })
 export type GeneralGetRequest = typeof GeneralGetRequest.Type
-export const GeneralGetResult = Schema.Struct({ prefix, replyStyle, revision: Int(), nickname: GeneralNickname })
+/** commandRules is left out while a server has none. The bot keeps them in memory beside the prefix */
+export const GeneralGetResult = Schema.Struct({
+    prefix,
+    replyStyle,
+    revision: Int(),
+    nickname: GeneralNickname,
+    commandRules: Schema.optionalKey(CommandRules),
+})
 export type GeneralGetResult = typeof GeneralGetResult.Type
 const manage = { ...origin, serverId: Id, actorId: Id, managerAuthorized: Schema.Boolean, expectedRevision: Int() }
 /** A chat command changes one setting at the revision it read */

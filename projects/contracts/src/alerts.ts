@@ -136,6 +136,8 @@ export const AlertsActionClaimRequest = Schema.Struct({
     action: AlertAction,
     targetId: Id,
     actorId: Schema.optionalKey(Id),
+    /** A webhook's name, ready to show, which its action's record names */
+    targetName: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100))),
     permissions: Schema.optionalKey(List(Schema.Literals(ALERT_PERMISSIONS), ALERT_PERMISSIONS.length)),
 }).check(
     Schema.makeFilter(

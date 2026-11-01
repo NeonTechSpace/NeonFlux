@@ -5,6 +5,9 @@ import { milestoneKind, milestoneTemplate, publishingMilestoneConsumer } from ".
 import { publishingSuggestionConsumer } from "./suggestionsValidators.ts"
 import { publishingYoutubeConsumer } from "./youtubeValidators.ts"
 import { publishingTwitchConsumer } from "./twitchValidators.ts"
+import { publishingFeedConsumer } from "./feedValidators.ts"
+import { publishingGiveawayConsumer } from "./giveawaysValidators.ts"
+import { publishingBoardConsumer } from "./boardsValidators.ts"
 import { publishingKind } from "./publishingValidators.ts"
 
 // Every feature that sends through the publisher records its source, consumer binding and provenance here
@@ -25,6 +28,9 @@ export const publishingSource = v.union(
     publishingSuggestionConsumer,
     publishingYoutubeConsumer,
     publishingTwitchConsumer,
+    publishingFeedConsumer,
+    publishingGiveawayConsumer,
+    publishingBoardConsumer,
 )
 export const publishingConsumer = v.union(
     publishingEventConsumer,
@@ -33,6 +39,9 @@ export const publishingConsumer = v.union(
     publishingSuggestionConsumer,
     publishingYoutubeConsumer,
     publishingTwitchConsumer,
+    publishingFeedConsumer,
+    publishingGiveawayConsumer,
+    publishingBoardConsumer,
 )
 export const publishingProvenance = v.union(
     v.object({ type: v.literal("showcase"), showcaseNo: v.number() }),
@@ -60,4 +69,7 @@ export const publishingProvenance = v.union(
     publishingSuggestionConsumer,
     publishingYoutubeConsumer,
     publishingTwitchConsumer,
+    publishingFeedConsumer,
+    publishingGiveawayConsumer,
+    publishingBoardConsumer,
 )

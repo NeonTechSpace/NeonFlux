@@ -11,13 +11,18 @@ import { autoroleIds, safeRole } from "./rolesDomain.ts"
 import { rolePolicy } from "./roleClaims.ts"
 import { readRolePicker } from "./rolePickerStore.ts"
 import { twitchConfig } from "./twitchDomain.ts"
+import { xConfig } from "./feedX.ts"
 import { websubConfig } from "./youtubeDomain.ts"
 import { HELPDESK_ANSWER_LIMIT } from "@neonflux/contracts/helpdesk"
 import { STICKY_LIMIT } from "@neonflux/contracts/sticky"
+import { COMMAND_RULE_LIMIT } from "@neonflux/contracts/command-rules"
 import { CLEANUP_POLICY_LIMIT } from "@neonflux/contracts/cleanup"
 import { VOICE_GENERATOR_LIMIT } from "@neonflux/contracts/voice"
 import { YOUTUBE_LIMIT } from "@neonflux/contracts/youtube"
 import { TWITCH_LIMIT } from "@neonflux/contracts/twitch"
+import { FEED_LIMIT } from "@neonflux/contracts/feeds"
+import { COUNTER_LIMIT } from "@neonflux/contracts/counters"
+import { BOARD_LIMIT } from "@neonflux/contracts/boards"
 import { object } from "./validation.ts"
 import { SERVER_PATTERNS } from "./moderationDomain.ts"
 import { cleanupExclusionsRefusal } from "./cleanupDomain.ts"
@@ -121,9 +126,13 @@ async function backupConfigurationCapacity(
     const limits: Partial<Record<BackupConfigObject["family"], [number, string]>> = {
         voiceGenerator: [VOICE_GENERATOR_LIMIT, "voice generators"],
         sticky: [STICKY_LIMIT, "sticky messages"],
+        commandRule: [COMMAND_RULE_LIMIT, "command rules"],
         helpdeskAnswer: [HELPDESK_ANSWER_LIMIT, "saved answers"],
         youtube: [YOUTUBE_LIMIT, "followed YouTube channels"],
         twitch: [TWITCH_LIMIT, "followed Twitch channels"],
+        feeds: [FEED_LIMIT, "followed Bluesky and X accounts"],
+        counter: [COUNTER_LIMIT, "counters"],
+        board: [BOARD_LIMIT, "boards"],
     }
     const limit = limits[item.family]
     if (limit && rows.length + same.length >= limit[0])
@@ -276,10 +285,23 @@ function backupConfigReferences(
         case "sticky":
         case "youtube":
         case "twitch":
+        case "feeds":
             channel(item.value.channelId)
+            break
+        case "counter":
+            channel(item.value.channelId)
+            if (item.value.roleId) role(item.value.roleId)
+            break
+        case "board":
+            channel(item.value.channelId)
+            for (const id of item.value.ignoredChannelIds) channel(id)
             break
         case "showcase":
             channel(item.value.channelId)
+            break
+        case "commandRule":
+            item.value.channelIds.forEach((id) => channel(id))
+            item.value.roleIds.forEach((id) => role(id))
             break
         case "voiceGenerator":
             channel(item.value.channelId, "voice")
@@ -303,6 +325,9 @@ function backupConfigReferences(
             if (item.value.completionRoleId) role(item.value.completionRoleId, true)
             item.value.steps.forEach((step) => step.type === "link" && channel(step.channelId))
             break
+        case "lockdown":
+            item.value.exemptChannelIds.forEach((id) => channel(id))
+            break
         case "helpdesk":
             item.value.forumIds.forEach((id) => channel(id))
             channel(item.value.guardChannelId)
@@ -310,6 +335,7 @@ function backupConfigReferences(
         // These name no channel, role or member that must exist. Expected alert bots stay as they are, like member IDs in
         // an access list. A new family is listed here or above, so none skips the reference check by accident
         case "alerts":
+        case "antinuke":
         case "analytics":
         case "cleanup":
         case "draft":
@@ -320,6 +346,8 @@ function backupConfigReferences(
         case "profile":
         case "publishing":
         case "responses":
+        case "counters":
+        case "boards":
         case "schedules":
         case "tickets":
             break
@@ -446,6 +474,8 @@ function backupFamilyRefusal(
         return "A schedule with this name was cancelled, and a cancelled schedule stays cancelled. Forget it first"
     if (item.family === "twitch" && !twitchConfig())
         return "Twitch alerts are not set up for this NeonFlux, so it cannot follow Twitch streamers"
+    if (item.family === "feeds" && item.value.provider === "x" && !xConfig())
+        return "X feeds are not set up for this NeonFlux, so it cannot follow X accounts"
     if (item.family === "youtube" && !websubConfig())
         return "YouTube alerts are not set up for this NeonFlux, so it cannot follow YouTube channels"
     return null

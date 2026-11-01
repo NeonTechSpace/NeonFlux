@@ -90,6 +90,8 @@ export function parseMetadataLogCommand(args: readonly string[]): MetadataLogPar
         }
     if (verb === "module" && args.length === 3 && ["on", "off"].includes(args[2]!))
         return { type: "manage", operation: { type: "module", enabled: args[2] === "on" } }
+    if (verb === "webhook-posts" && args.length === 3 && ["on", "off"].includes(args[2]!))
+        return { type: "manage", operation: { type: "webhook-posts", enabled: args[2] === "on" } }
     const category = metadataLogCategories.find((v) => v === args[2])
     // The event is every word between the verb and the fixed words after it
     const inherited = verb === "inherit" ? selectorOf(args.slice(2)) : undefined
@@ -211,10 +213,10 @@ export const metadataLogHelp = [
 ].join("\n")
 /** The forms !logs metadata help leaves out, listed by !logs metadata help all */
 export const metadataLogHelpAll = [
+    "!logs metadata webhook-posts on|off: Also log what webhooks post, off by default. Their edits and deletions are logged anyway, at most 30 at once, then one a minute",
     "!logs metadata overrides [next]: Events that do not follow their category",
     "!logs metadata clear <category>: Stop sending a category",
-    "!logs metadata event <event> <channel> [owner] on: Send one event to its own channel",
-    "!logs metadata event <event> off: Never log one event",
+    "!logs metadata event <event> <channel> [owner] on, or event <event> off: Send one event to its own channel, or never log it",
     "!logs metadata inherit <event>: Let an event follow its category again",
     "!logs events show <record>: One logged event",
     "!logs delivery show|reconcile <record>: A log post's delivery, or check one that was not confirmed",

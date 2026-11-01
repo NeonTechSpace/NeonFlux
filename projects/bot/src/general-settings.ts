@@ -1,5 +1,5 @@
 import { Clock, Effect, Schema, Struct } from "effect"
-import { Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
+import { errors, Permissions, type BotEventContext, type Client } from "@neontechspace/fluxerly/effect"
 import {
     GeneralGetResult,
     GeneralManageResult,
@@ -13,6 +13,7 @@ import {
     type GeneralNicknameRequest,
     type GeneralNicknameResultRequest,
 } from "@neonflux/contracts/general"
+import type { CommandRule, CommandRules } from "@neonflux/contracts/command-rules"
 import type { ModerationActor } from "@neonflux/contracts/shared"
 import { readSafetyAuthority } from "./safety-permissions.ts"
 import { BackendRequestError, createBackendRequest } from "./backend-http.ts"
@@ -22,7 +23,7 @@ import { code, notSetUp, replyCard } from "./reply-style.ts"
 import { warnFailure } from "./contained.ts"
 
 // The prefix reader and the nickname command each decode their own part of the general settings
-const settings = GeneralGetResult.mapFields(Struct.pick(["prefix", "replyStyle", "revision"])),
+const settings = GeneralGetResult.mapFields(Struct.pick(["prefix", "replyStyle", "revision", "commandRules"])),
     nickname = GeneralGetResult.mapFields(Struct.pick(["nickname"]))
 export function createGeneralSettingsStore(backend: BackendConfig, serverId: string) {
     const request = createBackendRequest(backend)
@@ -98,17 +99,30 @@ export function applyNativeNickname(client: Client, serverId: string, value: str
     )
 }
 
-// Each managed server's prefix and reply style in bot memory. Chat changes apply at once and dashboard changes within the TTL
+// Each managed server's prefix, reply style and command rules in bot memory. Chat changes apply at once and dashboard changes within the TTL
 export const prefixTtlMs = 30000
 export type ReplyStyle = "embed" | "text"
-type General = { readonly prefix: string; readonly replyStyle: ReplyStyle }
-const prefixes = new Map<string, General & { readAt: number }>()
-const remember = (serverId: string, { prefix, replyStyle }: General) =>
+type General = {
+    readonly prefix: string
+    readonly replyStyle: ReplyStyle
+    readonly commandRules?: CommandRules | undefined
+}
+const prefixes = new Map<string, { -readonly [K in keyof General]: General[K] } & { readAt: number }>()
+const remember = (serverId: string, { prefix, replyStyle, commandRules }: General) =>
     Clock.currentTimeMillis.pipe(
         Effect.map((readAt) => {
-            prefixes.set(serverId, { prefix, replyStyle, readAt })
+            prefixes.set(serverId, { prefix, replyStyle, commandRules, readAt })
         }),
     )
+/** The rule on a command, from memory, so a command without one costs nothing */
+export const serverCommandRule = (serverId: string, command: string | undefined): CommandRule | undefined =>
+    prefixes.get(serverId)?.commandRules?.find((rule) => rule.command === command)
+/** Keep the rules a command just read or saved, keeping when the prefix and reply style were last read */
+export const rememberCommandRules = (serverId: string, commandRules: CommandRules) =>
+    Effect.sync(() => {
+        const cached = prefixes.get(serverId)
+        if (cached) cached.commandRules = commandRules
+    })
 
 /** The prefix that commands in a reply to this message use. Private DMs keep the fixed ! that also selects a server */
 export const replyPrefix = (serverId: string, guildId: string | undefined) =>
@@ -182,8 +196,13 @@ export function handlePrefixCommand(
             yield* respond(`Use ${code(`${current.prefix}prefix <one to five punctuation characters>`)}`)
             return
         }
-        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) {
-            yield* respond("Only the server owner or members with Manage community can change the prefix")
+        const manager = yield* readServerManagerAuthority(context.client, serverId, context.message.author.id)
+        if (!manager) {
+            yield* respond(
+                manager === undefined
+                    ? managerReadFailed
+                    : "Only the server owner or members with Manage community can change the prefix",
+            )
             return
         }
         const saved = yield* store.set(context.message.author.id, { prefix: args[0]! }, current.revision)
@@ -225,8 +244,13 @@ export function handleRepliesCommand(
             yield* respond(`Use ${choices}`)
             return
         }
-        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) {
-            yield* respond("Only the server owner or members with Manage community can change the reply style")
+        const manager = yield* readServerManagerAuthority(context.client, serverId, context.message.author.id)
+        if (!manager) {
+            yield* respond(
+                manager === undefined
+                    ? managerReadFailed
+                    : "Only the server owner or members with Manage community can change the reply style",
+            )
             return
         }
         const saved = yield* store.set(context.message.author.id, { replyStyle: style }, current.revision)
@@ -239,11 +263,19 @@ export function handleRepliesCommand(
     })
 }
 
-/** Server settings follow one rule: the server owner, Administrator or Manage community, read fresh from Fluxer. The owner holds every permission */
+/** The answer when a member's permissions could not be read, which says nothing about what they hold */
+export const managerReadFailed = "Your permissions could not be read right now. Try again shortly"
+/**
+ * Server settings follow one rule: the server owner, Administrator or Manage community, read fresh from Fluxer. The owner holds every
+ * permission. Undefined means the read failed, as when it timed out, so the member is told to try again rather than refused. Someone
+ * Fluxer does not find as a member holds nothing
+ */
 export function readServerManagerAuthority(client: Client, serverId: string, userId: string) {
     return client.permissions.fetch({ guildId: serverId, userId }, { timeoutMs: 5000 }).pipe(
-        Effect.map((bits) => (bits & (Permissions.Administrator | Permissions.ManageGuild)) !== 0n),
-        Effect.catch(() => Effect.succeed(false)),
+        Effect.map(
+            (bits): boolean | undefined => (bits & (Permissions.Administrator | Permissions.ManageGuild)) !== 0n,
+        ),
+        Effect.catch((error) => Effect.succeed(errors.isNotFound(error) ? false : undefined)),
     )
 }
 
@@ -322,8 +354,13 @@ export function handleNicknameCommand(
             yield* respond(nicknameUsage(replyPrefix(serverId, context.message.guildId)))
             return
         }
-        if (!(yield* readServerManagerAuthority(context.client, serverId, context.message.author.id))) {
-            yield* respond("Only the server owner or members with Manage community can change the bot nickname")
+        const manager = yield* readServerManagerAuthority(context.client, serverId, context.message.author.id)
+        if (!manager) {
+            yield* respond(
+                manager === undefined
+                    ? managerReadFailed
+                    : "Only the server owner or members with Manage community can change the bot nickname",
+            )
             return
         }
         const value = verb === "set" ? name! : null

@@ -46,7 +46,7 @@ An export from the dashboard is always one file. A chat export larger than about
 | `general` | `prefix`, `replyStyle` (`embed` or `text`) and the bot's `nickname`, or `null` when it has none |
 | `analytics` | `enabled`, whether NeonFlux counts server activity |
 | `roles` | `settings` for reaction roles, rules verification and autorole, and `panels` with their role mappings |
-| `logs` | Channel log `enabled`, category `routes`, per-event `eventRoutes`, `allChannels`, `messageChannelIds` and `excludedChannelIds` |
+| `logs` | Channel log `enabled`, category `routes`, per-event `eventRoutes`, `allChannels`, `webhookPosts`, `messageChannelIds` and `excludedChannelIds` |
 | `responses` | `settings` and the custom command and autoresponder `definitions` |
 | `moderation` | `settings`, the `privateDataRoleId`, automod `rules` and the security `watchlist` with its reasons |
 | `publishing` | `settings` and saved `drafts` and templates with their message content |
@@ -57,6 +57,7 @@ An export from the dashboard is always one file. A chat export larger than about
 | `cleanup` | `settings` and the per-channel `policies` |
 | `events`, `schedules` | `settings` and the `events` or `schedules` with their dates |
 | `voice` | Temporary voice `generators` |
+| `commandrules` | `rules`, each with its command, channels and roles |
 | `rolepicker` | `settings` with its menus and the `access` lists |
 | `temproles` | `settings` with each role's default and longest duration |
 | `sticky` | `stickies` with their channel, text and interval |
@@ -67,9 +68,18 @@ An export from the dashboard is always one file. A chat export larger than about
 | `lfg` | Looking for group `settings` |
 | `showcase`, `profile` | `settings` and the `access` lists |
 | `youtube` | Followed YouTube channel `subscriptions`, each with its YouTube channel ID, alert channel, whether alerts are on, the problem that turned them off and when it was added |
+| `lockdown` | The lockdown `settings`, with the exempt channels |
+| `antinuke` | Anti-nuke `settings`, with the mode, limits, response and trusted accounts |
+| `jail` | Jail `settings`, with whether it is on, the role and the channel. Jailed members are moderation records, not settings |
+| `rights` | Bot-only staff rights `settings`, with whether they are on, which roles hold which rights and each right's limit. Backups leave these out |
 | `twitch` | Followed Twitch broadcaster `subscriptions`, each with its Twitch broadcaster ID, alert channel, whether alerts are on, the problem that turned them off and when it was added |
+| `feeds` | Followed Bluesky and X account `subscriptions`, each with its service, account ID, post channel, whether posts are on, the problem that turned them off and when it was added |
+| `counters` | Counter channels `enabled` and `counters`, each with its channel, kind, counted role, name template, whether it is on, the problem that turned it off and when it was added |
+| `boards` | Boards `enabled` and `boards`, each with its name, emoji, channel, threshold, whether an author's reaction and messages of bots count, ignored channels, the problem that stopped it and when it was created |
+| `reminders` | Personal reminders `settings`: Whether they are on and the limit per member. A member's reminders are never exported here |
+| `giveaways` | Giveaway `settings`: Whether they are on and the required role. Giveaways themselves are live state |
 
-Live state, such as active temporary role grants, open voice rooms and groups, the invite list, checklist completion counts and each YouTube or Twitch channel's subscription status and latest activity, is not part of the settings
+Live state, such as active temporary role grants, open voice rooms and groups, the invite list, a running lockdown, anti-nuke incidents, checklist completion counts and each YouTube or Twitch channel's subscription status and latest activity, is not part of the settings
 
 ## Levels
 

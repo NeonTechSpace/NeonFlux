@@ -90,6 +90,8 @@ import { isMetadataLogCommand, parseMetadataLogCommand } from "./metadata-log-co
 import { handleMetadataLogCommand } from "./metadata-log-management.ts"
 import { createMetadataGatewayAdmission, metadataRechecks } from "./metadata-log-events.ts"
 import { startMetadataLogsWorker } from "./metadata-log-worker.ts"
+import { createWebhookNames } from "./metadata-log-webhooks.ts"
+import { channelChanges } from "./metadata-log-projector.ts"
 import type { BackupStore } from "./backup-store.ts"
 import { parseBackupCommand } from "./backup-command.ts"
 import { forgetBackupLock, handleBackupCommand, processBackupJobPass } from "./backup.ts"
@@ -116,6 +118,7 @@ import {
     handleNicknameCommand,
     handlePrefixCommand,
     handleRepliesCommand,
+    serverCommandRule,
     withPrefix,
     type GeneralSettingsStore,
 } from "./general-settings.ts"
@@ -141,7 +144,10 @@ import { handleStatsCommand } from "./analytics-management.ts"
 import { createWorkNotices, startWorkDispatcher } from "./work-dispatcher.ts"
 import type { VoiceStore } from "./voice-store.ts"
 import { parseVoiceCommand, voicePublic } from "./voice-command.ts"
-import { handleVoiceCommand } from "./voice-management.ts"
+import { handleVoiceCommand, handleVoicePanelReaction, processVoiceMemberPass } from "./voice-management.ts"
+import { parseCommandRulesCommand } from "./command-rules-command.ts"
+import { commandRuleRefusal, handleCommandRulesCommand, refuseCommand } from "./command-rules-management.ts"
+import type { CommandRulesStore } from "./command-rules-store.ts"
 import { createVoiceRuntime } from "./voice-worker.ts"
 import type { RolePickerStore } from "./rolepicker-store.ts"
 import { parseRolePickerCommand, rolePickerCritical } from "./rolepicker-command.ts"
@@ -174,10 +180,27 @@ import { handleLfgCommand } from "./lfg-management.ts"
 import { startLfgWorker } from "./lfg-worker.ts"
 import type { YoutubeStore } from "./youtube-store.ts"
 import type { TwitchStore } from "./twitch-store.ts"
+import type { FeedStore } from "./feed-store.ts"
 import { handleYoutubeCommand } from "./youtube-management.ts"
 import { handleTwitchCommand } from "./twitch-management.ts"
+import { handleFeedCommand } from "./feed-management.ts"
 import { startYoutubeWorker } from "./youtube-worker.ts"
 import { startTwitchWorker } from "./twitch-worker.ts"
+import { startFeedWorker } from "./feed-worker.ts"
+import type { CounterStore } from "./counter-store.ts"
+import { handleCounterCommand } from "./counter-management.ts"
+import { createCounterRuntime } from "./counter-worker.ts"
+import type { BoardStore } from "./board-store.ts"
+import { handleBoardCommand } from "./board-management.ts"
+import { createBoardRuntime } from "./board-worker.ts"
+import type { ReminderStore } from "./remind-store.ts"
+import { parseRemindCommand, remindCritical, remindStaff } from "./remind-command.ts"
+import { handleRemindCommand } from "./remind-management.ts"
+import { startReminderWorker } from "./remind-worker.ts"
+import type { GiveawayStore } from "./giveaway-store.ts"
+import { giveawayCritical, parseGiveawayCommand } from "./giveaway-command.ts"
+import { handleGiveawayCommand } from "./giveaway-management.ts"
+import { startGiveawayWorker } from "./giveaway-worker.ts"
 import type { ShowcaseStore } from "./showcase-store.ts"
 import { parseShowcaseCommand, showcasePublic } from "./showcase-command.ts"
 import { handleShowcaseCommand } from "./showcase-management.ts"
@@ -228,6 +251,21 @@ import { createMemberDataStore, type MemberDataStore } from "./member-data-store
 import type { AlertsStore } from "./alerts-store.ts"
 import { createSecurityAlerts } from "./alerts-worker.ts"
 import { handleAlertsCommand, handleInvitesCommand } from "./alerts-management.ts"
+import type { LockdownStore } from "./lockdown-store.ts"
+import { lockdownCritical, parseLockdownCommand } from "./lockdown-command.ts"
+import { handleLockdownCommand } from "./lockdown-management.ts"
+import { lockdownRuntimes, startLockdownWorker } from "./lockdown-worker.ts"
+import type { AntiNukeStore } from "./antinuke-store.ts"
+import { antiNukeCritical, parseAntiNukeCommand } from "./antinuke-command.ts"
+import { handleAntiNukeCommand } from "./antinuke-management.ts"
+import { createAntiNuke } from "./antinuke-worker.ts"
+import type { JailStore } from "./jail-store.ts"
+import { jailCritical, JAILED_COMMANDS, jailedRefusal, parseJailCommand } from "./jail-command.ts"
+import { handleJailCommand } from "./jail-management.ts"
+import { isConfined, isJailed } from "./jail-memory.ts"
+import { createJail } from "./jail-worker.ts"
+import type { RightsStore } from "./rights-store.ts"
+import { createRights } from "./rights-worker.ts"
 
 /** Backend adapters by feature. Omitted stores use the configured backend, and tests pass in-memory replacements */
 export interface BotStores {
@@ -251,6 +289,7 @@ export interface BotStores {
     readonly verification?: VerificationStore | undefined
     readonly analytics?: AnalyticsStore | undefined
     readonly voice?: VoiceStore | undefined
+    readonly commandRules?: CommandRulesStore | undefined
     readonly rolePicker?: RolePickerStore | undefined
     readonly temporaryRoles?: TemporaryRoleStore | undefined
     readonly onboarding?: OnboardingStore | undefined
@@ -264,10 +303,19 @@ export interface BotStores {
     readonly sidebar?: SidebarStore | undefined
     readonly memberList?: MemberListStore | undefined
     readonly alerts?: AlertsStore | undefined
+    readonly lockdown?: LockdownStore | undefined
+    readonly antiNuke?: AntiNukeStore | undefined
+    readonly jail?: JailStore | undefined
+    readonly rights?: RightsStore | undefined
     readonly helpDesk?: HelpDeskStore | undefined
     readonly lfg?: LfgStore | undefined
     readonly youtube?: YoutubeStore | undefined
     readonly twitch?: TwitchStore | undefined
+    readonly feed?: FeedStore | undefined
+    readonly counters?: CounterStore | undefined
+    readonly boards?: BoardStore | undefined
+    readonly reminders?: ReminderStore | undefined
+    readonly giveaways?: GiveawayStore | undefined
     readonly structure?: StructureStore | undefined
 }
 
@@ -417,7 +465,7 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                     if (!served(guildId)) return
                 }
                 // Webhook and other bots' messages reach automod only in a server that checks them, so they cost nothing while it is off.
-                // Other handlers skip bots' messages. A webhook's edits that Fluxer does not mark as a bot's still reach metadata logs
+                // Other handlers skip bots' and webhooks' messages, and a webhook's edits still reach metadata logs
                 const posted =
                     name === "messageCreate"
                         ? (context as BotEventContext<"messageCreate">).message
@@ -432,12 +480,13 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                     guildId !== undefined
                         ? runtimes.get(guildId, receipt)
                         : undefined
-                // A runtime still starting has not loaded whether it checks bot messages, so the check waits for its setup
-                const checked =
-                    checker && (yield* serving(checker)) && checker.options.botMessages.enabled() ? checker : undefined
+                // A runtime still starting has not loaded whether it checks bot messages or logs webhook posts, so both wait for its setup
+                const ready = checker && (yield* serving(checker)) ? checker : undefined
+                const checked = ready?.options.botMessages.enabled() ? ready : undefined
                 const revisions = messageRevisionsOf(context.client)
-                // A deletion carries no author flags, so the memory notes another bot's message to keep it out of logs
-                if (posted?.author.isBot && !checked) {
+                // A deletion carries no author flags, so the memory notes another bot's message to keep it out of logs.
+                // Fluxer may mark a webhook's author as a bot, and its edits and deletions are logged all the same
+                if (posted?.author.isBot && !posted.webhookId && !checked) {
                     if (name === "messageCreate") revisions.observed(posted)
                     return
                 }
@@ -457,7 +506,7 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                         posted,
                         context.client,
                     )
-                    if (name === "messageCreate" || posted.author.isBot) return
+                    if (!posted.webhookId && (name === "messageCreate" || posted.author.isBot)) return
                 }
                 let selected: ReturnType<typeof selectServerCommand>
                 if (name === "messageCreate") {
@@ -468,7 +517,11 @@ export function createBotOptions(options: BotRootConfig, stores: BotStores = {})
                         (messageContext.message.type !== MessageType.Default &&
                             messageContext.message.type !== MessageType.Reply)
                     ) {
-                        revisions.observed(messageContext.message)
+                        // Only a webhook's message is logged. Its post costs nothing unless that server's switch is on
+                        if (messageContext.message.webhookId && !messageContext.message.author.isSystem) {
+                            revisions.created(messageContext.message)
+                            if (ready) yield* ready.options.webhookPost(messageContext.message, context.client)
+                        } else revisions.observed(messageContext.message)
                         return
                     }
                     revisions.created(messageContext.message)
@@ -1145,7 +1198,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
         voice,
         setup,
     } = stores
-    const voiceRooms = voice ? createVoiceRuntime(voice, config.serverId) : undefined
+    const voiceRooms = voice ? createVoiceRuntime(voice, config.serverId, config.websiteUrl) : undefined
     const stickyMessages = stores.sticky
         ? createStickyRuntime(stores.sticky, config.serverId, optional("sticky"))
         : undefined
@@ -1159,8 +1212,19 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
     const readPrefix = createPrefixReader(general, config.serverId)
     let metadataWorker: Effect.Success<ReturnType<typeof startMetadataLogsWorker>> | undefined
     let analyticsWorker: Effect.Success<ReturnType<typeof startAnalyticsWorker>> | undefined
+    const webhookNames = createWebhookNames()
+    const counters = stores.counters ? createCounterRuntime(stores.counters, config.serverId) : undefined
+    const boards = stores.boards
+        ? createBoardRuntime(stores.boards, publishing, config.serverId, optional("boards"))
+        : undefined
     const admitMetadata = metadata
-        ? createMetadataGatewayAdmission(metadata, config.serverId, () => metadataWorker?.notify() ?? Effect.void)
+        ? createMetadataGatewayAdmission(
+              metadata,
+              config.serverId,
+              () => metadataWorker?.notify() ?? Effect.void,
+              { posts: optional("webhook-posts"), edits: optional("webhook-edits") },
+              webhookNames,
+          )
         : undefined
     // Security alerts check in-memory settings on each event and reach staff through metadata logs
     const securityAlerts =
@@ -1170,8 +1234,20 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                   metadata,
                   config.serverId,
                   () => metadataWorker?.notify() ?? Effect.void,
+                  webhookNames,
               )
             : undefined
+    // Anti-nuke counts audit entries in memory, and reaches staff through metadata logs, its incidents and the dashboard
+    const antiNuke = stores.antiNuke
+        ? createAntiNuke(stores.antiNuke, config.serverId, () => metadataWorker?.notify() ?? Effect.void)
+        : undefined
+    // Bot-only rights and jail read their settings once when the server starts, so ordinary events cost no backend call
+    const rights = stores.rights
+        ? createRights(stores.rights, config.serverId, () => metadataWorker?.notify() ?? Effect.void)
+        : undefined
+    const jail = stores.jail
+        ? createJail(stores.jail, stores.moderation, config, () => metadataWorker?.notify() ?? Effect.void)
+        : undefined
     let cleanupWorker: Effect.Success<ReturnType<typeof startCleanupWorker>> | undefined
     let suggestionWorker: Effect.Success<ReturnType<typeof startSuggestionsWorker>> | undefined
     // A 👍 or 👎 votes on a suggestion card. A card is no role panel, so the vote runs after the role path, and a failed vote never fails the event
@@ -1315,6 +1391,15 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                 if (voiceRooms) yield* voiceRooms.start(client)
                 if (stickyMessages) yield* stickyMessages.start(client)
                 if (securityAlerts) yield* securityAlerts.start()
+                if (rights) yield* rights.start()
+                if (antiNuke) yield* antiNuke.start()
+                if (stores.lockdown)
+                    wakers.lockdown = (yield* startLockdownWorker(
+                        stores.lockdown,
+                        config.serverId,
+                        client,
+                        () => metadataWorker?.notify() ?? Effect.void,
+                    )).notify
                 if (helpDesk && stores.helpDesk) {
                     yield* helpDesk.start(client)
                     wakers.helpdesk = (yield* startHelpDeskWorker(stores.helpDesk, config.serverId, client)).notify
@@ -1332,6 +1417,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                 if (onboarding) yield* registerOnboardingRuntime(config.serverId, onboarding)
                 if (moderation) yield* initializeModeration(moderation, config, client)
                 else yield* applyDefconPresence(client, config, 3)
+                // After moderation marked interrupted actions uncertain, so it loads what that left
+                if (jail) wakers.jail = (yield* jail.start(client)).notify
                 if (publishing)
                     yield* skippable(
                         publishing.observe({ serverId: config.serverId, mode: "restart" }),
@@ -1360,6 +1447,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         stores.structure ? processStructurePass(stores.structure, config.serverId, client) : undefined,
                         syncPanel(client),
                         stores.analytics ? processAnalyticsReloadPass(stores.analytics, config.serverId) : undefined,
+                        voice && voiceRooms
+                            ? processVoiceMemberPass(voice, voiceRooms, config.serverId, client)
+                            : undefined,
                     )).notify
                 if (roles) {
                     yield* skippable(
@@ -1459,6 +1549,19 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         config.serverId,
                         client,
                     )).notify
+                if (counters) yield* counters.start(client)
+                if (boards) wakers.board = (yield* boards.start(client)).notify
+                if (stores.reminders)
+                    wakers.reminders = (yield* startReminderWorker(stores.reminders, config.serverId, client)).notify
+                if (stores.giveaways && publishing)
+                    wakers.giveaways = (yield* startGiveawayWorker(
+                        stores.giveaways,
+                        publishing,
+                        config.serverId,
+                        client,
+                    )).notify
+                if (stores.feed && publishing)
+                    wakers.feed = (yield* startFeedWorker(stores.feed, publishing, config.serverId, client)).notify
                 if (stores.twitch && publishing)
                     wakers.twitch = (yield* startTwitchWorker(
                         stores.twitch,
@@ -1674,6 +1777,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                     ? usage(parseLfgCommand(command.args))
                                     : quotingError("lfg help")
                                 : undefined
+                        const parsedRemind =
+                            name === "remind" ? usage(parseRemindCommand(command?.args, commandBody!)) : undefined
+                        const parsedGiveaway =
+                            name === "giveaway"
+                                ? command
+                                    ? usage(parseGiveawayCommand(command.args))
+                                    : quotingError("giveaway help")
+                                : undefined
                         const levelName =
                             name === "level" || name === "rank" || name === "leaderboard" ? name : undefined
                         const eventName = name === "event" ? name : undefined
@@ -1767,7 +1878,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                 name === "cleanup" ||
                                 // These must stay reachable at DEFCON 1
                                 name === "recovery" ||
-                                name === "preset"
+                                name === "preset" ||
+                                (name === "lockdown" &&
+                                    command &&
+                                    lockdownCritical(parseLockdownCommand(command.args))) ||
+                                (name === "antinuke" &&
+                                    command &&
+                                    antiNukeCritical(parseAntiNukeCommand(command.args))) ||
+                                (name === "jail" && command && jailCritical(parseJailCommand(command.args)))
                                     ? "critical"
                                     : safetyName
                                       ? safetyGateClass(safetyName, parsedSafety!)
@@ -1779,7 +1897,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                           (parsedSuggestion && suggestionCritical(parsedSuggestion)) ||
                                           (parsedRolePicker && rolePickerCritical(parsedRolePicker)) ||
                                           (parsedTemporaryRole && temporaryRoleCritical(parsedTemporaryRole)) ||
-                                          (parsedOnboarding && onboardingCritical(parsedOnboarding))
+                                          (parsedOnboarding && onboardingCritical(parsedOnboarding)) ||
+                                          (parsedRemind && remindCritical(parsedRemind)) ||
+                                          (parsedGiveaway && giveawayCritical(parsedGiveaway))
                                         ? "critical"
                                         : greetingName ||
                                             (roleName && !rolePublic) ||
@@ -1794,12 +1914,19 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             name === "prefix" ||
                                             name === "replies" ||
                                             name === "nickname" ||
+                                            name === "commands" ||
                                             name === "sticky" ||
                                             name === "youtube" ||
                                             name === "twitch" ||
+                                            name === "feed" ||
+                                            name === "counter" ||
+                                            name === "board" ||
                                             name === "sidebar" ||
                                             name === "memberlist" ||
                                             name === "alerts" ||
+                                            name === "lockdown" ||
+                                            name === "antinuke" ||
+                                            name === "jail" ||
                                             name === "invites" ||
                                             name === "helpdesk" ||
                                             name === "answer" ||
@@ -1813,7 +1940,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                 !("error" in parsedSuggestion) &&
                                                 !suggestionPublic(parsedSuggestion)) ||
                                             (parsedVoice && !voicePublic(parsedVoice)) ||
-                                            (parsedLfg && lfgStaff(parsedLfg))
+                                            (parsedLfg && lfgStaff(parsedLfg)) ||
+                                            (parsedRemind && remindStaff(parsedRemind)) ||
+                                            parsedGiveaway
                                           ? "staff"
                                           : "public"
                             // DEFCON 3 admits every command whoever sends it, so the author's authority is read before the gate only while the last
@@ -1864,6 +1993,25 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             }
                             // A message protection could not judge gets no public command or reply. Leveling collection still runs
                             protectionUnknown = blocked === "unknown" && gateClass === "public"
+                            // A rule comes after the DEFCON refusal and never holds back a critical form, such as turning a feature off.
+                            // A command without a rule reads only memory
+                            const commandRule =
+                                commandBody !== undefined && !helpMention && gateClass !== "critical"
+                                    ? serverCommandRule(config.serverId, name)
+                                    : undefined
+                            if (commandRule && !protectionUnknown) {
+                                const refusal = yield* commandRuleRefusal(
+                                    context.client,
+                                    config.serverId,
+                                    commandRule,
+                                    message,
+                                )
+                                if (refusal) {
+                                    yield* refuseCommand(context, config.serverId, prefix, commandRule, refusal)
+                                    if (store) yield* handleAfk(store, config.serverId, context, false, prefix)
+                                    return
+                                }
+                            }
                         } else if (
                             privateInvocation &&
                             name !== "ticket" &&
@@ -1871,6 +2019,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             !metadataInvocation
                         )
                             return
+                        // A jailed member's commands could carry their text out of the jail channel or hand them a room, so only a few work. The
+                        // check reads memory, so nobody else pays for it
+                        if (name && isConfined(config.serverId, message.author.id) && !JAILED_COMMANDS.has(name)) {
+                            yield* reply({ content: withPrefix(jailedRefusal, invocationPrefix ?? "!") })
+                            return
+                        }
                         // Collection adds only bounded hashing and a dropping queue offer to this serialized path.
                         if (
                             !privateInvocation &&
@@ -1909,6 +2063,18 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                 general,
                                                 config.serverId,
                                                 command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "commands") {
+                                            yield* handleCommandRulesCommand(
+                                                general,
+                                                stores.commandRules,
+                                                config,
+                                                command
+                                                    ? usage(parseCommandRulesCommand(command.args))
+                                                    : quotingError("commands help"),
                                                 context,
                                             )
                                             return
@@ -1997,6 +2163,35 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                             )
                                             return
                                         }
+                                        if (!privateInvocation && name === "counter") {
+                                            yield* handleCounterCommand(
+                                                stores.counters,
+                                                counters,
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "board") {
+                                            yield* handleBoardCommand(
+                                                stores.boards,
+                                                boards,
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "feed") {
+                                            yield* handleFeedCommand(
+                                                stores.feed,
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
                                         if (!privateInvocation && name === "twitch") {
                                             yield* handleTwitchCommand(
                                                 stores.twitch,
@@ -2053,6 +2248,37 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                         if (!privateInvocation && name === "memberlist") {
                                             yield* handleMemberListCommand(
                                                 stores.memberList,
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "lockdown") {
+                                            yield* handleLockdownCommand(
+                                                stores.lockdown,
+                                                () => lockdownRuntimes.get(config.serverId),
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                                () => metadataWorker?.notify() ?? Effect.void,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "jail") {
+                                            yield* handleJailCommand(
+                                                stores.jail,
+                                                jail,
+                                                config,
+                                                command?.args ?? ["invalid quoting"],
+                                                context,
+                                            )
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "antinuke") {
+                                            yield* handleAntiNukeCommand(
+                                                stores.antiNuke,
+                                                antiNuke,
                                                 config,
                                                 command?.args ?? ["invalid quoting"],
                                                 context,
@@ -2157,6 +2383,20 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                 yield* reply({
                                                     content: notSetUp("Temporary voice rooms"),
                                                 })
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "remind") {
+                                            yield* handleRemindCommand(stores.reminders, config, parsedRemind!, context)
+                                            return
+                                        }
+                                        if (!privateInvocation && name === "giveaway") {
+                                            yield* handleGiveawayCommand(
+                                                stores.giveaways,
+                                                () => wakers.giveaways?.() ?? Effect.void,
+                                                config,
+                                                parsedGiveaway!,
+                                                context,
+                                            )
                                             return
                                         }
                                         if (name === "lfg") {
@@ -2459,6 +2699,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                                     parsedSafety!,
                                                     context,
                                                     privateInvocation,
+                                                    stores.rights,
                                                 )
                                             return
                                         }
@@ -2552,6 +2793,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             yield* admitMetadata("guildMemberAdd", context.event, context.client)
                         }
                         if (context.event.guildId !== config.serverId) return
+                        // A jailed member who came back goes straight to the jail role, before anything can give them another. Memory answers
+                        // for everyone else, so an ordinary join costs nothing here
+                        const jailed = jail ? yield* jail.memberJoined(context.event.userId, context.client) : false
                         if (analyticsWorker && (yield* optional("analytics"))) yield* analyticsWorker.join()
                         if (milestoneWorker) yield* milestoneWorker.notifyMember(context.event.userId)
                         // Join protection's answer carries the settings, so while the last answer reported join checks on, a checked join needs no gate
@@ -2578,7 +2822,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         }
                         // After join protection, so an impersonation check's staff read never delays it
                         if (securityAlerts) yield* securityAlerts.memberAdd(context.event, context.client)
-                        if (greetings)
+                        if (greetings && !jailed)
                             yield* observeGreetingJoin(
                                 greetings,
                                 config.serverId,
@@ -2596,7 +2840,24 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                           ),
                                 ),
                             )
-                        if (roles && allowed) {
+                        // A jailed member's running temporary roles move to the new membership and wait for the release, so an ended one never becomes permanent
+                        if (temporaryRoles && temporaryHeld && jailed)
+                            yield* restoreTemporaryRoles(
+                                temporaryRoles,
+                                config.serverId,
+                                context.event.userId,
+                                context.event.joinedAt,
+                            ).pipe(
+                                Effect.catchCause((cause) =>
+                                    Cause.hasInterrupts(cause)
+                                        ? Effect.failCause(cause)
+                                        : warnFailure(
+                                              "Temporary roles of a jailed member who rejoined could not be moved. The temporary role worker moves them at its next check",
+                                              cause,
+                                          ),
+                                ),
+                            )
+                        if (roles && allowed && !jailed) {
                             const joined = yield* Effect.exit(
                                 handleRoleJoin(
                                     roles,
@@ -2664,10 +2925,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         if (admitMetadata)
                             yield* admitMetadata("guildMemberUpdate", event, client, rememberMember(client, event))
                         if (event.guildId !== config.serverId) return
+                        if (jail) yield* jail.memberUpdated(event, client)
                         if (securityAlerts) yield* securityAlerts.memberUpdate(event, client)
                         // Milestones follow joins and leaves only. An update keeps the join time, and delivery rechecks membership
                         // A role change may finish the newcomer checklist. Protection already ran when the member joined, and the check never fails the handler
-                        if (onboarding) yield* onboarding.memberUpdated(client, event)
+                        if (onboarding && !isJailed(config.serverId, event.userId))
+                            yield* onboarding.memberUpdated(client, event)
                         if (greetings)
                             yield* observeGreetingMembership(greetings, config.serverId, client, event.userId).pipe(
                                 Effect.flatMap((recorded) => (recorded ? wake(event.userId) : Effect.void)),
@@ -2680,7 +2943,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                     Effect.suspend(() => {
                         const previous = messageRevisionsOf(client).deleted(event.id)
                         return admitMetadata?.("messageDelete", event, client, previous) ?? Effect.void
-                    }),
+                    }).pipe(Effect.ensuring(boards?.messagesDeleted([event.id]) ?? Effect.void)),
             },
             messageDeleteBulk: {
                 handler: ({ event, client }) =>
@@ -2688,7 +2951,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         const memory = messageRevisionsOf(client)
                         const previous = event.ids.map((id) => memory.deleted(id))
                         return admitMetadata?.("messageDeleteBulk", event, client, previous) ?? Effect.void
-                    }),
+                    }).pipe(Effect.ensuring(boards?.messagesDeleted(event.ids) ?? Effect.void)),
             },
             // Resource changes are compared with what the bot last saw, kept only while metadata logs can use it
             guildRoleCreate: {
@@ -2725,6 +2988,12 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         return Effect.andThen(
                             structureChanged,
                             admitMetadata?.("guildChannelCreate", event, client) ?? Effect.void,
+                        ).pipe(
+                            Effect.andThen(
+                                jail && event.guildId === config.serverId
+                                    ? jail.channelSeen(event, client)
+                                    : Effect.void,
+                            ),
                         )
                     }),
             },
@@ -2733,14 +3002,26 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             guildChannelUpdate: {
                 handler: ({ event, client }) =>
                     Effect.suspend(() => {
-                        if (event.type === ChannelType.Category) {
+                        // A counter's own rename moves nothing, so it wipes no memory, leaves the structure editor's read
+                        // current and stays out of logs. Each rename answers once, so staff restoring that name are logged
+                        const own = !!event.name && !!counters?.takeRename(event.id, event.name)
+                        if (!own && event.type === ChannelType.Category) {
                             forgetServerThreads(client, event.guildId)
                             forgetServerChannels(client, event.guildId)
                         }
                         const previous = admitMetadata ? rememberChannel(client, event) : undefined
+                        if (own && (!previous || channelChanges(previous, event).every((c) => c.field === "name")))
+                            return Effect.void
                         return Effect.andThen(
                             structureChanged,
                             admitMetadata?.("guildChannelUpdate", event, client, previous) ?? Effect.void,
+                        ).pipe(
+                            // A private channel opened to everyone later needs the denial it did not get
+                            Effect.andThen(
+                                jail && event.guildId === config.serverId
+                                    ? jail.channelSeen(event, client)
+                                    : Effect.void,
+                            ),
                         )
                     }),
             },
@@ -2755,6 +3036,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         }
                         const threadIds = event.type === ChannelType.Category ? [] : forgetThreadsOf(client, event.id)
                         if (voiceRooms && event.guildId === config.serverId) yield* voiceRooms.channelDeleted(event.id)
+                        if (boards && event.guildId === config.serverId) yield* boards.channelDeleted(event.id, false)
                         yield* structureChanged
                         if (admitMetadata) {
                             yield* admitMetadata("guildChannelDelete", event, client)
@@ -2786,7 +3068,9 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
             threadDelete: {
                 handler: ({ event, client }) => {
                     forgetThread(client, event.id)
-                    return admitMetadata?.("threadDelete", event, client) ?? Effect.void
+                    return (admitMetadata?.("threadDelete", event, client) ?? Effect.void).pipe(
+                        Effect.ensuring(boards?.channelDeleted(event.id, true) ?? Effect.void),
+                    )
                 },
             },
             threadListSync: {
@@ -2827,6 +3111,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         if (admitMetadata) yield* admitMetadata("guildAuditLogEntryCreate", event, client)
                         if (securityAlerts && event.guildId === config.serverId)
                             yield* securityAlerts.audit(event, client)
+                        if (antiNuke && event.guildId === config.serverId) yield* antiNuke.audit(event, client)
                     }),
             },
             // Invite logs belong to security alerts, whose records name the invite code for staff
@@ -2842,7 +3127,21 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         client,
                         event.userId,
                         Effect.gen(function* () {
-                            // Ticket panels come first. A reaction on a message that is no panel needs no member or backend read
+                            // Room controls cards read only memory on any other message
+                            if (
+                                voice &&
+                                voiceRooms &&
+                                (yield* handleVoicePanelReaction(
+                                    voice,
+                                    voiceRooms,
+                                    client,
+                                    config.serverId,
+                                    event,
+                                    event.userId,
+                                ))
+                            )
+                                return
+                            // Then ticket panels. A reaction on a message that is no panel needs no member or backend read
                             if (
                                 tickets &&
                                 ticketPanels &&
@@ -2873,6 +3172,8 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         }).pipe(
                             Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" })),
                             Effect.andThen(suggestionReaction(event, client, true)),
+                            // A board reads only memory unless a board uses this emoji, and a failure before it never stops the count
+                            Effect.ensuring(boards?.reactionAdded(client, event, event.emoji) ?? Effect.void),
                         ),
                     ),
             },
@@ -2886,6 +3187,18 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                             }
                             if (event.reactions.length === 0) return Effect.void
                             return Effect.gen(function* () {
+                                if (voice && voiceRooms?.panelRoom(event.id)) {
+                                    for (const reaction of event.reactions)
+                                        yield* handleVoicePanelReaction(
+                                            voice,
+                                            voiceRooms,
+                                            client,
+                                            config.serverId,
+                                            { ...event, emoji: reaction.emoji },
+                                            reaction.userId,
+                                        )
+                                    return
+                                }
                                 if (
                                     tickets &&
                                     ticketPanels &&
@@ -2938,6 +3251,14 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                                         { discard: true },
                                     ),
                                 ),
+                                Effect.ensuring(
+                                    Effect.forEach(
+                                        event.reactions,
+                                        (reaction) =>
+                                            boards?.reactionAdded(client, event, reaction.emoji) ?? Effect.void,
+                                        { discard: true },
+                                    ),
+                                ),
                             )
                         }),
                     ),
@@ -2960,6 +3281,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         }).pipe(
                             Effect.mapError(() => new RoleHandlingError({ stage: "eligibility" })),
                             Effect.andThen(suggestionReaction(event, client, false)),
+                            Effect.ensuring(boards?.reactionRemoved(client, event, event.emoji) ?? Effect.void),
                         ),
                     ),
             },
@@ -2973,7 +3295,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         )
                             return
                         yield* roleWorker.enqueue(event.id)
-                    }).pipe(Effect.andThen(suggestionReactionsCleared(event, client))),
+                    }).pipe(
+                        Effect.andThen(suggestionReactionsCleared(event, client)),
+                        Effect.ensuring(boards?.reactionRemoved(client, event) ?? Effect.void),
+                    ),
             },
             messageReactionRemoveEmoji: {
                 handler: ({ event, client }) =>
@@ -2985,7 +3310,10 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                         )
                             return
                         yield* roleWorker.enqueue(event.id)
-                    }).pipe(Effect.andThen(suggestionReactionsCleared(event, client))),
+                    }).pipe(
+                        Effect.andThen(suggestionReactionsCleared(event, client)),
+                        Effect.ensuring(boards?.reactionRemoved(client, event, event.emoji) ?? Effect.void),
+                    ),
             },
         },
     } satisfies Pick<BotOptions<unknown>, "setup" | "events">
@@ -3004,6 +3332,7 @@ function createScopedBotOptions(config: BotConfig, stores: BotStores, paused: ()
                       ticketPanels,
                   )
                 : Effect.void,
+        webhookPost: (message: Message, client: Client) => admitMetadata?.webhookPost(message, client) ?? Effect.void,
         botMessages: {
             enabled: () => moderationHints?.botMessages() ?? false,
             handle: (event: "create" | "edit", message: Message, client: Client) =>

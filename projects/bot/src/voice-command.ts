@@ -4,9 +4,10 @@ import { argument, wholeNumber } from "./command-arguments.ts"
 
 export type VoiceRoomControl =
     | { type: "rename"; roomId?: string; name: string }
-    | { type: "hide" | "show"; roomId?: string }
+    | { type: "hide" | "show" | "lock" | "unlock" | "panel"; roomId?: string }
     | { type: "allow" | "block"; roomId?: string; userId: string }
     | { type: "limit"; roomId?: string; limit: number }
+    | { type: "region"; roomId?: string; region: string | null }
 export type VoiceCommand =
     | { type: "help" }
     | { type: "generator-add"; channelName: string; categoryId: string | null }
@@ -20,30 +21,41 @@ export type VoiceCommand =
 
 export const voiceHelp = [
     '!voice rename "name": Rename your room',
+    "!voice lock|unlock: Stop new members joining, or let them join again",
     "!voice hide|show: Hide your room or show it again",
     "!voice allow|block @member: Let a member in or keep them out",
     "!voice limit <0-99>: Your room's member limit, 0 for none",
     "!voice claim: Take over the room you are in when its owner left",
     '!voice generator add "Join to create" [category-ID|none]: Add a channel that makes a room for each member who joins',
     "!voice generator list: The room generators",
-    "!voice generator remove #generator: Remove a generator",
     "Send !voice help all for the other commands",
 ].join("\n")
 /** The forms !voice help leaves out, listed by !voice help all */
 export const voiceHelpAll = [
     "!voice transfer @member: Give your room to someone in it",
-    "!voice rename|hide|show|allow|block|limit #room ...: Control a room you name, for staff",
+    "!voice region <region-ID|auto>: Your room's voice region",
+    "!voice panel: Post your room's controls card again",
+    "!voice rename|lock|unlock|hide|show|allow|block|limit|region|panel #room ...: Control a room you name, for staff",
+    "!voice generator remove #generator: Remove a generator",
     '!voice generator set #generator name "name": Rename a generator',
     "!voice generator set #generator category <category-ID|none>: Where its rooms go",
     '!voice generator set #generator template "{owner}\'s room": How new rooms are named',
     "!voice generator set #generator limit <1-99|none>: The member limit of new rooms",
     "!voice generator set #generator region <region-ID|auto>: The voice region of new rooms",
+    "!voice generator set #generator panel on|off: Whether new rooms get a controls card",
 ]
 
 // Fluxer removes U+000C and U+202E and trims names before its own 1 to 100 code unit check
 const voiceName = (value: string) => (isVoiceChannelName(value) ? value.trim() : undefined)
 const voiceTemplateValue = (value: string) => (isVoiceTemplate(value) ? value.trim() : undefined)
 const nameError = { error: "Names need 1 to 100 characters" }
+const regionError = {
+    error: "Regions are auto or a region ID of 1 to 64 letters, digits, dots, underscores or hyphens",
+}
+// Forms with no value, so a lone channel after them names a room
+const bareRoomVerbs = ["hide", "show", "lock", "unlock", "panel"]
+const isBareRoomVerb = (verb: string): verb is "hide" | "show" | "lock" | "unlock" | "panel" =>
+    bareRoomVerbs.includes(verb)
 
 /** Room controls are member actions. Generator commands are staff configuration */
 export const voicePublic = (command: VoiceCommand | { error: string }) =>
@@ -58,8 +70,7 @@ export function parseVoiceCommand(args: readonly string[]): VoiceCommand | { err
     // a snowflake's length, so a name such as "5 stack" stays a name
     const rest = args.slice(1),
         roomFirst =
-            (rest.length > 1 || (["hide", "show"].includes(verb) && rest.length === 1)) &&
-            /^(?:<#\d+>|\d{15,20})$/.test(rest[0]!)
+            (rest.length > 1 || (isBareRoomVerb(verb) && rest.length === 1)) && /^(?:<#\d+>|\d{15,20})$/.test(rest[0]!)
                 ? commands.parseArgument(rest[0], argument.channel)
                 : undefined
     const room = roomFirst ? { roomId: roomFirst } : {},
@@ -69,7 +80,12 @@ export function parseVoiceCommand(args: readonly string[]): VoiceCommand | { err
         const userId = args.length === 2 ? commands.parseArgument(args[1], argument.user) : undefined
         return userId ? { type: "transfer", userId } : { error: "Use !voice transfer @member" }
     }
-    if (verb === "hide" || verb === "show") return values.length === 0 ? { type: verb, ...room } : error
+    if (isBareRoomVerb(verb)) return values.length === 0 ? { type: verb, ...room } : error
+    if (verb === "region") {
+        if (values.length !== 1) return regionError
+        if (values[0]!.toLowerCase() === "auto") return { type: "region", ...room, region: null }
+        return isVoiceRegion(values[0]!) ? { type: "region", ...room, region: values[0]! } : regionError
+    }
     if (verb === "rename") {
         const name = voiceName(values.join(" "))
         return values.length && name ? { type: "rename", ...room, name } : nameError
@@ -134,7 +150,9 @@ function parseGenerator(args: readonly string[], error: { error: string }): Voic
         if (single === "auto") return { type: "generator-set", channelId, patch: { region: null } }
         return isVoiceRegion(values[0]!)
             ? { type: "generator-set", channelId, patch: { region: values[0]! } }
-            : { error: "Regions are auto or a region ID of 1 to 64 letters, digits, dots, underscores or hyphens" }
+            : regionError
     }
+    if (field === "panel" && (single === "on" || single === "off"))
+        return { type: "generator-set", channelId, patch: { panel: single === "on" } }
     return error
 }

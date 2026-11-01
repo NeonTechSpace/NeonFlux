@@ -12,7 +12,7 @@ import {
     type GuildChannel,
     type User,
 } from "@neontechspace/fluxerly/effect"
-import { Data, Effect } from "effect"
+import { Clock, Data, Effect } from "effect"
 import { readNativeMember } from "./member-evidence.ts"
 import { noticeThread, threadForgets } from "./thread-memory.ts"
 
@@ -107,6 +107,10 @@ export type SafetyAuthority = {
     parentChannel?: GuildChannel
     /** The bot's server-wide permissions, without channel overwrites */
     botServerPermissions: bigint
+    /** The actor's roles that rank below NeonFlux, the only ones a bot-only right counts through. None while the actor is timed out */
+    rightRoleIds: string[]
+    /** The actor can view the channel of this read. It needs none when no channel was read */
+    actorViewsChannel: boolean
 }
 
 /** Everything that posts in a channel or its threads. Locks and closed tickets deny these bits */
@@ -250,6 +254,7 @@ export function readSafetyAuthority(
         ) {
             roles = yield* read(client.roles.fetchAll(serverId), "roles")
         }
+        const readAt = yield* Clock.currentTimeMillis
         return yield* Effect.try({
             try: (): SafetyAuthority => {
                 const actorBits = client.permissions.calculate({
@@ -293,6 +298,15 @@ export function readSafetyAuthority(
                     actor,
                     bot,
                     botServerPermissions,
+                    // A member timed out by anyone holds no right until it ends, so a timeout stops a hacked account here too
+                    rightRoleIds:
+                        memberTimeout(client, actor, readAt) === "none"
+                            ? actor.roleIds.filter((id) => {
+                                  const role = roles.find((item) => item.id === id)
+                                  return !!role && hierarchy.canManageRole({ guild, actor: bot, role, roles })
+                              })
+                            : [],
+                    actorViewsChannel: !channel || (actorBits & Permissions.ViewChannel) !== 0n,
                     ...(target ? { target } : {}),
                     ...(channel ? { channel } : {}),
                     ...(parentChannel ? { parentChannel } : {}),

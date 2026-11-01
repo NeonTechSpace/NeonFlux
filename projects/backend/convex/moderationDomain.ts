@@ -89,6 +89,19 @@ export function authorize(actor: ModerationActor, settings: ModerationSettings, 
         fail(403, "Staff permission required")
     if (settings.defcon === 1 && (!critical || !administrator(actor))) fail(403, "DEFCON restriction")
 }
+// Case and watchlist reads answer in a DM the bot verified, or in a server channel it read fresh that only Administrators and
+// staff roles of this read can view, so the answer never reaches a member the backend would refuse it
+export function privateRead(
+    input: { privateChannelVerified?: boolean; staffChannelRoleIds?: readonly string[] },
+    settings: ModerationSettings,
+    scope: StaffClass,
+) {
+    if (
+        input.privateChannelVerified !== true &&
+        !input.staffChannelRoleIds?.every((id) => settings.staffRoleIds[scope].includes(id))
+    )
+        fail(403, "Private or staff channel required")
+}
 export function settingsPatch(current: ModerationSettings, value: unknown): ModerationSettings {
     const { staffRoleIds, honeypotChannelIds, ...patch } = decode(ModerationSettingsPatch, value)
     const next = structuredClone(current)

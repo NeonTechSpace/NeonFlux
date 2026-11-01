@@ -46,12 +46,18 @@ import { applyTemporaryRoleConfiguration } from "./temporaryRoles.ts"
 import { readTemporaryRoleSettings } from "./temporaryRolesStore.ts"
 import { applyOnboardingConfiguration } from "./onboarding.ts"
 import { applyStickyManagement } from "./sticky.ts"
+import { applyCommandRule } from "./commandRules.ts"
 import { applyAlertsManagement, publicAlerts, readAlerts, restoreExpectedAlerts } from "./alerts.ts"
+import { restoreAntiNuke } from "./antiNuke.ts"
+import { applyLockdownManagement } from "./lockdown.ts"
 import { applyHelpDeskManagement, publicHelpDesk, readHelpDesk } from "./helpDesk.ts"
 import { applyShowcaseConfiguration } from "./showcases.ts"
 import { applyProfileConfiguration } from "./profiles.ts"
 import { applyYoutubeManagement } from "./youtube.ts"
 import { applyTwitchManagement } from "./twitch.ts"
+import { applyFeedManagement } from "./feed.ts"
+import { applyCounterManagement } from "./counters.ts"
+import { applyBoardManagement, restoreBoard } from "./boards.ts"
 
 /** Who writes, when, and the roles the bot read, which a restored setting that names roles is checked against */
 type BackupWriter = {
@@ -99,6 +105,7 @@ const feature: Record<BackupConfigObject["family"], DashboardConfigurationFamily
     temproles: "temproles",
     onboarding: "onboarding",
     sticky: "sticky",
+    commandRule: "commandrules",
     alerts: "alerts",
     helpdesk: "helpdesk",
     helpdeskAnswer: "helpdesk",
@@ -106,6 +113,13 @@ const feature: Record<BackupConfigObject["family"], DashboardConfigurationFamily
     profile: "profile",
     youtube: "youtube",
     twitch: "twitch",
+    lockdown: "lockdown",
+    antinuke: "antinuke",
+    feeds: "feeds",
+    counters: "counters",
+    counter: "counters",
+    boards: "boards",
+    board: "boards",
 }
 /** The audit log's feature for a setting that no dashboard family owns */
 const auditFeature: Partial<Record<BackupConfigObject["family"], DashboardAuditFeature>> = {
@@ -560,6 +574,11 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
             ])
                 await applyOnboardingConfiguration(ctx, serverId, operation)
             break
+        case "commandRule": {
+            const { command, channelIds, roleIds } = item.value
+            await applyCommandRule(ctx, serverId, { type: "set", command, channelIds, roleIds }, now)
+            break
+        }
         case "sticky": {
             const { channelId, content, intervalSeconds } = item.value
             await applyStickyManagement(ctx, identity("sticky"), { type: "set", channelId, content, intervalSeconds })
@@ -591,6 +610,18 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
                 await restoreExpectedAlerts(ctx, serverId, ownerId, { expectedBotIds, expectedWebhookIds })
             break
         }
+        case "lockdown":
+            await applyLockdownManagement(
+                ctx,
+                serverId,
+                ownerId,
+                { type: "exempt-set", channelIds: item.value.exemptChannelIds },
+                "dashboard",
+            )
+            break
+        case "antinuke":
+            await restoreAntiNuke(ctx, serverId, ownerId, item.value)
+            break
         case "helpdesk": {
             const { forumIds, ...settings } = item.value,
                 current = publicHelpDesk(await readHelpDesk(ctx, serverId))
@@ -619,6 +650,22 @@ export async function backupWriteConfig(w: BackupWriter, item: BackupConfigObjec
         // Following again makes the Twitch subscription NeonFlux needs, with a new secret
         case "twitch":
             await applyTwitchManagement(ctx, identity("twitch"), { type: "add", ...item.value })
+            break
+        case "counters":
+            await applyCounterManagement(ctx, identity("counters"), { type: "module", enabled: item.value.enabled })
+            break
+        case "counter":
+            await applyCounterManagement(ctx, identity("counter"), { type: "add", ...item.value })
+            break
+        case "boards":
+            await applyBoardManagement(ctx, identity("boards"), { type: "module", enabled: item.value.enabled })
+            break
+        case "board":
+            await restoreBoard(ctx, identity("board"), item.value)
+            break
+        // Following again starts a new source if none is left, whose first read records the newest post and posts nothing
+        case "feeds":
+            await applyFeedManagement(ctx, identity("feeds"), { type: "add", ...item.value })
             break
     }
     const family = item.family === "access" ? item.value.feature : (feature[item.family] ?? undefined)

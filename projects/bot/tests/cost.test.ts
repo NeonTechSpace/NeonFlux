@@ -6,6 +6,9 @@ import test, { type TestContext } from "node:test"
 import { createFixtures, createTestBot } from "@neontechspace/fluxerly/effect/testing"
 import { Effect, Exit, Layer, Logger, Redacted } from "effect"
 import { TestClock } from "effect/testing"
+import { defaultAntiNukeSettings } from "@neonflux/contracts/anti-nuke"
+import { defaultJailSettings } from "@neonflux/contracts/jail"
+import { defaultRightsSettings } from "@neonflux/contracts/rights"
 import { createBackendRequest } from "../src/backend-http.ts"
 import { createBotOptions, type BotStores } from "../src/bot.ts"
 import { fakeClient, quietSignal } from "./backend-fake.ts"
@@ -25,6 +28,8 @@ import { milestonesBoundary } from "./milestone-fixture.ts"
 type Bot = Effect.Success<ReturnType<typeof createTestBot>>
 const f = createFixtures()
 const now = Date.parse("2026-01-01T00:01:00Z")
+// A board's channel, which holds no ordinary message
+const boardChannel = "1456074443980899998"
 // The posted card of one open suggestion in the ordinary channel
 const suggestionCard = "1456074443980899999"
 const noWork = {
@@ -34,6 +39,8 @@ const noWork = {
 }
 // The deployment's own requests: scope at startup, usage reports and the work dispatcher. Feature requests go to the counting adapters
 let guardState: "normal" | "paused" = "normal"
+let antiNukeOn = false
+let jailOn = false
 const backend = {
     url: "https://synthetic-cost.invalid",
     secret: Redacted.make("synthetic-cost-secret-for-test-only"),
@@ -98,6 +105,8 @@ function idleStores(calls: string[]) {
         events: eventsBoundary().store,
         schedules: schedulesBoundary().store,
         milestones: milestonesBoundary().store,
+        // Feeds cost nothing per event: Only a wake from the work dispatcher makes this worker call, so any call here is a defect
+        feed: fake("feed", {}),
         afk: fake("afk", { observe: () => ({ cleared: false, statuses: [] }) }),
         responses: fake("responses", {
             evaluate: () => ({ send: false }),
@@ -112,12 +121,48 @@ function idleStores(calls: string[]) {
                 definitions: [],
             }),
         }),
-        general: fake("general", { get: () => ({ prefix: "!", revision: 1 }) }),
+        // A channel rule on one command, which the rule scenarios measure. Ordinary messages never look at it
+        general: fake("general", {
+            get: () => ({
+                prefix: "!",
+                revision: 1,
+                commandRules: [{ command: "ping", channelIds: [f.ids.channel], roleIds: [], updatedAt: 1 }],
+            }),
+        }),
         analytics: fake("analytics", {
             settings: () => ({ enabled: true }),
             record: () => ({ enabled: true, recorded: true }),
         }),
         metadata: fake("metadata", { admit: () => ({ admitted: false, duplicate: false, reason: "disabled" }) }),
+        // Boards load once at startup with their records. A reaction on any other emoji costs nothing, and the board scenarios measure its own
+        boards: fake("boards", {
+            query: () => ({
+                enabled: true,
+                boards: [
+                    {
+                        name: "stars",
+                        emoji: "⭐",
+                        channelId: boardChannel,
+                        threshold: 3,
+                        selfReactions: false,
+                        bots: false,
+                        ignoredChannelIds: [],
+                        posted: 0,
+                        createdAt: now,
+                    },
+                ],
+            }),
+            work: (input: { operation: { type: string } }) =>
+                input.operation.type === "index"
+                    ? { type: "index", entries: [] }
+                    : { type: "progress", recorded: false },
+        }),
+        // Counters load once at startup. A check makes no backend call, so an event costs nothing more
+        counters: fake("counters", { query: () => ({ enabled: true, counters: [] }) }),
+        // Reminders and giveaways cost nothing per event, reactions on a giveaway's card included: Only a wake from the work dispatcher makes
+        // their workers call, so any call here is a defect
+        reminders: fake("reminders", {}),
+        giveaways: fake("giveaways", {}),
         cleanup: fake("cleanup", {}),
         suggestions: fake("suggestions", {
             work: () => ({
@@ -159,6 +204,28 @@ function idleStores(calls: string[]) {
                 },
             }),
             observeActions: () => ({ uncertain: 0, admitted: false }),
+        }),
+        // Anti-nuke settings load once at startup too. While it is off nothing follows, and while it is on it counts audit entries in memory
+        antiNuke: fake("antiNuke", {
+            get: () => ({ settings: { ...defaultAntiNukeSettings(), enabled: antiNukeOn } }),
+            observe: () => ({ uncertain: 0, admitted: false }),
+        }),
+        // A lockdown's worker waits for a wake, so a server with no lockdown costs nothing
+        lockdown: fake("lockdown", {}),
+        // Jail and bot-only rights load once at startup and answer every later event from memory, on or off
+        jail: fake("jail", {
+            memory: () => ({
+                settings: jailOn
+                    ? { enabled: true, roleId: "9000000000000000001", channelId: "9000000000000000002" }
+                    : defaultJailSettings(),
+                moderationRoleIds: [],
+                jailedIds: [],
+                setupRunning: false,
+            }),
+            due: () => ({ userIds: [] }),
+        }),
+        rights: fake("rights", {
+            get: () => ({ settings: defaultRightsSettings() }),
         }),
         // Help desk settings load once at startup, so a message costs nothing more
         helpDesk: fake("helpDesk", {
@@ -210,6 +277,8 @@ function measure(
     ) => {
         readonly prepare?: Effect.Effect<void, unknown>
         readonly event: readonly [string, unknown]
+        /** Runs after the event settled and counts toward it, for work the event starts after a wait */
+        readonly after?: Effect.Effect<void, unknown>
     },
 ) {
     return Effect.runPromise(
@@ -245,7 +314,7 @@ function measure(
                 })
                 const reaction = savedPanel(bot, native, roles),
                     verification = savedPanel(bot, native, roles, "verification")
-                const { prepare, event } = scenario(
+                const { prepare, event, after } = scenario(
                     bot,
                     native,
                     { reaction: reaction.published!.messageId, verification: verification.published!.messageId },
@@ -262,6 +331,10 @@ function measure(
                     costsBefore = readCosts()
                 const emitted = yield* Effect.exit(bot.emit(event[0], event[1]))
                 yield* settle(bot)
+                if (after) {
+                    yield* after
+                    yield* settle(bot)
+                }
                 const rest = bot
                         .requests()
                         .slice(restBefore)
@@ -336,6 +409,38 @@ const ordinary = (bot: Bot, content = "Hello everyone", authorId?: string, attac
         ...(authorId ? { author: bot.fixtures.user({ id: authorId }) } : {}),
         ...(attached ? { member: omitIdentity(attachedMember(bot, authorId ?? f.ids.user)) } : {}),
     })
+
+// A ⭐ on one message, after an earlier one read the channels into memory
+const boardReaction = (bot: Bot, userId: string, count: number) => {
+    const f = bot.fixtures,
+        messageId = f.nextId(),
+        warmId = f.nextId()
+    const message = (id: string, reactions: number) =>
+        bot.rest.respond(`GET /channels/${f.ids.channel}/messages/${id}`, {
+            body: f.message({
+                id,
+                timestamp: new Date(now).toISOString(),
+                reactions: [{ emoji: { name: "⭐" }, count: reactions, me: false }],
+            }),
+        })
+    bot.rest.respond(`GET /channels/${boardChannel}`, { body: f.channel({ id: boardChannel }) })
+    message(warmId, 1)
+    message(messageId, count)
+    bot.rest.respond((request) => new URL(request.url).pathname.includes("/reactions/"), {
+        body: {
+            items: Array.from({ length: count }, (_, i) => ({ id: String(7000 + i), username: "Synthetic reactor" })),
+            has_more: false,
+            next_after: null,
+        },
+    })
+    return {
+        prepare: bot
+            .emit(...reactionAdd(warmId, userId, "⭐"))
+            .pipe(Effect.andThen(settle(bot)), Effect.andThen(TestClock.adjust("5 seconds"))),
+        event: reactionAdd(messageId, userId, "⭐"),
+        after: TestClock.adjust("5 seconds"),
+    }
+}
 
 const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => ReturnType<typeof measure> }> = {
     // The server's first message reads what evaluation needs: the server, its roles, the bot's member and the channel. The author's
@@ -414,6 +519,17 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
             })
         },
     },
+    // A board's emoji waits five seconds and reads its message once, however many reactions the wait collects. The server's first such reaction
+    // also reads the channels into memory. Below the threshold the backend hears nothing
+    "a reaction on a board's emoji below its threshold": {
+        expected: { fluxer: 1, backend: 0, delivered: 1 },
+        run: (t) => measure(t, (bot, native) => boardReaction(bot, native.targetId, 1)),
+    },
+    // At the threshold it also reads the reactors once and tells the backend, which queues the post for the worker
+    "a reaction that reaches a board's threshold": {
+        expected: { fluxer: 2, backend: 1, delivered: 1 },
+        run: (t) => measure(t, (bot, native) => boardReaction(bot, native.targetId, 3)),
+    },
     // Reaction scenarios measure the steady state after the server's first reaction
     // A 👍 learns which messages are suggestion cards once, so a later one on another message reads nothing
     "a reaction on a message that is not a panel": {
@@ -423,6 +539,51 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
                 prepare: warmUp(bot, native.targetId, "👍"),
                 event: reactionAdd(bot.fixtures.nextId(), native.targetId, "👍"),
             })),
+    },
+    // A giveaway's entries live on Fluxer until its draw, so a reaction on its card is handled by nothing and costs nothing
+    "a reaction on a giveaway's card": {
+        expected: { fluxer: 0, backend: 0, delivered: 1 },
+        run: (t) =>
+            measure(t, (bot, native) => ({
+                prepare: warmUp(bot, native.targetId, "🎉"),
+                event: reactionAdd(bot.fixtures.nextId(), native.targetId, "🎉"),
+            })),
+    },
+    // A room controls card is found in memory, so this also holds for a server with live rooms
+    "a reaction on a message that is not a room's controls card": {
+        expected: { fluxer: 0, backend: 0, delivered: 1 },
+        run: (t) =>
+            measure(t, (bot, native) => ({
+                prepare: warmUp(bot, native.targetId),
+                event: reactionAdd(bot.fixtures.nextId(), native.targetId, "\u{1F512}"),
+            })),
+    },
+    // Rules arrive with the prefix read, so a command costs what it did without them. A rule on the command adds a look in memory,
+    // and a channel rule that lets the channel through reads nothing more than the reply. The backend call is the message's own protection check
+    "a command with a rule that lets it through": {
+        expected: { fluxer: 1, backend: 1, delivered: 1 },
+        run: (t) =>
+            measure(t, (bot) => ({
+                prepare: bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!ping" })),
+                event: ["MESSAGE_CREATE", bot.fixtures.message({ content: "!ping" })],
+            })),
+    },
+    // A refused command answers once. The channel it is in is known from the message's protection check, and the member's permissions come
+    // from cached copies. The backend call is that protection check
+    "a command a rule refuses": {
+        expected: { fluxer: 1, backend: 1, delivered: 1 },
+        run: (t) =>
+            measure(t, (bot) => {
+                const other = "1456074443980899998"
+                bot.rest.respond(`GET /channels/${other}`, { body: bot.fixtures.channel({ id: other }) })
+                return {
+                    prepare: Effect.gen(function* () {
+                        yield* bot.emit("MESSAGE_CREATE", bot.fixtures.message({ content: "!ping" }))
+                        yield* bot.emit("CHANNEL_CREATE", bot.fixtures.channel({ id: other }))
+                    }),
+                    event: ["MESSAGE_CREATE", bot.fixtures.message({ content: "!ping", channel_id: other })],
+                }
+            }),
     },
     // A vote reads which of 👍 and 👎 the member holds and sends one backend request. The member comes from the cached
     // copies, and the channel is read once, after which the cache holds it too
@@ -497,6 +658,32 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
                 }
             }),
     },
+    // With jail on and nobody jailed a join reads only memory, so it costs what any join costs
+    "a member join with jail on": {
+        // Its pass at startup already read what the join's role check would read again
+        expected: { fluxer: 9, backend: 9, delivered: 1 },
+        run: (t) => {
+            jailOn = true
+            t.after(() => {
+                jailOn = false
+            })
+            return measure(t, (bot) => {
+                const userId = bot.fixtures.nextId()
+                return {
+                    event: [
+                        "GUILD_MEMBER_ADD",
+                        {
+                            ...bot.fixtures.member({
+                                user: bot.fixtures.user({ id: userId }),
+                                joined_at: new Date(now).toISOString(),
+                            }),
+                            guild_id: f.ids.guild,
+                        },
+                    ],
+                }
+            })
+        },
+    },
     // A join after another skips the role policy read, and metadata admission waits while logs answered that they are off
     "a member join after an earlier join": {
         expected: { fluxer: 9, backend: 6, delivered: 1 },
@@ -564,6 +751,32 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
                 ],
             })),
     },
+    // Anti-nuke counts in memory. It reads an account and the server's owner once, so a later entry costs no read and no backend call
+    "an audit entry with anti-nuke on and nothing to report": {
+        expected: { fluxer: 0, backend: 0, delivered: 1 },
+        run: (t) => {
+            antiNukeOn = true
+            t.after(() => {
+                antiNukeOn = false
+            })
+            return measure(t, (bot, native) => {
+                const entry = () =>
+                    [
+                        "GUILD_AUDIT_LOG_ENTRY_CREATE",
+                        {
+                            guild_id: f.ids.guild,
+                            id: bot.fixtures.nextId(),
+                            action_type: 22,
+                            user_id: f.ids.user,
+                            target_id: native.targetId,
+                            changes: [],
+                        },
+                    ] as const
+                const first = entry()
+                return { prepare: bot.emit(first[0], first[1]), event: entry() }
+            })
+        },
+    },
     "a new invite while invite logs are off": {
         expected: { fluxer: 0, backend: 0, delivered: 1 },
         run: (t) =>
@@ -585,6 +798,21 @@ const scenarios: Record<string, { expected: Measured; run: (t: TestContext) => R
                         max_age: 0,
                         expires_at: null,
                     },
+                ],
+            })),
+    },
+    // What webhooks post is off by default, so a webhook's message costs no backend call and no read
+    "a webhook's message with its log switch off": {
+        expected: { fluxer: 0, backend: 0, delivered: 1 },
+        run: (t) =>
+            measure(t, (bot) => ({
+                event: [
+                    "MESSAGE_CREATE",
+                    bot.fixtures.message({
+                        content: "Synthetic webhook text",
+                        webhook_id: bot.fixtures.nextId(),
+                        author: bot.fixtures.user({ id: bot.fixtures.nextId(), bot: true, system: false }),
+                    }),
                 ],
             })),
     },

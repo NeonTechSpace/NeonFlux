@@ -10,6 +10,7 @@ import { ServerIcon, ServerPicker } from "./server-picker"
 import { RolePickerMember } from "./role-picker-member"
 import { ShowcaseMember } from "./showcase-member"
 import { ProfileMember } from "./profile-member"
+import { VoiceRoomMember } from "./voice-room-member"
 import { PrivateCasesSection } from "./private-cases"
 import { fuzzyOptions } from "./search-picker"
 import {
@@ -152,6 +153,7 @@ const memberFeatureNames: Record<DashboardMemberFeature, string> = {
     rolepicker: "Choose your roles",
     showcase: "Showcases",
     profile: "Your profile",
+    voice: "Your voice room",
     private: "Private cases",
 }
 function ManagedDashboard({
@@ -293,7 +295,7 @@ export function ServerDashboard({
     if (memberServerId) {
         const server = memberServers.find((value) => value.id === memberServerId)!,
             live = connected && accessAvailable
-        // The member view offers only the server's member features: the role picker, showcases, profiles and private cases, which the backend opens after a live check.
+        // The member view offers only the server's member features: the role picker, showcases, profiles, the voice room page and private cases, which the backend opens after a live check.
         // The first feature opens without a section in the link
         const shown = server.features.find((feature) => feature === section) ?? server.features[0]!
         const memberPlace = (id: SectionId) => ({
@@ -341,6 +343,8 @@ export function ServerDashboard({
                     <ShowcaseMember key={memberServerId} {...props} connected={live} />
                 ) : shown === "profile" ? (
                     <ProfileMember key={memberServerId} {...props} connected={live} />
+                ) : shown === "voice" ? (
+                    <VoiceRoomMember key={memberServerId} {...props} connected={live} />
                 ) : (
                     <RolePickerMember key={memberServerId} {...props} connected={live} />
                 )}
