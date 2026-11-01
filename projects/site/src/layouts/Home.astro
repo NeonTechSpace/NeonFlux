@@ -233,6 +233,59 @@ const { title, description, graph, feature = false } = Astro.props
                             </div>
                         </div>
                     </section>
+                    <section class="sec pad" id="guard">
+                        <h2 class="rv">When a staff account goes bad</h2>
+                        <p class="lead rv">NeonFlux can act on accounts it outranks, and says plainly what it can't</p>
+                        <div class="bento">
+                            <article class="tile t6">
+                                <div class="tv">
+                                    <div class="uil">
+                                        <span>Channel deleted</span><span>Channel deleted</span><span>Channel deleted</span
+                                        ><span class="al">Too fast, roles taken away</span>
+                                    </div>
+                                </div>
+                                <h3>Anti-nuke</h3>
+                                <p>
+                                    Spots one account deleting channels or banning people faster than anyone works, and
+                                    can take its roles. It can only alert about the owner and anyone ranked at or above
+                                    the bot
+                                </p>
+                            </article>
+                            <article class="tile t3">
+                                <div class="tv">
+                                    <div class="uil">
+                                        <span># general locked</span><span># help locked</span
+                                        ><span class="ke"># staff left open</span>
+                                    </div>
+                                </div>
+                                <h3>Server-wide lockdown</h3>
+                                <p>Stops posting across the server at once, then gives each channel back what it had</p>
+                            </article>
+                            <article class="tile t3">
+                                <div class="tv">
+                                    <div class="uil">
+                                        <span>Roles taken</span><span class="ke"># jail</span><span>Same roles back</span>
+                                    </div>
+                                </div>
+                                <h3>Jail</h3>
+                                <p>Takes a member's roles and leaves one channel. Release gives the same roles back</p>
+                            </article>
+                        </div>
+                        <a class="more" href="/docs/features/anti-nuke/"
+                            >Read what each one can't stop<svg
+                                viewBox="0 0 24 24"
+                                width="16"
+                                height="16"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2.4"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                            >
+                                <path d="M5 12h14M13 6l6 6-6 6" /></svg
+                        ></a>
+                    </section>
                     <section class="sec pad" id="more">
                         <h2 class="rv">Smaller features</h2>
                         <div class="bento">
@@ -344,6 +397,74 @@ const { title, description, graph, feature = false } = Astro.props
                                 </div>
                                 <h3>Server structure</h3>
                                 <p>Rename and reorder channels on the website, and see the change before saving</p>
+                            </article>
+                            <article class="tile t3">
+                                <div class="tv">
+                                    <div class="uis">
+                                        <div class="uic">
+                                            <i class="av bot"><img src="/art/neonflux-bot.webp" alt="" /></i>
+                                            <div><b>NeonFlux</b><span>Take out the bins</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <h3>Reminders</h3>
+                                <p>Ask for a reminder later, and it arrives by DM</p>
+                            </article>
+                            <article class="tile t3">
+                                <div class="tv">
+                                    <div class="uis">
+                                        <div class="uic">
+                                            <i class="av" style="--h: 280">M</i>
+                                            <div><b>Mia</b><span>Best pun this year</span></div>
+                                            <span>⭐ 5</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <h3>Boards</h3>
+                                <p>Enough reactions repost a message. Stars, clowns or any emoji you pick</p>
+                            </article>
+                            <article class="tile t3">
+                                <div class="tv">
+                                    <div class="uig">
+                                        <i class="on" style="--h: 280">M</i><i class="on" style="--h: 220">B</i
+                                        ><i class="on" style="--h: 300">L</i><i class="on" style="--h: 180">R</i><i class="on" style="--h: 340">S</i>
+                                    </div>
+                                </div>
+                                <h3>Giveaways</h3>
+                                <p>Members enter by reacting, and winners are drawn when time's up</p>
+                            </article>
+                            <article class="tile t3">
+                                <div class="tv">
+                                    <div class="uil">
+                                        <span class="ke"># Members: 1204</span><span># Staff: 12</span>
+                                    </div>
+                                </div>
+                                <h3>Counters</h3>
+                                <p>Keeps a channel named with your member count, or how many hold a role</p>
+                            </article>
+                            <article class="tile t6">
+                                <div class="tv">
+                                    <div class="uim">
+                                        <span class="ui"><b>Timeout</b></span
+                                        ><span class="ui"><b>Purge</b></span
+                                        ><span class="ui on"><b>Limit reached</b></span>
+                                    </div>
+                                </div>
+                                <h3>Bot-only staff rights</h3>
+                                <p>
+                                    Off until the owner turns it on. Staff with no real permissions act only through the
+                                    bot, which limits how much each can do and keeps a case for every action
+                                </p>
+                            </article>
+                            <article class="tile t6">
+                                <div class="tv">
+                                    <div class="uil">
+                                        <span>!rank in #general</span
+                                        ><span class="ke">!rank works in #bot-commands</span>
+                                    </div>
+                                </div>
+                                <h3>Command rules</h3>
+                                <p>Limit a built-in command to the channels and roles you choose</p>
                             </article>
                         </div>
                     </section>

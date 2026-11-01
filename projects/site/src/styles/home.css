@@ -3555,6 +3555,9 @@ html.page.snap {
 .tile.t6 {
     grid-column: span 6;
 }
+#guard .more {
+    margin-top: 18px;
+}
 .tile.t3 {
     grid-column: span 3;
 }

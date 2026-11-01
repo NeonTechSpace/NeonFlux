@@ -1,6 +1,6 @@
 ---
 title: Optional services
-description: Turn on web verification, stream alerts, backup archives and a monthly budget
+description: Turn on web verification, stream alerts, X feeds, backup archives and a monthly budget
 ---
 
 The bot runs without any of these. Each one stays off until its settings exist, and the rest of NeonFlux keeps working
@@ -10,6 +10,7 @@ The bot runs without any of these. Each one stays off until its settings exist, 
 | [Turnstile](#turnstile-for-verification) | Website and Convex | Advanced verification cannot start                   |
 | [YouTube alerts](#youtube-alerts)        | Convex             | `!youtube add` answers that alerts are not available |
 | [Twitch alerts](#twitch-alerts)          | Convex             | Adding a streamer is unavailable                     |
+| [X feeds](#x-feeds)                      | Convex             | `!feed add x` answers that X feeds are not available |
 | [Backup key](#backup-key)                | Bot                | Backup export, inspect and new previews are disabled |
 | [Bill guard budget](#bill-guard-budget)  | Convex             | Calls are still counted, and nothing pauses          |
 
@@ -47,6 +48,18 @@ These credentials stay in the backend and never reach the bot or the browser
 
 YouTube and Twitch call the deployment's own HTTP Actions address, which Convex provides. To use a custom domain instead, set `NEONFLUX_WEBSUB_CALLBACK_BASE` to its HTTPS origin, with no path. Twitch also requires port 443
 
+## X feeds
+
+[Bluesky feeds](../features/feeds.md) need nothing here. X needs your own paid key, and X bills per post read
+
+> **Not tested against real X:** X feeds have only run against a local copy of X's published API description
+
+1. Set `NEONFLUX_X_BEARER_TOKEN` in the Convex deployment
+2. Optionally set `NEONFLUX_X_MONTHLY_POST_READS`, the monthly cap on X reads, 5,000 by default
+3. Optionally set `NEONFLUX_X_POLL_MINUTES`, the minutes between reads of an X account, 30 by default and 5 at least
+
+`NEONFLUX_FEED_SOURCE_LIMIT` optionally limits the accounts one deployment follows across all servers and both services, 1,000 by default
+
 ## Backup key
 
 The key encrypts [backup archives](../features/backup.md). It stays with the bot and never reaches Convex
@@ -70,7 +83,7 @@ Convex bills by function calls. The bill guard counts the calls the bot causes a
 | At the warning share    | The bot logs one warning a month                                                                       |
 | At 90 percent           | The bot pauses optional work in every server until the month rolls over in UTC or the budget is raised |
 
-- Optional work means clearing AFK statuses and naming AFK members, custom commands, autoresponders, XP, analytics counting, sticky reposts and help desk reminders
+- Optional work means clearing AFK statuses and naming AFK members, custom commands, autoresponders, XP, analytics counting, sticky reposts, help desk reminders, logged webhook posts, edits and deletions, board reposts, and Bluesky and X polling
 - Moderation, automod, built-in commands, DEFCON and background workers never pause
 - Raising the budget resumes optional work within five minutes
 - An invalid value also pauses optional work, and the deployment's logs name the variable to fix

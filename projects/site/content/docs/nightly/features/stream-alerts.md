@@ -7,7 +7,7 @@ Stream alerts post a card in a channel when a followed YouTube channel uploads a
 
 ## How it works
 
-Alerts come only from push notifications sent by YouTube and Twitch. The bot does not poll either site, and YouTube needs no API key
+Alerts come only from push notifications sent by YouTube and Twitch. The bot does not poll either site, and YouTube needs no API key. For Bluesky and X, see [feeds](./feeds.md)
 
 ### YouTube
 

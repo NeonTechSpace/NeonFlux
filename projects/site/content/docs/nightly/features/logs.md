@@ -56,6 +56,14 @@ The **Audit log** section on the dashboard, under Insights, lists every setting 
 
 It also records views of private cases, server structure saves, server exports, backup restores and when a member deletes their own data. The last two show only counts, never the data. Entries are kept for 180 days
 
+### Webhooks
+
+A log post shows a webhook by its name, with its ID, and by the ID alone when NeonFlux could not learn the name. Names are escaped, so a webhook's name cannot fake a line or a mention. Learning a name can take one read of the webhook, which needs Manage webhooks
+
+Edits and deletions of webhook messages are logged in the messages category with the webhook's name as the author, while message events reach a log channel. They have no member author, so `!mydata` does not list them
+
+`!logs metadata webhook-posts on` also logs what webhooks post. It starts off, and costs nothing while off. NeonFlux's own posts never appear, and excluded channels, ticket channels and log channels apply as they do for member messages
+
 ## Set it up
 
 1. Open the **Channel logs** section of the dashboard for the server, or use the chat commands below
@@ -102,6 +110,7 @@ All of these are for owners and Administrators. Send `!logs metadata help` for t
 | `!logs delivery show\|reconcile <record>`                          | Check a log post's delivery                                     |
 | `!logs metadata forget <record> confirm`                           | Remove a stored record                                          |
 | `!logs counters`                                                   | Show open tickets, stored records and waiting posts             |
+| `!logs metadata webhook-posts on\|off`                             | Also log what webhooks post. Off by default                     |
 
 An event is named in plain words in any letter case, such as `member joined`, or by its code, such as `member-add` or `audit-entry:20`. An override for an event beats its category, and an enabled override posts even when its category is off
 
@@ -110,7 +119,9 @@ An event is named in plain words in any letter case, such as `member joined`, or
 - Up to 10000 records per server, with the oldest removed first
 - Up to 500 channels in each message channel list
 - Message text up to 4000 characters per side and up to 10 attachment names and links per record
-- A bot's or webhook's deleted messages are not logged, since a deletion does not say who wrote the message
+- Another bot's deleted messages are not logged, since a deletion does not say who wrote the message. A webhook's are logged while NeonFlux still knows the message, and show as an unknown author otherwise
+- A bulk deletion counts webhook messages but names no webhook
+- Webhook edits and deletions together are recorded up to 30 at once and then one a minute. Webhook posts are recorded up to 30 at once and then 30 a minute
 - Edits made while the bot lost its connection to Fluxer can be missed
 - A log post that would exceed one embed shortens its text blocks
 - Server settings changes made from the dashboard appear under the `settings` category

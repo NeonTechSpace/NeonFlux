@@ -12,7 +12,11 @@
                         "features/moderation",
                         "features/automod",
                         "features/verification",
-                        "features/security-alerts"
+                        "features/security-alerts",
+                        "features/lockdown",
+                        "features/anti-nuke",
+                        "features/jail",
+                        "features/staff-rights"
                     ]
                 },
                 {
@@ -28,19 +32,25 @@
                     "pages": [
                         "features/leveling",
                         "features/events",
+                        "features/reminders",
+                        "features/giveaways",
+                        "features/boards",
                         "features/messages",
                         "features/voice",
                         "features/looking-for-group",
-                        "features/stream-alerts"
+                        "features/stream-alerts",
+                        "features/feeds"
                     ]
                 },
                 {
                     "title": "Server tools",
                     "pages": [
                         "features/custom-responses",
+                        "features/command-rules",
                         "features/logs",
                         "features/cleanup",
                         "features/sticky-messages",
+                        "features/counters",
                         "features/backup",
                         "features/analytics",
                         "features/structure-editor",

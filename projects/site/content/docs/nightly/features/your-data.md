@@ -13,7 +13,8 @@ Deleting is a preview first, then a confirmation. The preview shows what would g
 
 ### What deletion removes
 
-- AFK status and custom command cooldowns
+- AFK status, reminders and custom command cooldowns
+- Board posts of the member's messages, which is best effort, and their ID from the winners of giveaways
 - Leveling XP, with its message records and staff corrections
 - Greeting records, the rules acknowledgment and newcomer checklist completion
 - Role picker checks, birthday and anniversary sign-ups
@@ -34,6 +35,9 @@ The reply explains each item. Typical reasons:
 - Tickets are a shared support record, and a closed ticket's private content expires after the server's ticket retention, 30 days by default
 - Roles the bot gave stay recorded while the member may still hold them
 - A temporary voice room, or an open group the member hosts, stays while it exists
+- A running [jail](./jail.md) keeps the roles the member gets back, and they end with the release
+- A giveaway the member hosts keeps them as its host until it ends
+- A board post with an unknown outcome stays until staff settle it
 - Birthday and anniversary posts already sent stay for a while so no year is celebrated twice
 - An open suggestion stays while staff review it, so withdraw it with `!suggest withdraw` and then delete again
 - Security records keep their own expiry

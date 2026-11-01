@@ -10,6 +10,7 @@ export const FE = [
             "Members can appeal",
             "A role you choose can read private cases on the website",
             "Keep cases as long as you choose, or until you erase them",
+            "Jail a member, and give the same roles back when you release them",
         ],
         d: "moderation",
         e: 5,
@@ -114,8 +115,11 @@ export const FE = [
     {
         k: "msg",
         n: "Messages",
-        l: "Announcements on schedule, plus YouTube and Twitch alerts",
-        f: ["Alerts when a streamer goes live or a video goes up", "Sticky messages, custom replies and cleanup"],
+        l: "Announcements on schedule, plus YouTube, Twitch and Bluesky alerts",
+        f: [
+            "Alerts when a streamer goes live, a video goes up or a Bluesky account posts",
+            "Sticky messages, custom replies and cleanup",
+        ],
         d: "messages",
         e: 6,
     },
@@ -126,6 +130,7 @@ export const FE = [
         f: [
             "Join one channel and get your own room",
             "Name rooms with a pattern, like Mia's room",
+            "Lock a room, hide it or change its limit from chat, a reaction card or a web page",
             "Post what you want to play and others join",
         ],
         d: "voice",

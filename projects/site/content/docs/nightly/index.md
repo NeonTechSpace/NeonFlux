@@ -23,6 +23,9 @@ Most features are off until a server turns them on. Send these in a staff channe
 - [Let members pick their own roles](./features/roles.md)
 - [Give members a private line to staff](./features/tickets.md)
 - [Run events with RSVPs and reminders](./features/events.md)
+- [Lock the whole server during a raid](./features/lockdown.md)
+- [Run a giveaway](./features/giveaways.md)
+- [Post new Bluesky posts in a channel](./features/feeds.md)
 
 ## Host it yourself
 

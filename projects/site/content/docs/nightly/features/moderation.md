@@ -41,23 +41,26 @@ Alex receives a DM titled with the action, the server and the case number. It na
 
 ## Commands
 
-| Command                              | What it does                                               |
-| ------------------------------------ | ---------------------------------------------------------- |
-| `!mod warn @user [reason]`           | Warns a member and sends a DM                              |
-| `!mod timeout @user 10m [reason]`    | Times a member out, for up to one year                     |
-| `!mod untimeout @user [reason]`      | Removes a timeout                                          |
-| `!mod kick @user [reason]`           | Kicks a member                                             |
-| `!mod ban @user [reason]`            | Bans a member until unbanned                               |
-| `!mod ban @user 1d [reason]`         | Bans a member for a set time, from one minute to two years |
-| `!mod unban @user [reason]`          | Lifts a ban                                                |
-| `!mod purge 20 @user [reason]`       | Deletes up to 100 recent messages of one member            |
-| `!mod slowmode #channel 10 [reason]` | Sets seconds between messages, 0 to clear                  |
-| `!mod list [@user] [next]`           | Lists cases, newest first                                  |
-| `!mod show <case>`                   | Shows one case                                             |
-| `!mod reason <case> <new reason>`    | Corrects a case's reason                                   |
-| `!mod void <case>`                   | Voids a warning. Only warnings can be voided               |
-| `!mod history <case>`                | Shows a case's reason changes and voiding                  |
-| `!mod status`                        | Shows whether moderation is on and the staff roles         |
+| Command                              | What it does                                                       |
+| ------------------------------------ | ------------------------------------------------------------------ |
+| `!mod warn @user [reason]`           | Warns a member and sends a DM                                      |
+| `!mod timeout @user 10m [reason]`    | Times a member out, for up to one year                             |
+| `!mod untimeout @user [reason]`      | Removes a timeout                                                  |
+| `!mod kick @user [reason]`           | Kicks a member                                                     |
+| `!mod ban @user [reason]`            | Bans a member until unbanned                                       |
+| `!mod ban @user 1d [reason]`         | Bans a member for a set time, from one minute to two years         |
+| `!mod unban @user [reason]`          | Lifts a ban                                                        |
+| `!mod purge 20 @user [reason]`       | Deletes up to 100 recent messages of one member                    |
+| `!mod slowmode #channel 10 [reason]` | Sets seconds between messages, 0 to clear                          |
+| `!mod jail @user [length] [reason]`  | [Jails](./jail.md) a member, and keeps their roles for the release |
+| `!mod unjail @user [reason]`         | Releases a jailed member                                           |
+| `!mod rights status`                 | Shows [bot-only staff rights](./staff-rights.md)                   |
+| `!mod list [@user] [next]`           | Lists cases, newest first                                          |
+| `!mod show <case>`                   | Shows one case                                                     |
+| `!mod reason <case> <new reason>`    | Corrects a case's reason                                           |
+| `!mod void <case>`                   | Voids a warning. Only warnings can be voided                       |
+| `!mod history <case>`                | Shows a case's reason changes and voiding                          |
+| `!mod status`                        | Shows whether moderation is on and the staff roles                 |
 
 A case with no reason shows `No reason given`. To link a sanction to an earlier case, put `case <number>` before the reason, as in `!mod unban @user case 12 Appeal approved`
 
@@ -87,7 +90,7 @@ The dashboard has a **Warning limit** form with the same settings
 
 ### DEFCON
 
-DEFCON is a lockdown level for the whole server. It does not change channel permissions
+DEFCON is a lockdown level for the whole server. It does not change channel permissions. To stop posting in every channel, use the [server-wide lockdown](./lockdown.md)
 
 | Level | What happens                                                         |
 | ----- | -------------------------------------------------------------------- |

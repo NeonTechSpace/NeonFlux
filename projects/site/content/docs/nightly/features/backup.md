@@ -30,7 +30,7 @@ A restore creates what is missing and updates what differs. It never recreates r
 
 A restore that is partly done is not rolled back. A step that finds the server changed since the preview ends as a conflict and does not overwrite it. The restore stops writing if the member is no longer the owner or the DM is no longer private
 
-Some things are never in a backup, such as credentials, birthdays, votes, RSVPs, ticket text, moderation notes, audit history and the dashboard link. Posted ticket panels are not in it either, so post them again with `!ticket panel`
+Some things are never in a backup, such as credentials, birthdays, votes, RSVPs, ticket text, moderation notes, audit history, the dashboard link, [jail](./jail.md) and [bot-only staff rights](./staff-rights.md). Posted ticket panels are not in it either, so post them again with `!ticket panel`
 
 The dashboard shows the owner's latest preview as a list of changes, and the owner can confirm there. It never receives the archive or its key
 
