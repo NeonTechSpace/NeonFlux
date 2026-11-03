@@ -137,10 +137,6 @@ Web source checking is strict, with `skipLibCheck` in the web package only, for 
 
 Typechecks of the bot, backend and contracts also report the Effect language service's diagnostics, which each package turns on as a plugin in its `tsconfig.json`. `@effect/tsgo` ships a TypeScript 7 build with those rules, and their typecheck scripts run it through [effect-tsc.mjs](../projects/scripts/effect-tsc.mjs) instead of `tsc`. Nothing in `node_modules` is changed, so `tsc` stays the plain TypeScript the bot's build and the website use. Effect errors and warnings fail a typecheck, and the `schemaNumber` rule is raised to a warning, so schemas keep to finite numbers. Editors show the Effect diagnostics, suggestions included, only after `pnpm --filter @neonflux/contracts exec effect-tsgo patch --typescript` in `projects/` puts the Effect build in place of the workspace's TypeScript binary. The same command with `unpatch` restores the original
 
-Effect 4.1's declarations reference the browser-only global `CryptoKey` and `JsonWebKey` types.
-The bot's [compatibility declaration](../projects/bot/src/effect-compat.d.ts) takes both from Node's `node:crypto` declarations, which keeps strict checking without adding browser libraries.
-Remove an entry once an Effect release no longer needs it
-
 ## Planned
 
 - Bot container image: One Docker image published to GHCR, with build and release automation. It must build or bundle the [shared contracts](#shared-contracts)

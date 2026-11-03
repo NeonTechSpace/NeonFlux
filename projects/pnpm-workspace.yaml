@@ -10,7 +10,7 @@ packages:
 # stays at one version because the Effect typecheck needs an @effect/tsgo release that supports the version every package uses
 catalog:
     convex: 1.46.0
-    effect: 4.1.0
+    effect: 4.1.2
     typescript: 7.0.2
 
 allowBuilds:
