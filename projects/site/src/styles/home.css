@@ -324,14 +324,15 @@ html[data-still] .top .tog i::after {
 }
 /* hero */
 .page .pin {
-    height: calc(100svh * 4);
+    --pin-step: 78svh;
+    height: calc(var(--pin-step) * 3 + 100svh);
     position: relative;
 }
 .mark {
     position: absolute;
     left: 0;
     width: 1px;
-    height: 100svh;
+    height: var(--pin-step, 100svh);
     scroll-snap-align: start;
     scroll-snap-stop: always;
     pointer-events: none;
@@ -431,9 +432,10 @@ html[data-still] .top .tog i::after {
 }
 .h-claim > p {
     align-self: end;
+    text-wrap: balance;
 }
 .h-claim {
-    font: 600 min(3.3cqw, 7.2cqh)/1.1 var(--display);
+    font: 600 min(3.3cqw, 7.2cqh)/1.08 var(--display);
     letter-spacing: -0.035em;
 }
 .h-claim .w {
@@ -474,48 +476,52 @@ html[data-still] .top .tog i::after {
 }
 .ticks {
     display: flex;
+    align-items: center;
     gap: 8px;
-    width: min(100%, 580px);
+    width: min(100%, 196px);
+    margin-top: 2px;
 }
 .ticks button {
     flex: 1;
-    min-height: 44px;
-    display: grid;
-    align-content: start;
-    gap: 6px;
-    font-size: calc(16px * var(--fs));
-    line-height: 1.2;
-    text-align: left;
-    color: var(--faint);
-    transition: color 0.2s;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    padding-block: 10px;
+    transition: flex-grow 0.28s var(--spring);
 }
-.ticks .done {
-    color: var(--soft);
-}
-.ticks button:hover,
 .ticks .now {
-    color: var(--ink);
+    flex: 1.5;
 }
 .ticks b {
     display: block;
     width: 100%;
     height: 4px;
-    background: #ffffff22;
+    background: #6f7da8;
     overflow: hidden;
-    border-radius: 2px;
+    border-radius: 999px;
     position: relative;
+    transition:
+        background 0.2s,
+        box-shadow 0.25s;
+}
+.ticks button:hover b {
+    background: #92a0cc;
 }
 .ticks b::after {
     content: "";
     position: absolute;
     inset: 0;
     background: var(--grad);
+    border-radius: 999px;
     transform: scaleX(0);
     transform-origin: 0 50%;
-    transition: transform 0.45s ease;
+    transition: transform 0.4s ease;
 }
 .ticks .done b::after {
     transform: scaleX(1);
+}
+.ticks .now b {
+    box-shadow: 0 0 12px #6ea0ff66;
 }
 .anchor {
     position: absolute;
@@ -558,18 +564,19 @@ html[data-still] .top .tog i::after {
 .hint {
     display: none;
     align-items: center;
-    gap: 10px;
-    font-size: calc(17px * var(--fs));
-    font-weight: 700;
-    color: var(--ink);
-    min-height: 30px;
+    gap: 8px;
+    font-size: calc(14px * var(--fs));
+    font-weight: 500;
+    color: var(--soft);
+    min-height: 24px;
 }
 .page .hint {
     display: flex;
 }
 .hint svg {
-    width: 18px;
-    height: 18px;
+    width: 15px;
+    height: 15px;
+    color: var(--link);
     animation: nudge 1.5s ease-in-out infinite;
 }
 .still .hint svg {
@@ -601,18 +608,14 @@ html[data-still] .top .tog i::after {
         font-size: calc(17px * var(--fs));
     }
     .ticks button {
-        min-height: 34px;
-    }
-    .ticks span {
-        display: none;
+        min-height: 24px;
+        padding-block: 8px;
     }
 }
 @container s (max-height:720px) and ((max-aspect-ratio:9/10) or ((max-aspect-ratio:5/4) and (max-width:720px))) {
-    .ticks {
-        pointer-events: none;
-    }
     .ticks button {
-        min-height: 8px;
+        min-height: 20px;
+        padding-block: 6px;
     }
     .nf .hit {
         font-size: calc(16px * var(--fs));
@@ -649,11 +652,11 @@ html[data-still] .top .tog i::after {
         font-size: calc(17px * var(--fs));
     }
     .ticks {
-        pointer-events: none;
-        width: min(100%, 260px);
+        width: min(100%, 160px);
     }
     .ticks button {
-        min-height: 8px;
+        min-height: 18px;
+        padding-block: 6px;
     }
     .page .hint {
         display: none;
@@ -4990,32 +4993,6 @@ html.still .na .calmna {
     line-height: 1;
     white-space: pre;
 }
-.ticks {
-    position: relative;
-    width: min(100%, calc(600px * var(--fs)));
-    container: tk / inline-size;
-}
-.ticks span {
-    white-space: nowrap;
-}
-@container tk (max-width:570px) {
-    .ticks button {
-        position: static;
-        padding-bottom: calc(24px * var(--fs));
-    }
-    .ticks button::after {
-        content: none;
-    }
-    .ticks span {
-        display: none;
-    }
-    .ticks .now span {
-        display: block;
-        position: absolute;
-        left: 0;
-        bottom: 0;
-    }
-}
 /* tiles: the object sits above the text with room between, nothing is clipped */
 .tile {
     min-height: 0;
@@ -5130,22 +5107,6 @@ html.still .na .calmna {
 .stp p code {
     color: var(--link);
     font-size: 0.95em;
-}
-/* the label sits right under the bars on narrow screens */
-@container tk (max-width:570px) {
-    .ticks button {
-        gap: 0;
-        padding-bottom: calc(26px * var(--fs));
-        align-content: start;
-    }
-}
-.ticks span {
-    text-align: center;
-}
-@container tk (max-width:570px) {
-    .ticks span {
-        text-align: left;
-    }
 }
 
 /* The whole tile opens its docs page, and the one control inside a tile stays clickable */

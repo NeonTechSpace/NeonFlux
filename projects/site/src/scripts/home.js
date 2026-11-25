@@ -146,13 +146,13 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     }
     /* ---------- hero ---------- */
     const CL = [
-        ["Most bots keep their code locked away", `So you can't check what they do or change how they work`],
-        ["The only bot you should ever need", "Moderation, roles, tickets, levels and more"],
-        ["A bot you can trust", `Anyone can check what it does, even if you never look`],
-        ["A bot you can own", "Change any part and keep your data. Pick a part to see what it does"],
+        ["Most bots are black boxes", "Closed code. Locked data. You just have to trust them"],
+        ["One bot for your whole server", "Moderation, roles, tickets, levels, events and more in one place"],
+        ["Nothing hidden inside", "Every line is open source under Apache 2.0 so anyone can verify how it works"],
+        ["Open it. Make it yours", "Self-host for one community or run it for many. Pick any piece to explore"],
         [
             "You can look, but this one's private",
-            `It runs for one community. Join its server, or ask for permission to manage it`,
+            "It runs for one community. Join its server, or ask for permission to manage it",
         ],
     ]
     let NA = false,
@@ -173,7 +173,8 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         dusta = $("dusta"),
         dustb = $("dustb")
     let pinTop = 0,
-        restTop = 0
+        restTop = 0,
+        pinStep = 0
     const stickMetrics = { left: 0, width: 0, height: 0 },
         bgMetrics = { left: 0, topDoc: 0, width: 0, height: 0 },
         endMetrics = { left: 0, topDoc: 0, width: 0, height: 0 }
@@ -188,6 +189,8 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         stickMetrics.left = stRect.left
         stickMetrics.width = stRect.width
         stickMetrics.height = stRect.height
+        const travel = restTop - pinTop - stickMetrics.height
+        pinStep = travel > 0 ? travel / 3 : stickMetrics.height
         endMetrics.left = endRect.left
         endMetrics.topDoc = endRect.top + y
         endMetrics.width = endRect.width
@@ -218,8 +221,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
                 .join("")}</p>`,
     ).join("")
     sub.innerHTML = CL.map((c, i) => `<p class="${i === 4 ? "na4" : ""}">${c[1]}</p>`).join("")
-    ;[2, 3].forEach((i) => claim.children[i].children[2].insertAdjacentHTML("afterend", "<br>"))
-    const HINT = ["Scroll to open the box", "Keep scrolling", "Keep scrolling", "Keep scrolling to see a normal week"]
+    const HINT = ["Scroll to open the box", "Keep scrolling", "Keep scrolling", "Scroll to see a week in action"]
     function setAct(n) {
         if (n === act) return
         act = n
@@ -227,6 +229,8 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         ticks.forEach((b, i) => {
             b.classList.toggle("done", i <= n)
             b.classList.toggle("now", i === n)
+            if (i === n) b.setAttribute("aria-current", "step")
+            else b.removeAttribute("aria-current")
         })
         if (n < 4) $("hint").textContent = HINT[n]
     }
@@ -260,7 +264,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     function jump(i) {
         if (root.classList.contains("page"))
             window.scrollTo({
-                top: pinTop + i * (stickMetrics.height || stick.offsetHeight),
+                top: pinTop + i * (pinStep || stickMetrics.height || stick.offsetHeight),
                 behavior: motion ? "smooth" : "auto",
             })
         else {
@@ -2364,9 +2368,9 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     }
     function scrollP(y = scrollY) {
         if (!root.classList.contains("page") || NA) return
-        const vh = stickMetrics.height
-        if (!vh) return
-        idx = Math.max(0, Math.min(3, Math.round((y - pinTop) / vh)))
+        const step = pinStep || stickMetrics.height
+        if (!step) return
+        idx = Math.max(0, Math.min(3, Math.round((y - pinTop) / step)))
         tp = STOP[idx]
     }
     let scrollRaf = 0
@@ -2412,14 +2416,14 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     function stepHero(dir) {
         const y = scrollY,
             ry = restY(),
-            vh = stickMetrics.height
-        if (!vh || y > ry + 2) return false
+            step = pinStep || stickMetrics.height
+        if (!step || y > ry + 2) return false
         if (y >= ry - 2) {
             if (dir > 0) return false
             jump(3)
             return true
         }
-        const n = Math.round(y / vh) + dir
+        const n = Math.round((y - pinTop) / step) + dir
         if (n < 0) return true
         if (n > 3) window.scrollTo({ top: ry, behavior: motion ? "smooth" : "auto" })
         else jump(n)

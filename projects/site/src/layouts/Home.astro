@@ -71,18 +71,19 @@ const { title, description, graph, feature = false } = Astro.props
                 <section class="calm pad">
                     <div>
                         <h2 class="calm-h">Neon<span class="g">Flux</span></h2>
-                        <p class="tag big">An open-source Fluxer bot you can host for yourself or for others</p>
+                        <p class="tag big">Open-source Fluxer bot you can self-host for one community or run for many</p>
                         <ul>
                             <li>
-                                <b>The only bot you should ever need</b
-                                ><span>Moderation, roles, tickets, levels and more</span>
+                                <b>One bot for your whole server</b
+                                ><span>Moderation, roles, tickets, levels, events and more in one place</span>
                             </li>
                             <li>
-                                <b>A bot you can trust</b
-                                ><span>Anyone can check what it does, even if you never look</span>
+                                <b>Nothing hidden inside</b
+                                ><span>Every line is open source under Apache 2.0 so anyone can verify how it works</span>
                             </li>
                             <li>
-                                <b>A bot you can own</b><span>Run your own, change any part and keep your data</span>
+                                <b>Built to be yours</b
+                                ><span>Self-host, change any part and keep your own data</span>
                             </li>
                         </ul>
                         <div class="acts">
@@ -101,38 +102,34 @@ const { title, description, graph, feature = false } = Astro.props
                     <div class="acts"><a class="main" href="/">Back to the homepage</a></div>
                 </section>
                 <div class="pin" id="pin">
-                    <i class="mark" style="top: 0"></i><i class="mark" style="top: 100svh"></i
-                    ><i class="mark" style="top: 200svh"></i><i class="mark" style="top: 300svh"></i>
+                    <i class="mark" style="top: 0"></i><i class="mark" style="top: var(--pin-step)"></i
+                    ><i class="mark" style="top: calc(var(--pin-step) * 2)"></i
+                    ><i class="mark" style="top: calc(var(--pin-step) * 3)"></i>
                     <div class="stick" id="stick">
                         <canvas id="gl" aria-hidden="true"></canvas>
                         {feature ? <h2 class="h-word" id="hword">NeonFlux</h2> : <h1 class="h-word" id="hword">NeonFlux</h1>}
                         <div class="anchor" id="anchor"></div>
                         <div id="hits"></div>
                         <div class="h-say">
-                            <p class="tag">An open-source Fluxer bot you can host for yourself or for others</p>
+                            <p class="tag">Open-source Fluxer bot</p>
                             <div class="stk h-claim" id="claim"></div>
                             <div class="stk h-sub" id="sub"></div>
-                            <div class="ticks" id="ticks" role="group" aria-label="Open the box step by step">
-                                <button aria-label="Step 1: Most stay locked">
-                                    <b></b><span>Most stay locked</span></button
-                                ><button aria-label="Step 2: This one does it all">
-                                    <b></b><span>this one does it all</span></button
-                                ><button aria-label="Step 3: Shows how it works">
-                                    <b></b><span>shows how it works</span></button
-                                ><button aria-label="Step 4: And it's yours"><b></b><span>and it's yours</span></button>
-                            </div>
                             <div class="acts" id="hacts">
                                 <a class="main" href={dashboardUrl}>Open dashboard</a
-                                ><a class="alt" href="/docs/self-hosting/overview/"
-                                    >Run your own</a
-                                >
+                                ><a class="alt" href="/docs/self-hosting/overview/">Run your own</a>
+                            </div>
+                            <div class="ticks" id="ticks" role="group" aria-label="Open the box step by step">
+                                <button type="button" aria-label="Step 1: Most bots are black boxes"><b></b></button
+                                ><button type="button" aria-label="Step 2: One bot for your whole server"><b></b></button
+                                ><button type="button" aria-label="Step 3: Nothing hidden inside"><b></b></button
+                                ><button type="button" aria-label="Step 4: Open it and make it yours"><b></b></button>
                             </div>
                             <p class="hint">
                                 <svg
                                     viewBox="0 0 24 24"
                                     fill="none"
                                     stroke="currentColor"
-                                    stroke-width="2.6"
+                                    stroke-width="2.4"
                                     stroke-linecap="round"
                                     stroke-linejoin="round"
                                     aria-hidden="true"
@@ -524,7 +521,19 @@ pnpm run start</code></pre>
                             </details>
                             <details>
                                 <summary>What do I need to run it?</summary>
-                                <p>Node, pnpm, a Fluxer bot account and a Convex deployment for the backend</p>
+                                <p>
+                                    Node, pnpm, a Fluxer bot account and a Convex deployment for the backend, either on
+                                    Convex Cloud or self-hosted
+                                </p>
+                            </details>
+                            <details>
+                                <summary>Why Convex for the backend?</summary>
+                                <p>
+                                    Convex gives the dashboard instant live updates and reliable state for best-in-class
+                                    UX, with open-source SDKs and a source-available, self-hostable backend
+                                    (FSL-1.1-Apache-2.0, converting to Apache 2.0 after two years) so you are never
+                                    locked into a closed platform
+                                </p>
                             </details>
                             <details>
                                 <summary>Are there slash commands?</summary>

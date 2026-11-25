@@ -239,10 +239,14 @@ const openSearch = () => {
     input.select()
     loadEngine().catch(() => (state.textContent = "Search works on the built site"))
 }
+const findKey = $("find-key")
+if (findKey && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent)) {
+    findKey.textContent = "Cmd K"
+}
 $("find").addEventListener("click", openSearch)
 document.addEventListener("keydown", (event) => {
     const typing = event.target instanceof HTMLElement && event.target.matches("input,textarea,select")
-    if ((event.key === "/" && !typing) || (event.key === "k" && (event.metaKey || event.ctrlKey))) {
+    if ((event.key === "/" && !typing) || (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey))) {
         event.preventDefault()
         openSearch()
     }

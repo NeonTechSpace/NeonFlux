@@ -292,8 +292,8 @@ a {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    min-width: calc(180px * var(--fs));
-    padding: 6px 12px;
+    min-width: calc(230px * var(--fs));
+    padding: 5px 8px 5px 12px;
     border-radius: 10px;
     background: var(--well) !important;
     box-shadow: inset 0 0 0 1px var(--line);
@@ -302,6 +302,22 @@ a {
 .find:hover {
     box-shadow: inset 0 0 0 1px #4a4d8a;
     color: var(--ink) !important;
+}
+.find-label {
+    white-space: nowrap;
+}
+.find-key {
+    margin-left: auto;
+    padding: 2px 7px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: calc(13px * var(--fs));
+    font-weight: 500;
+    line-height: 1.35;
+    color: var(--muted);
+    background: #ffffff0c;
+    box-shadow: inset 0 0 0 1px #ffffff14;
+    white-space: nowrap;
 }
 .ver-one,
 .ver summary {
@@ -1109,6 +1125,11 @@ main {
     }
     .find {
         min-width: 0;
+        padding: 6px 10px;
+    }
+    .find-label,
+    .find-key {
+        display: none;
     }
     .side {
         align-self: stretch;
@@ -1170,13 +1191,6 @@ main {
     }
     .find {
         padding: 6px 10px;
-    }
-    .find span {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip-path: inset(50%);
     }
     .turn {
         grid-template-columns: 1fr;
