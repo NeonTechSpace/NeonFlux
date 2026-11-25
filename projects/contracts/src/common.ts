@@ -14,14 +14,24 @@ export const isName = (value: unknown): value is string =>
 /** Whether a value is a bot-generated token, such as a moderation action ID */
 export const isToken = (value: unknown): value is string =>
     typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value)
-/** Text without form feeds, right-to-left overrides and surrounding space, which Fluxer removes from names */
 /** The start of text, up to max code units, without half an emoji at the cut. Fluxer answers half a character with a 503 page */
-export const cutText = (value: string, max: number) => value.slice(0, max).replace(/\p{Cs}$/u, "")
+export const cutText = (value: string, max: number) => value.slice(0, Math.max(0, max)).replace(/\p{Cs}$/u, "")
+/** Text without form feeds, right-to-left overrides and surrounding space, which Fluxer removes from names */
 export const visibleText = (value: string) => value.replace(/[\u000c\u202e]/g, "").trim()
 /** Whether text has something left once form feeds, right-to-left overrides and surrounding space are removed */
 export const hasText = (value: string) => visibleText(value) !== ""
 
 export const Id = Schema.String.check(Schema.makeFilter(isId))
+export const ServerId = Id.pipe(Schema.brand("ServerId"))
+export type ServerId = typeof ServerId.Type
+export const ChannelId = Id.pipe(Schema.brand("ChannelId"))
+export type ChannelId = typeof ChannelId.Type
+export const UserId = Id.pipe(Schema.brand("UserId"))
+export type UserId = typeof UserId.Type
+export const RoleId = Id.pipe(Schema.brand("RoleId"))
+export type RoleId = typeof RoleId.Type
+export const MessageId = Id.pipe(Schema.brand("MessageId"))
+export type MessageId = typeof MessageId.Type
 /** A Fluxer invite code as staff see and type it: 1 to 64 letters, digits, _ or - */
 export const InviteCode = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,64}$/))
 /** A safe integer from min to max */

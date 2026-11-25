@@ -84,7 +84,7 @@ async function fixture(test: TestContext) {
             await barrier.wait
         }
         const body = url.includes(".well-known")
-            ? { endpoints: { api_public: "https://synthetic.fluxer.invalid" } }
+            ? { endpoints: { api_public: "https://api.fluxer.app" } }
             : url.includes("oauth2/@me")
               ? {
                     application: { id: "123" },

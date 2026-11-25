@@ -247,7 +247,17 @@ export function operationLabel(operation: unknown): string {
     )
 }
 
-/** Reads the settings before and after a change and records what changed. A duplicate source changes nothing and records nothing */
+// Operations whose effect lives outside the stored snapshot (such as Fluxer role order or an explicit reset) still record an entry
+const EXPLICIT_AUDIT_FEATURES = new Set<DashboardAuditFeature>(["memberlist"])
+const EXPLICIT_AUDIT_OPERATIONS = new Set(["reset", "reset-server", "reset-member", "restore"])
+
+function operationType(operation: unknown): string | undefined {
+    const op = record(operation)
+    if (op.operation !== undefined) return operationType(op.operation)
+    return typeof op.type === "string" ? op.type : undefined
+}
+
+/** Reads the settings before and after a change and records what changed. A duplicate source or unchanged save records nothing */
 export async function auditedChange<T>(
     ctx: MutationCtx,
     serverId: string,
@@ -260,14 +270,21 @@ export async function auditedChange<T>(
     const before = await read(),
         result = await apply()
     if (record(result).duplicate !== true) {
-        const after = await read()
-        await recordAudit(ctx, serverId, actor, {
-            kind: "setting",
-            feature,
-            setting: operationLabel(operation),
-            summary: describeChange(before, after),
-            changes: auditChanges(before, after),
-        })
+        const after = await read(),
+            changes = auditChanges(before, after),
+            type = operationType(operation)
+        if (
+            changes.length > 0 ||
+            EXPLICIT_AUDIT_FEATURES.has(feature) ||
+            (type !== undefined && EXPLICIT_AUDIT_OPERATIONS.has(type))
+        )
+            await recordAudit(ctx, serverId, actor, {
+                kind: "setting",
+                feature,
+                setting: operationLabel(operation),
+                summary: describeChange(before, after),
+                changes,
+            })
     }
     return result
 }

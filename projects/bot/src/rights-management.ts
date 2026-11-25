@@ -105,6 +105,7 @@ export function handleRightsCommand(
     config: BotConfig,
     command: RightsCommand,
     context: BotEventContext<"messageCreate">,
+    privateInvocation = false,
 ) {
     const prefix = replyPrefix(config.serverId, context.message.guildId),
         reply = (content: string) => replyText(context, withPrefix(content, prefix))
@@ -116,6 +117,10 @@ export function handleRightsCommand(
             return
         }
         const authority: SafetyAuthority = yield* readSafetyAuthority(client, serverId, message.author.id)
+        if (privateInvocation && authority.actorTimedOut) {
+            yield* reply("You cannot run moderation commands while you are timed out in this server")
+            return
+        }
         const actor = moderationActor(authority)
         if (command.type === "status") {
             yield* replyCard(context, serverId, rightsCard(yield* store.status({ serverId, actor }), prefix))

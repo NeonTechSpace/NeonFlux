@@ -691,13 +691,11 @@ export const rsvp = serviceMutation({
                 ...(queueOrder !== undefined ? { queueOrder } : {}),
             })
         }
-        await ctx.db.patch(occurrence._id, {
+        if (!event.participationStarted) await ctx.db.patch(event._id, { participationStarted: true })
+        await wakePromotion(ctx, occurrence, {
             participationStarted: true,
             rsvps: occurrence.rsvps + (old ? 0 : 1),
             nextQueueOrder: occurrence.nextQueueOrder + (!keepsGoing && allocation === "waitlist" ? 1 : 0),
-        })
-        await ctx.db.patch(event._id, { participationStarted: true })
-        await wakePromotion(ctx, (await ctx.db.get(occurrence._id))!, {
             going: going + (!keepsGoing && allocation === "seat" ? 1 : 0),
             waitlisted: waitlisted + (!keepsGoing && allocation === "waitlist" ? 1 : 0),
         })

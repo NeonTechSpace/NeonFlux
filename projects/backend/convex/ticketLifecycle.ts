@@ -583,7 +583,7 @@ export const erase = internalMutation({
             await ctx.db
                 .query("ticketTranscripts")
                 .withIndex("by_number", (q) => q.eq("serverId", ticket.serverId).eq("ticketNo", ticket.ticketNo))
-                .collect()
+                .take(256)
         ).filter((row) => row.pages !== undefined)
         for (const row of transcripts.slice(0, TICKET_BATCH)) await ctx.db.patch(row._id, { pages: undefined })
         const pages = await ctx.db

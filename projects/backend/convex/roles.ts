@@ -653,14 +653,13 @@ export const query = serviceQuery({
             // Commands name the panel, so its removals are read by their consumer prefix: One per revision that gave roles,
             // and a finished one is kept a day
             const prefix = op.name === undefined ? "autorole:" : `panel:${name(op.name)}:`
-            const rows = (
-                await ctx.db
-                    .query("roleWithdrawals")
-                    .withIndex("by_consumer", (q) =>
-                        q.eq("serverId", serverId).gte("consumerKey", prefix).lt("consumerKey", `${prefix}\uffff`),
-                    )
-                    .collect()
-            ).filter((row) => row.status !== "complete")
+            const rows = await ctx.db
+                .query("roleWithdrawals")
+                .withIndex("by_consumer", (q) =>
+                    q.eq("serverId", serverId).gte("consumerKey", prefix).lt("consumerKey", `${prefix}\uffff`),
+                )
+                .filter((q) => q.neq(q.field("status"), "complete"))
+                .take(256)
             const row = rows.sort((a, b) => b.createdAt - a.createdAt)[0]
             if (!row) fail(404, "Role withdrawal not found")
             return { type: "withdrawal", withdrawal: await publicWithdrawal(ctx, row) }

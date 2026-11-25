@@ -310,12 +310,12 @@ function withinLimits(embed: Embed, lines = 10) {
         text,
         /Message ID|\u2014|backend|revision|\bhub\b|dry-run|stale|tracked|payload|deployment|reconcile|\d{4}-\d\d-\d\dT/i,
     )
-    assert.doesNotMatch(text.replace(/<[#@]\d+>|\(https:\/\/fluxer\.app\/channels\/[\d/]+\)/g, ""), /\d{15,}/)
+    assert.doesNotMatch(text.replace(/<[#@]\d+>|\(https:\/\/fluxer\.com\/channels\/[\d/]+\)/g, ""), /\d{15,}/)
 }
 const jump = (n: number) => {
     const target = id("7000000000000000", n),
         channel = n % 2 ? id("8000000000000000", n) : f.ids.channel
-    return `https://fluxer.app/channels/${f.ids.guild}/${channel}/${target}`
+    return `https://fluxer.com/channels/${f.ids.guild}/${channel}/${target}`
 }
 const open = (store: CleanupStore) =>
     Effect.gen(function* () {

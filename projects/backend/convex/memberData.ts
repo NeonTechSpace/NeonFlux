@@ -278,12 +278,14 @@ export const MEMBER_DATA: readonly Entry[] = [
                     )
                     .unique()
                 if (occurrence) {
+                    const rsvps = Math.max(0, occurrence.rsvps - 1)
                     if (row.allocation !== "none")
                         await wakePromotion(ctx, occurrence, {
                             going: occurrence.going - (row.allocation === "seat" ? 1 : 0),
                             waitlisted: occurrence.waitlisted - (row.allocation === "waitlist" ? 1 : 0),
+                            rsvps,
                         })
-                    await ctx.db.patch(occurrence._id, { rsvps: Math.max(0, occurrence.rsvps - 1) })
+                    else await ctx.db.patch(occurrence._id, { rsvps })
                 }
                 await ctx.db.delete(row._id)
                 await eventCount(ctx, row.serverId, "rsvps", -1)
@@ -607,14 +609,19 @@ export const MEMBER_DATA: readonly Entry[] = [
     ),
 ]
 
-// Tables with a member's ID that member data rights leave out, and why. A test fails for a table with a top-level userId,
-// ownerId, authorId, requesterId or targetId that is in neither list
+// Tables with a member, staff or actor ID that member data rights leave out, and why. A test fails for a table with a
+// top-level member or actor ID field that is in neither list
 const SECURITY = "A security record. It keeps its own expiry, and showing it could defeat its purpose"
 const ROLE_LEDGER = "Part of the role ledger kept with Roles NeonFlux gave you"
 const STAFF = "Names the staff member who runs a server task, not data about them as a member"
 const WATCHLIST = "A security record staff keep until they remove it. Showing it could defeat its purpose"
 const STAFF_SETTING =
-    "A server setting staff chose that names members, such as who may use a feature or the roles reserved for a member. It stays until staff change it"
+    "A server setting staff chose that names members or who last changed it, such as who may use a feature or the roles reserved for a member. It stays until staff change it"
+const RECEIPT =
+    "A short-lived command receipt that stops a redelivered command from running twice. It expires after a day"
+const DASHBOARD_JOB =
+    "A short-lived website request record kept for a day. Pending profile saves are also removed on deletion"
+const TICKET_PART = "Part of a ticket, kept with it"
 const CLEANUP =
     "A message cleanup setting or task staff run. It names message authors only to skip their messages or to track a deletion. Settled tasks expire after 30 days, and a setting stays until staff change it"
 export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
@@ -624,17 +631,45 @@ export const MEMBER_DATA_EXEMPT: Partial<Record<TableNames, string>> = {
     verificationLinks: SECURITY,
     roleAttempts: ROLE_LEDGER,
     roleReferences: ROLE_LEDGER,
-    ticketEntries: "Part of a ticket, kept with it",
-    ticketTranscriptPages: "Part of a ticket, kept with it",
+    ticketEntries: TICKET_PART,
+    ticketTranscriptPages: TICKET_PART,
+    ticketAttempts: TICKET_PART,
+    ticketTranscripts: TICKET_PART,
     memberAccessLists: STAFF_SETTING,
     roleSettings: STAFF_SETTING,
+    generalSettings: STAFF_SETTING,
+    analyticsSettings: STAFF_SETTING,
+    stickyMessages: STAFF_SETTING,
+    sidebarLinks: STAFF_SETTING,
+    helpDeskSettings: STAFF_SETTING,
+    helpDeskAnswers: STAFF_SETTING,
+    youtubeSubscriptions: STAFF_SETTING,
+    twitchSubscriptions: STAFF_SETTING,
+    milestoneRoutes: STAFF_SETTING,
+    schedules: STAFF_SETTING,
     counters: STAFF_SETTING,
     boards: STAFF_SETTING,
     feedSubscriptions: STAFF_SETTING,
+    levelingSettings: "Server leveling settings and internal reward sweep cursors cleared once a sweep finishes",
+    auditLogEntries: "Server audit log entries kept for 180 days so staff can review settings changes and data actions",
     dashboardSessions:
         "A website sign-in, not server data. It ends at sign-out, after 30 days without use and at most 90 days after sign-in",
     dashboardPrivateAccessJobs:
         "A website check of the member's own access to private cases. It is deleted within three minutes",
+    dashboardConfigurationJobs: DASHBOARD_JOB,
+    dashboardMessageJobs: DASHBOARD_JOB,
+    dashboardRoleJobs: DASHBOARD_JOB,
+    dashboardMetadataJobs: DASHBOARD_JOB,
+    metadataLogReceipts: RECEIPT,
+    metadataLogCoreFences: STAFF,
+    cleanupReceipts: RECEIPT,
+    suggestionReceipts: RECEIPT,
+    scheduleReceipts: RECEIPT,
+    eventReceipts: RECEIPT,
+    levelingManagementReceipts: RECEIPT,
+    ticketReceipts: RECEIPT,
+    publishingAttempts:
+        "Server message delivery history kept for 180 days. Settled showcase attempts are removed with their showcase",
     backupPlans: STAFF,
     backupPreviewJobs: STAFF,
     cleanupPolicies: CLEANUP,
@@ -802,12 +837,14 @@ export async function memberDataDelete(
     // A profile save still waiting for the bot would bring the profile back, so it goes too, even when no profile is stored yet
     const cancelled = await cancelMemberRequests(ctx, serverId, PROFILE_FAMILY, member.userId)
     // A restore of a backup made before now skips this member's data, so each page notes the time of the deletion
-    const deletion = await ctx.db
-        .query("memberDataDeletions")
-        .withIndex("by_member", (q) => q.eq("serverId", serverId).eq("userId", member.userId))
-        .unique()
-    if (deletion) await ctx.db.patch(deletion._id, { deletedAt: Date.now() })
-    else await ctx.db.insert("memberDataDeletions", { serverId, userId: member.userId, deletedAt: Date.now() })
+    const now = Date.now(),
+        deletion = await ctx.db
+            .query("memberDataDeletions")
+            .withIndex("by_member", (q) => q.eq("serverId", serverId).eq("userId", member.userId))
+            .unique()
+    if (deletion) {
+        if (deletion.deletedAt !== now) await ctx.db.patch(deletion._id, { deletedAt: now })
+    } else await ctx.db.insert("memberDataDeletions", { serverId, userId: member.userId, deletedAt: now })
     if (cancelled) deleted.set("Profile saves waiting for the bot", cancelled)
     scan: for (
         let table = cursor?.table ?? 0, after = cursor?.after ?? 0;

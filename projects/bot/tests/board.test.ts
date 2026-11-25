@@ -504,7 +504,7 @@ test("A queued post reads everything fresh, goes through the publisher with the 
             assert.equal(reserve.card.text, "A fine message")
             assert.equal(reserve.card.count, 3)
             assert.equal(reserve.card.imageUrl, "https://cdn.example.test/a.png")
-            assert.equal(reserve.card.link, `https://fluxer.app/channels/${f.ids.guild}/${f.ids.channel}/${MESSAGE}`)
+            assert.equal(reserve.card.link, `https://fluxer.com/channels/${f.ids.guild}/${f.ids.channel}/${MESSAGE}`)
             assert.equal(reserve.context.channelId, BOARD_CHANNEL)
             assert.equal(posts.requests().length, 1)
             const dispatch = publishing.calls.find((call) => call.method === "dispatch")

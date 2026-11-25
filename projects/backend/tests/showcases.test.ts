@@ -144,7 +144,7 @@ async function fixture() {
     const post = async (operation: ShowcaseMemberOperation, messageId = "500") => {
         const jobId = await ask(operation),
             started = await start(jobId)
-        assert.ok(started.grant, started.job.error)
+        assert.ok(started.grant, started.job.error ?? "Expected showcase grant")
         await deliver(started.grant, "sent", messageId)
         return complete(jobId)
     }

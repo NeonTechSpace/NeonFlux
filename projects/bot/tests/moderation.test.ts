@@ -4912,3 +4912,122 @@ test("a warning below the limit sends no penalty request", async () => {
         ),
     )
 })
+
+test("a timed-out moderator cannot run moderation commands via DM, while expired timeouts and member appeals still work", async () => {
+    const f = createFixtures()
+    let timeoutUntil: string | null = "2099-01-01T00:00:00.000Z"
+    const b = boundary({
+        manage: (input) => {
+            b.calls.push({ method: "manage", input })
+            return Effect.succeed(caseGrant(input))
+        },
+        memberAppeal: (input) => {
+            b.calls.push({ method: "memberAppeal", input })
+            return Effect.succeed({ duplicate: false as const, type: "cases" as const, cases: [] })
+        },
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                )
+                const p = platform(bot, { actorOwner: false })
+                bot.rest.respond(`GET /guilds/${bot.fixtures.ids.guild}/members/${bot.fixtures.ids.user}`, () => ({
+                    body: bot.fixtures.member({
+                        roles: [p.actorRole.id],
+                        communication_disabled_until: timeoutUntil,
+                    }),
+                }))
+                yield* bot.ready()
+                // Active timeout blocks DM moderation actions before touching the backend
+                yield* emit(bot, `!mod warn <@${p.targetId}> dm bypass`, { guild_id: undefined, channel_id: p.dmId })
+                assert.equal(
+                    b.calls.some((call) => call.method === "manage"),
+                    false,
+                )
+                assert.match(shown(bodies(p).at(-1)), /timed out/i)
+
+                // Unreadable timeout timestamp fails closed when reading member state and never reaches the backend
+                timeoutUntil = "not-a-timestamp"
+                yield* emit(bot, `!mod warn <@${p.targetId}> bad timestamp`, {
+                    guild_id: undefined,
+                    channel_id: p.dmId,
+                })
+                assert.equal(
+                    b.calls.some((call) => call.method === "manage"),
+                    false,
+                )
+                assert.match(shown(bodies(p).at(-1)), /could not be completed|timed out/i)
+
+                // A timed-out member can still use !appeal in DM
+                timeoutUntil = "2099-01-01T00:00:00.000Z"
+                yield* emit(bot, "!appeal cases", { guild_id: undefined, channel_id: p.dmId })
+                assert.equal(
+                    b.calls.some((call) => call.method === "memberAppeal"),
+                    true,
+                )
+
+                // Once the timeout has expired, the moderator can run DM moderation commands again
+                timeoutUntil = "2020-01-01T00:00:00.000Z"
+                yield* emit(bot, `!mod warn <@${p.targetId}> after timeout`, {
+                    guild_id: undefined,
+                    channel_id: p.dmId,
+                })
+                assert.equal(
+                    b.calls.some((call) => call.method === "manage"),
+                    true,
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})
+
+test("a timed-out moderator cannot run moderation commands via DM with --server", async () => {
+    const f = createFixtures()
+    let timeoutUntil: string | null = "2099-01-01T00:00:00.000Z"
+    const b = boundary({
+        manage: (input) => {
+            b.calls.push({ method: "manage", input })
+            return Effect.succeed(caseGrant(input))
+        },
+    })
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const bot = yield* createTestBot(
+                    createBotOptions({ token, serverId: f.ids.guild }, { moderation: b.store }),
+                )
+                const p = platform(bot, { actorOwner: false })
+                bot.rest.respond(`GET /guilds/${bot.fixtures.ids.guild}/members/${bot.fixtures.ids.user}`, () => ({
+                    body: bot.fixtures.member({
+                        roles: [p.actorRole.id],
+                        communication_disabled_until: timeoutUntil,
+                    }),
+                }))
+                yield* bot.ready()
+                yield* emit(bot, `!mod --server ${bot.fixtures.ids.guild} warn <@${p.targetId}> dm bypass`, {
+                    guild_id: undefined,
+                    channel_id: p.dmId,
+                })
+                assert.equal(
+                    b.calls.some((call) => call.method === "manage"),
+                    false,
+                )
+                assert.match(shown(bodies(p).at(-1)), /timed out/i)
+
+                timeoutUntil = null
+                yield* emit(bot, `!mod --server ${bot.fixtures.ids.guild} warn <@${p.targetId}> after timeout`, {
+                    guild_id: undefined,
+                    channel_id: p.dmId,
+                })
+                assert.equal(
+                    b.calls.some((call) => call.method === "manage"),
+                    true,
+                )
+                assert.equal(bot.failures().length, 0)
+            }),
+        ),
+    )
+})

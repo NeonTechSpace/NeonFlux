@@ -68,7 +68,7 @@ const owner: ModerationActor = {
     isAdministrator: false,
     nativePermissionAuthorized: true,
 }
-const provider = "https://api.fluxer.app"
+const provider = "https://fluxer.com"
 const allPermissions = ((1n << 55n) - 1n).toString()
 const modules = {
     "../convex/backup.ts": () => import("../convex/backup.ts"),

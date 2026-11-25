@@ -897,7 +897,14 @@ test("the summary logs each ten-minute change in totals and stays quiet without 
                     durationMs: 3,
                     attempt: 2,
                 })
-                observeCosts({ type: "rateLimit", method: "GET", route: "/guilds/:id", waitMs: 250, global: false })
+                observeCosts({
+                    type: "rateLimit",
+                    method: "GET",
+                    route: "/guilds/:id",
+                    waitMs: 250,
+                    global: false,
+                    pause: "bucket",
+                })
                 observeCosts({
                     type: "handler",
                     event: "messageCreate",

@@ -38,8 +38,22 @@ async function fluxerApi(): Promise<string> {
     const discovery = row(await providerJson("https://fluxer.app/.well-known/fluxer", undefined, true)),
         endpoints = row(discovery.endpoints)
     if (typeof endpoints.api_public !== "string") throw denied()
-    const api = new URL(endpoints.api_public)
-    if (api.protocol !== "https:" || api.username || api.password || api.search || api.hash) throw denied()
+    let api: URL
+    try {
+        api = new URL(endpoints.api_public)
+    } catch {
+        throw denied()
+    }
+    if (
+        api.protocol !== "https:" ||
+        api.hostname !== "api.fluxer.app" ||
+        api.port ||
+        api.username ||
+        api.password ||
+        api.href.includes("?") ||
+        api.href.includes("#")
+    )
+        throw denied()
     return api.href.replace(/\/$/, "")
 }
 /** The part of a verified identity that a website save hands its enqueue mutation, which renews the session with it */

@@ -285,7 +285,12 @@ export async function eventReceipt(
 export async function wakePromotion(
     ctx: MutationCtx,
     row: Doc<"eventOccurrences">,
-    fields: Partial<Pick<Doc<"eventOccurrences">, "going" | "waitlisted" | "capacity">> = {},
+    fields: Partial<
+        Pick<
+            Doc<"eventOccurrences">,
+            "going" | "waitlisted" | "capacity" | "rsvps" | "participationStarted" | "nextQueueOrder"
+        >
+    > = {},
 ) {
     const next = { ...row, ...fields },
         active =

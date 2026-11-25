@@ -1069,9 +1069,9 @@ test("Withdrawing a panel works however many withdrawals ran that day", async (t
             })
     })
     assert.equal((await f.withdrawal(panel, true)).status, "complete")
-    // A panel's open removal is found behind any number of its finished ones
+    // A panel's open removal is found behind more than the take(256) batch of finished ones
     await f.t.run(async (ctx) => {
-        for (let index = 0; index < 101; index++)
+        for (let index = 0; index < 300; index++)
             await ctx.db.insert("roleWithdrawals", {
                 serverId: "1",
                 consumerKey: `panel:colors:${1000 + index}`,

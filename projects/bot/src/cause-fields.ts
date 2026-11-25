@@ -87,6 +87,7 @@ const sdkTags: Record<SdkField<"_tag">, true> = {
     WebhookOperationError: true,
 }
 const sdkReasons: Record<SdkField<"reason">, true> = {
+    audio: true,
     busy: true,
     closed: true,
     color: true,

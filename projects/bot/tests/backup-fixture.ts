@@ -37,7 +37,7 @@ export const syntheticPlan = (
     archiveDigest: "f".repeat(64),
     backupId: "5".repeat(32),
     manifestDigest: "c".repeat(64),
-    provider: "https://api.fluxer.app",
+    provider: "https://fluxer.com",
     serverId: f.ids.guild,
     ownerId: f.ids.user,
     gain: { items: 0, bits: "0", switches: 0 },

@@ -38,6 +38,7 @@ beforeEach(() => {
     process.env.FLUXER_CLIENT_ID = "30"
     process.env.NEONFLUX_BOT_API_SECRET = "synthetic-dashboard-test-secret-000000000"
     delete process.env.NEONFLUX_SERVER_MODE
+    delete process.env.NEONFLUX_SESSION_ENCRYPTION_KEY
     mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input)
         if (url === "https://fluxer.app/.well-known/fluxer")
@@ -66,7 +67,13 @@ beforeEach(() => {
 afterEach(() => {
     mock.restoreAll()
     mock.timers.reset()
-    for (const key of ["NEONFLUX_SERVER_ID", "NEONFLUX_SERVER_MODE", "NEONFLUX_BOT_API_SECRET", "FLUXER_CLIENT_ID"]) {
+    for (const key of [
+        "NEONFLUX_SERVER_ID",
+        "NEONFLUX_SERVER_MODE",
+        "NEONFLUX_BOT_API_SECRET",
+        "FLUXER_CLIENT_ID",
+        "NEONFLUX_SESSION_ENCRYPTION_KEY",
+    ]) {
         if (prior[key] === undefined) delete process.env[key]
         else process.env[key] = prior[key]
     }
@@ -1641,4 +1648,158 @@ test("a rules panel that holds back role grants needs setup while verification i
     await t.run((ctx) => ctx.db.patch(panel, { enabled: true }))
     await settings(false)
     assert.equal(await verification(), "setup")
+})
+
+test("Discovery pins the provider API to https://api.fluxer.app and never sends tokens to rejected hosts or redirects", async () => {
+    let fetchHandler: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+    mock.method(globalThis, "fetch", (input: RequestInfo | URL, init?: RequestInit) => fetchHandler(input, init))
+    const t = backend()
+    const badEndpoints = [
+        "http://api.fluxer.app",
+        "https://evil.example",
+        "https://api.fluxer.app.evil.example",
+        "https://sub.api.fluxer.app",
+        "https://api.fluxer.app:8443",
+        "https://user:pass@api.fluxer.app",
+        "https://user@api.fluxer.app",
+        "https://api.fluxer.app?foo=bar",
+        "https://api.fluxer.app?",
+        "https://api.fluxer.app#frag",
+        "https://api.fluxer.app#",
+        "not-a-valid-url",
+    ]
+    for (const apiPublic of badEndpoints) {
+        const sentAuthTo: string[] = []
+        fetchHandler = async (input, init) => {
+            const url = String(input)
+            if (new Headers(init?.headers).get("Authorization")) sentAuthTo.push(url)
+            if (url === "https://fluxer.app/.well-known/fluxer")
+                return Response.json({ endpoints: { api_public: apiPublic } })
+            throw new Error(`Unexpected request to ${url}`)
+        }
+        await assert.rejects(t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), status(403))
+        assert.deepEqual(sentAuthTo, [], `Authorization header leaked for ${apiPublic}`)
+    }
+    // Non-fluxer discovery redirect is refused without following it or sending credentials
+    const redirectedAuth: string[] = []
+    fetchHandler = async (input, init) => {
+        const url = String(input)
+        if (new Headers(init?.headers).get("Authorization")) redirectedAuth.push(url)
+        if (url === "https://fluxer.app/.well-known/fluxer")
+            return new Response(null, { status: 302, headers: { Location: "https://evil.example/.well-known/fluxer" } })
+        throw new Error(`Unexpected redirect follow to ${url}`)
+    }
+    await assert.rejects(t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), status(503))
+    assert.deepEqual(redirectedAuth, [])
+    // The exact https://api.fluxer.app/.well-known/fluxer redirect is still allowed
+    fetchHandler = async (input) => {
+        const url = String(input)
+        if (url === "https://fluxer.app/.well-known/fluxer")
+            return new Response(null, {
+                status: 308,
+                headers: { Location: "https://api.fluxer.app/.well-known/fluxer" },
+            })
+        if (url === "https://api.fluxer.app/.well-known/fluxer")
+            return Response.json({ endpoints: { api_public: "https://api.fluxer.app/" } })
+        if (url === "https://api.fluxer.app/v1/oauth2/@me")
+            return Response.json({
+                application: { id: clientId },
+                scopes: ["identify", "guilds"],
+                user: { id: userId, username: "Test member", bot: false, system: false },
+            })
+        if (url === "https://api.fluxer.app/v1/users/@me/guilds?limit=100")
+            return Response.json([{ id: "10", name: "Test server", icon: null, owner_id: "99", permissions: "32" }])
+        throw new Error(`Unexpected request to ${url}`)
+    }
+    const admitted = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
+    assert.equal(admitted.user.id, "20")
+})
+
+test("Session access tokens encrypt at rest with AES-256-GCM, rotate encrypted, migrate plaintext and fail closed on tampering", async () => {
+    const keyA = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    const keyB = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+    const providerFetch = globalThis.fetch
+    let customFetch: ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | undefined
+    mock.method(globalThis, "fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+        customFetch ? customFetch(input, init) : providerFetch(input, init),
+    )
+    const t = backend()
+    // Plaintext session created while key is unset
+    const legacy = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
+    assert.equal((await sessionRows(t))[0]!.accessToken, "synthetic-provider-token")
+
+    // Enabling encryption migrates the plaintext row transparently on read
+    process.env.NEONFLUX_SESSION_ENCRYPTION_KEY = keyA
+    const migrated = await t.action(api.dashboard.refresh, { sessionToken: legacy.sessionToken })
+    assert.equal(migrated.user.id, "20")
+    const legacyCipher = (await sessionRows(t))[0]!.accessToken
+    assert.ok(legacyCipher.startsWith("aes-gcm:v1:"))
+    assert.ok(!legacyCipher.includes("synthetic-provider-token"))
+
+    // New admissions encrypt with fresh random IVs and decrypt transparently on refresh and catalog
+    const first = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
+    const second = await t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" })
+    const rows = await sessionRows(t)
+    assert.equal(rows.length, 3)
+    for (const row of rows) {
+        assert.ok(row.accessToken.startsWith("aes-gcm:v1:"))
+        assert.ok(!row.accessToken.includes("synthetic-provider-token"))
+    }
+    assert.notEqual(rows[1]!.accessToken, rows[2]!.accessToken)
+    const catalog = await t.action(api.dashboard.catalog, { sessionToken: first.sessionToken, serverId: "10" })
+    assert.equal(catalog.serverId, "10")
+
+    // Rotation stores a new encrypted ciphertext that decrypts on subsequent refresh
+    const seenTokens: string[] = []
+    customFetch = async (input, init) => {
+        const url = String(input)
+        if (url === "https://fluxer.app/.well-known/fluxer")
+            return Response.json({ endpoints: { api_public: "https://api.fluxer.app" } })
+        const auth = new Headers(init?.headers).get("Authorization") ?? ""
+        seenTokens.push(auth)
+        if (url.endsWith("/v1/oauth2/@me"))
+            return Response.json({
+                application: { id: clientId },
+                scopes: ["identify", "guilds"],
+                user: { id: userId, username: "Test member", bot: false, system: false },
+            })
+        if (url.endsWith("/v1/users/@me/guilds?limit=100"))
+            return Response.json([{ id: "10", name: "Test server", icon: null, owner_id: "99", permissions: "32" }])
+        throw new Error(`Unexpected request to ${url}`)
+    }
+    const beforeRotate = (await sessionRows(t)).find((row) => row._id === rows[1]!._id)!.accessToken
+    await t.action(api.dashboard.rotate, {
+        sessionToken: first.sessionToken,
+        accessToken: "synthetic-rotated-secret-token",
+    })
+    const afterRotate = (await sessionRows(t)).find((row) => row._id === rows[1]!._id)!.accessToken
+    assert.ok(afterRotate.startsWith("aes-gcm:v1:"))
+    assert.notEqual(afterRotate, beforeRotate)
+    assert.ok(!afterRotate.includes("synthetic-rotated-secret-token"))
+    seenTokens.length = 0
+    await t.action(api.dashboard.refresh, { sessionToken: first.sessionToken })
+    assert.ok(seenTokens.every((header) => header === "Bearer synthetic-rotated-secret-token"))
+
+    // Swapping ciphertext into another session row fails AAD binding (tokenHash mismatch) with 401
+    await t.run(async (ctx) => {
+        await ctx.db.patch(rows[2]!._id, { accessToken: afterRotate })
+    })
+    await assert.rejects(t.action(api.dashboard.refresh, { sessionToken: second.sessionToken }), status(401))
+
+    // Truncated or tampered ciphertext fails with 401
+    await t.run(async (ctx) => {
+        await ctx.db.patch(rows[2]!._id, { accessToken: "aes-gcm:v1:AAAA" })
+    })
+    await assert.rejects(t.action(api.dashboard.refresh, { sessionToken: second.sessionToken }), status(401))
+
+    // Wrong key fails with 401
+    process.env.NEONFLUX_SESSION_ENCRYPTION_KEY = keyB
+    await assert.rejects(t.action(api.dashboard.refresh, { sessionToken: first.sessionToken }), status(401))
+
+    // Missing key for an encrypted row or malformed key fails closed with 503
+    delete process.env.NEONFLUX_SESSION_ENCRYPTION_KEY
+    await assert.rejects(t.action(api.dashboard.refresh, { sessionToken: first.sessionToken }), status(503))
+    process.env.NEONFLUX_SESSION_ENCRYPTION_KEY = "not-64-hex-chars"
+    await assert.rejects(t.action(api.dashboard.admit, { accessToken: "synthetic-provider-token" }), status(503))
+    await assert.rejects(t.action(api.dashboard.refresh, { sessionToken: first.sessionToken }), status(503))
 })

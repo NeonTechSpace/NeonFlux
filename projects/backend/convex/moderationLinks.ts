@@ -4,6 +4,7 @@ import { domainMatches, hostname, links } from "./moderationDomain.ts"
 
 /** Domains every deceptive-links rule protects, beside the rule's own patterns */
 export const protectedDomains = [
+    "fluxer.com",
     "fluxer.app",
     "fluxer.gg",
     "discord.com",
@@ -32,7 +33,7 @@ const owners = [
         "discordapp.net",
         "dis.gd",
     ],
-    ["fluxer.app", "fluxer.gg"],
+    ["fluxer.com", "fluxer.app", "fluxer.gg"],
     ["steamcommunity.com", "steampowered.com", "s.team"],
     ["paypal.com", "paypal.me", "paypal.de", "paypal.fr", "paypal.es", "paypal.it", "paypal.co.uk", "paypal.com.au"],
     ["github.com", "github.io", "github.blog", "github.dev", "github.community", "githubusercontent.com"],
@@ -126,12 +127,14 @@ const foreign = /[Ͱ-ϿЀ-ԯ԰-֏]/
 
 /** One punycode label after its xn-- prefix, as RFC 3492 decodes it, or undefined when it is malformed */
 function punycode(input: string) {
+    if (input.length > 256) return undefined
     const base = 36,
         tMin = 1,
         tMax = 26
     const split = input.lastIndexOf("-")
     // oxlint-disable-next-line typescript/no-misused-spread -- Punycode works on code points (RFC 3492)
     const output = split > 0 ? [...input.slice(0, split)].map((c) => c.codePointAt(0)!) : []
+    if (output.some((cp) => cp > 0x7f)) return undefined
     let n = 128,
         i = 0,
         bias = 72
@@ -144,9 +147,11 @@ function punycode(input: string) {
                 c >= 48 && c <= 57 ? c - 22 : c >= 97 && c <= 122 ? c - 97 : c >= 65 && c <= 90 ? c - 65 : base
             if (digit >= base) return undefined
             i += digit * w
+            if (!Number.isSafeInteger(i)) return undefined
             const t = k <= bias ? tMin : k >= bias + tMax ? tMax : k - bias
             if (digit < t) break
             w *= base - t
+            if (!Number.isSafeInteger(w)) return undefined
         }
         const length = output.length + 1
         let delta = old === 0 ? Math.floor((i - old) / 700) : Math.floor((i - old) / 2)
@@ -156,10 +161,12 @@ function punycode(input: string) {
         bias = k + Math.floor((36 * delta) / (delta + 38))
         n += Math.floor(i / length)
         i %= length
-        if (n > 0x10ffff) return undefined
+        if (!Number.isSafeInteger(n) || n < 0 || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff)) return undefined
         output.splice(i++, 0, n)
     }
-    return String.fromCodePoint(...output)
+    let text = ""
+    for (const codePoint of output) text += String.fromCodePoint(codePoint)
+    return text
 }
 /** A host as it reads, with its xn-- labels decoded */
 const readable = (host: string) =>

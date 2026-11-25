@@ -164,7 +164,7 @@ test("a structure export captures the overwrite a lock leaves for the bot", asyn
 const manifest = (): BackupManifest => ({
     version: 2,
     backupId: "5".repeat(32),
-    provider: "https://api.fluxer.app",
+    provider: "https://fluxer.com",
     serverId: f.ids.guild,
     selected: ["xp"],
     capturedAt: 1,
@@ -912,7 +912,7 @@ function planStore(archiveDigest: string, build: (plan: BackupPlan) => BackupIte
                     archiveDigest,
                     backupId: "5".repeat(32),
                     manifestDigest: "c".repeat(64),
-                    provider: "https://api.fluxer.app",
+                    provider: "https://fluxer.com",
                     serverId: f.ids.guild,
                     ownerId: f.ids.user,
                     createdAt: Date.now() + n,

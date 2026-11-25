@@ -1920,11 +1920,11 @@ test("Message posts show the author, a jump link, both texts in code blocks and 
         },
     }
     const text = metadataPresentation(42, edit, "1").embed.description
-    assert.equal(metadataMessageLink("1", "456", "789"), "https://fluxer.app/channels/1/456/789")
+    assert.equal(metadataMessageLink("1", "456", "789"), "https://fluxer.com/channels/1/456/789")
     for (const line of [
         "Author: <@123>",
         "Channel: <#456>",
-        "Message: [Jump to message](https://fluxer.app/channels/1/456/789)",
+        "Message: [Jump to message](https://fluxer.com/channels/1/456/789)",
         "Attachment: [cat\\*.png](https://cdn.example.invalid/cat.png) (120 KB)",
         "Attachment: [a \\(1\\).png](https://cdn.example.invalid/a%20%281%29.png) (1 KB)",
         "Before:\n```\nold text\n```",

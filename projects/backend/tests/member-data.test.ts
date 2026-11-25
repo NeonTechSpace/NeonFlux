@@ -91,18 +91,20 @@ const receipts = (t: Backend, serverId: string, userId: string, count: number) =
             })
     })
 
-test("Every table keyed by a member's ID has member data rights or a stated exemption", () => {
+const memberReferenceField =
+    /^(userId|ownerId|authorId|requesterId|targetId|hostId|actorId|updatedBy|createdBy|grantedBy|decidedBy|reviewedBy|claimedBy|startedBy|endedBy|restoredBy|statusBy)$|(?:UserId|OwnerId|AuthorId|ActorId)$/
+
+test("Every table keyed by a member, actor or staff ID has member data rights or a stated exemption", () => {
     const covered = new Map(MEMBER_DATA.map((item) => [item.table, item.field]))
     for (const table of tableNames) {
         const fields = Object.keys(
             (schema.tables[table].validator as unknown as { fields: Record<string, unknown> }).fields,
         )
-        const member = fields.filter((field) =>
-            ["userId", "ownerId", "authorId", "requesterId", "targetId"].includes(field),
-        )
+        const member = fields.filter((field) => memberReferenceField.test(field))
         if (!member.length) continue
+        const exemption = MEMBER_DATA_EXEMPT[table]
         assert.ok(
-            covered.has(table) || MEMBER_DATA_EXEMPT[table],
+            covered.has(table) || (typeof exemption === "string" && exemption.trim().length > 0),
             `${table} stores ${member.join(", ")}. Add it to MEMBER_DATA or MEMBER_DATA_EXEMPT`,
         )
     }
@@ -116,7 +118,10 @@ test("Every table keyed by a member's ID has member data rights or a stated exem
         )
         assert.ok(item.keep !== undefined || item.remove !== undefined, item.table)
     }
-    for (const table of Object.keys(MEMBER_DATA_EXEMPT) as TableNames[]) assert.ok(!covered.has(table), table)
+    for (const [table, reason] of Object.entries(MEMBER_DATA_EXEMPT) as [TableNames, string][]) {
+        assert.ok(!covered.has(table), table)
+        assert.ok(reason.trim().length > 0, `${table} exemption must explain why it is left out`)
+    }
 })
 
 test("A member sees their own data per server and feature and exports it in bounded pages", async () => {
@@ -642,6 +647,14 @@ test("Tables that name members in staff settings, cleanup, security records or t
     for (const table of [
         "memberAccessLists",
         "roleSettings",
+        "generalSettings",
+        "analyticsSettings",
+        "stickyMessages",
+        "sidebarLinks",
+        "helpDeskSettings",
+        "helpDeskAnswers",
+        "youtubeSubscriptions",
+        "twitchSubscriptions",
         "cleanupPolicies",
         "cleanupTargets",
         "securityWatchlist",

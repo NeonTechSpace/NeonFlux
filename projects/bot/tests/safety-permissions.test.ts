@@ -4,7 +4,12 @@ import { Permissions } from "@neontechspace/fluxerly/effect"
 import { createTestClient, type TestClient } from "@neontechspace/fluxerly/effect/testing"
 import { Clock, Deferred, Duration, Effect, Exit, Fiber } from "effect"
 import { TestClock } from "effect/testing"
-import { channelViewerRoles, readSafetyAuthority, SafetyPermissionError } from "../src/safety-permissions.ts"
+import {
+    channelViewerRoles,
+    memberTimeout,
+    readSafetyAuthority,
+    SafetyPermissionError,
+} from "../src/safety-permissions.ts"
 
 function authorityRoutes(client: TestClient) {
     const f = client.fixtures
@@ -687,5 +692,59 @@ test("a channel's viewers are its roles only when no everyone view or member ove
             channel: { permissionOverwrites: [hidden] },
         } as never),
         [],
+    )
+})
+
+test("readSafetyAuthority marks active timeouts as actorTimedOut, clears past or null timeouts, and fails closed on unreadable timestamps", async () => {
+    const cases = [
+        ["null timeout", null, false],
+        ["past timeout", "2020-01-01T00:00:00.000Z", false],
+        ["future timeout", "2099-01-01T00:00:00.000Z", true],
+    ] as const
+    for (const [label, until, expectedTimedOut] of cases) {
+        await Effect.runPromise(
+            Effect.scoped(
+                Effect.gen(function* () {
+                    const native = yield* createTestClient({ logging: { level: "silent" } })
+                    const { gates } = authorityRoutes(native)
+                    for (const gate of gates) yield* Deferred.succeed(gate.release, undefined)
+                    const f = native.fixtures
+                    native.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, {
+                        body: f.member({
+                            roles: [],
+                            communication_disabled_until: until,
+                        }),
+                    })
+                    const authority = yield* readSafetyAuthority(native.client, f.ids.guild, f.ids.user)
+                    assert.equal(authority.actorTimedOut, expectedTimedOut, label)
+                }),
+            ),
+        )
+    }
+    await Effect.runPromise(
+        Effect.scoped(
+            Effect.gen(function* () {
+                const native = yield* createTestClient({ logging: { level: "silent" } })
+                const { gates } = authorityRoutes(native)
+                for (const gate of gates) yield* Deferred.succeed(gate.release, undefined)
+                const f = native.fixtures
+                native.rest.respond(`GET /guilds/${f.ids.guild}/members/${f.ids.user}`, {
+                    body: f.member({
+                        roles: [],
+                        communication_disabled_until: "not-a-timestamp",
+                    }),
+                })
+                const exit = yield* Effect.exit(readSafetyAuthority(native.client, f.ids.guild, f.ids.user))
+                assert.equal(Exit.isFailure(exit), true)
+                assert.equal(
+                    memberTimeout(
+                        native.client,
+                        { communicationDisabledUntil: "not-a-timestamp" } as never,
+                        Date.now(),
+                    ),
+                    "unknown",
+                )
+            }),
+        ),
     )
 })

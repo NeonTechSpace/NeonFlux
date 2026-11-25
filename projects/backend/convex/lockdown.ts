@@ -370,8 +370,11 @@ export const work = serviceMutation({
                 if (row && (row.state === "writing" || row.state === "uncertain")) await update(row, outcome)
             }
         } else {
-            const expired = await lockdownChannelsIn(ctx, serverId, "writing")
-                .filter((q) => q.lte(q.field("nextCheckAt"), now))
+            const expired = await ctx.db
+                .query("lockdownChannels")
+                .withIndex("by_server_state", (q) =>
+                    q.eq("serverId", serverId).eq("state", "writing").lte("nextCheckAt", now),
+                )
                 .take(LOCKDOWN_CHANNEL_LIMIT)
             for (const row of expired) await update(row, "uncertain")
             const due = await ctx.db
@@ -386,7 +389,7 @@ export const work = serviceMutation({
             }
             rows = due.map(workRow)
         }
-        await ctx.db.patch(lockdown._id, { counts })
+        if (counts !== lockdown.counts) await ctx.db.patch(lockdown._id, { counts })
         const { admitted } = await settled(ctx, { ...lockdown, counts })
         return { rows, notes: await takeNotes(ctx, serverId), ...(admitted ? { admitted } : {}) }
     },

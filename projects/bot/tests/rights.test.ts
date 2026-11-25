@@ -474,7 +474,7 @@ test("Anti-nuke firing on the server owner suspends nothing", async () => {
     )
 })
 
-test("A timed-out member holds no right: The bot sends no evidence, and the action acts on nothing", async () => {
+test("A timed-out member holds no right: DM moderation is refused before the backend, server commands send no right evidence, and the action acts on nothing", async () => {
     const until = new Date(now + 3600000).toISOString()
     await start(
         () => Effect.fail(new ModerationStoreError({ operation: "manage", status: 403 })),
@@ -484,6 +484,9 @@ test("A timed-out member holds no right: The bot sends no evidence, and the acti
                     body: bot.fixtures.member({ roles: [p.actorRole.id], communication_disabled_until: until }),
                 })
                 yield* emit(bot, `!mod kick ${p.targetId}`, { guild_id: undefined, channel_id: p.dmId })
+                assert.equal(requests.length, 0)
+                assert.equal(kicks.requests().length, 0)
+                yield* emit(bot, `!mod kick ${p.targetId}`)
                 const context = (requests[0]!.operation as { context: { rightRoleIds?: string[] } }).context
                 assert.deepEqual(context.rightRoleIds, [])
                 assert.equal(kicks.requests().length, 0)

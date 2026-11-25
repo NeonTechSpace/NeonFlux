@@ -54,13 +54,15 @@ export async function writeGeneral(
             prefix: (change.prefix ?? before.prefix) as string,
             replyStyle: (change.replyStyle ?? before.replyStyle) as "embed" | "text",
         }
+    const supplied = (["prefix", "replyStyle"] as const).filter((key) => change[key] !== undefined),
+        changed = supplied.filter((key) => before[key] !== after[key])
+    // Saving identical values writes neither the row nor an audit entry
+    if (!changed.length) return { saved: true as const, revision }
     const next = { ...after, revision: revision + 1, updatedAt: Date.now(), updatedBy: actor.userId }
     if (old) await ctx.db.patch(old._id, next)
     else await ctx.db.insert("generalSettings", { serverId, ...next })
-    const supplied = (["prefix", "replyStyle"] as const).filter((key) => change[key] !== undefined),
-        changed = supplied.filter((key) => before[key] !== after[key])
     // The reply style is summarized as style
-    for (const key of changed.length ? changed : supplied.slice(0, 1)) {
+    for (const key of changed) {
         const label = key === "prefix" ? key : "style",
             was = { [label]: before[key] },
             now = { [label]: after[key] }

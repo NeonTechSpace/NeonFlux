@@ -687,7 +687,7 @@ export function handleSafetyCommand(
             return
         }
         if (command.kind === "rights") {
-            yield* handleRightsCommand(rights, config, command.command, context)
+            yield* handleRightsCommand(rights, config, command.command, context, privateInvocation)
             return
         }
         const source = { messageId: message.id, createdAt: yield* sourceTimestamp(message) }
@@ -858,6 +858,11 @@ export function handleSafetyCommand(
                 ...(action?.channelId ? { channelId: action.channelId } : {}),
             }))
         const authorityReadAt = purgeReadAt ?? (yield* Clock.currentTimeMillis)
+        // A moderator timed out in the server cannot bypass the timeout by sending moderation commands in a DM
+        if (privateInvocation && authority.actorTimedOut) {
+            yield* respond("You cannot run moderation commands while you are timed out in this server")
+            return
+        }
         const actor = moderationActor(authority)
         // A lookup answers where it was asked in a server channel that only Administrators and staff roles allowed this answer can
         // view. A reason posted to members cannot be taken back, so any other server channel gets the answer by DM. A recovery check

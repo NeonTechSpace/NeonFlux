@@ -892,7 +892,7 @@ const metadataSources = {
 const DESCRIPTION_LIMIT = 4096
 /** A message's link in Fluxer's hosted app, the same URL the SDK's links.message makes */
 export const metadataMessageLink = (serverId: string, channelId: string, messageId: string) =>
-    `https://fluxer.app/channels/${serverId}/${channelId}/${messageId}`
+    `https://fluxer.com/channels/${serverId}/${channelId}/${messageId}`
 /** The first max UTF-16 code units of text, without splitting a character made of two */
 export function metadataSlice(value: string, max: number) {
     const cut = value.slice(0, max)

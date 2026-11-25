@@ -1,6 +1,6 @@
 import { admitMetadata } from "./metadataLogsStore.ts"
 import { metadataEvent } from "./metadataLogsDomain.ts"
-import { v } from "convex/values"
+import { ConvexError, v } from "convex/values"
 import { action, mutation, query, internalMutation, internalQuery } from "./_generated/server.js"
 import type { QueryCtx, MutationCtx, ActionCtx } from "./_generated/server.js"
 import { internal } from "./_generated/api.js"
@@ -37,11 +37,74 @@ const SESSIONS_PER_USER = 5
 // Rows stored before idle expiry existed end with their read access, as they did then
 const idleAt = (row: Doc<"dashboardSessions">) => row.idleAt ?? row.expiresAt
 const usable = (row: Doc<"dashboardSessions">, now: number) => idleAt(row) > now && row.lifetimeAt > now
+const ENCRYPTED_TOKEN = "aes-gcm:v1:"
+const TOKEN_KEY_ENV = "NEONFLUX_SESSION_ENCRYPTION_KEY"
+
+async function sessionEncryptionKey() {
+    const encoded = process.env[TOKEN_KEY_ENV]
+    if (encoded === undefined) return undefined
+    if (!/^[0-9a-fA-F]{64}$/.test(encoded)) fail(503, "Dashboard session encryption is misconfigured")
+    const bytes = Uint8Array.from({ length: 32 }, (_, index) => parseInt(encoded.slice(index * 2, index * 2 + 2), 16))
+    return crypto.subtle.importKey("raw", bytes, "AES-GCM", false, ["encrypt", "decrypt"])
+}
+
+const tokenBinding = (hash: string) => new TextEncoder().encode(ENCRYPTED_TOKEN + hash)
+const fromBase64 = (text: string) => Uint8Array.from(atob(text), (character) => character.charCodeAt(0))
+function toBase64(bytes: Uint8Array) {
+    let binary = ""
+    for (let index = 0; index < bytes.length; index++) binary += String.fromCharCode(bytes[index]!)
+    return btoa(binary)
+}
+
+// Actions generate the IV before the database mutation, so a retry writes the same ciphertext
+async function sealAccessToken(accessToken: string, hash: string, key: CryptoKey | undefined) {
+    if (!key) return accessToken
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const data = new TextEncoder().encode(accessToken)
+    const encrypted = new Uint8Array(
+        await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: tokenBinding(hash) }, key, data),
+    )
+    const payload = new Uint8Array(iv.length + encrypted.length)
+    payload.set(iv, 0)
+    payload.set(encrypted, iv.length)
+    return ENCRYPTED_TOKEN + toBase64(payload)
+}
+
+async function readProviderSession(ctx: ActionCtx, sessionToken: string): Promise<Doc<"dashboardSessions">> {
+    const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
+    const key = await sessionEncryptionKey()
+    if (!stored.accessToken.startsWith(ENCRYPTED_TOKEN)) {
+        if (key) {
+            const sealed = await sealAccessToken(stored.accessToken, stored.tokenHash, key)
+            await ctx.runMutation(internal.dashboard.migrateAccessToken, {
+                sessionId: stored._id,
+                previous: stored.accessToken,
+                sealed,
+            })
+        }
+        return stored
+    }
+    if (!key) fail(503, "Dashboard session encryption is misconfigured")
+    try {
+        const bytes = fromBase64(stored.accessToken.slice(ENCRYPTED_TOKEN.length))
+        if (bytes.length <= 28) fail(401, "Sign in again")
+        const plaintext = await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: bytes.slice(0, 12), additionalData: tokenBinding(stored.tokenHash) },
+            key,
+            bytes.slice(12),
+        )
+        return { ...stored, accessToken: new TextDecoder().decode(plaintext) }
+    } catch (error) {
+        if (error instanceof ConvexError) throw error
+        fail(401, "Sign in again")
+    }
+}
+
 export async function verifiedDashboardIdentity(
     ctx: ActionCtx,
     sessionToken: string,
 ): Promise<{ userId: string; sessionId: string }> {
-    const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
+    const stored = await readProviderSession(ctx, sessionToken)
     const identity = await verifyProvider(stored.accessToken)
     if (identity.user.id !== stored.userId) fail(403, "Identity changed")
     return { userId: stored.userId, sessionId: stored._id }
@@ -52,7 +115,7 @@ export async function verifiedManager(
     sessionToken: string,
     serverId: string,
 ): Promise<{ stored: Doc<"dashboardSessions">; identity: ProviderIdentity }> {
-    const stored: Doc<"dashboardSessions"> = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
+    const stored = await readProviderSession(ctx, sessionToken)
     const identity = await verifyProvider(stored.accessToken)
     if (identity.user.id !== stored.userId || !identity.servers.some((server) => server.id === serverId)) {
         await ctx.runMutation(internal.dashboard.revoke, { sessionToken })
@@ -174,7 +237,7 @@ export const store = internalMutation({
         const previous = await ctx.db
             .query("dashboardSessions")
             .withIndex("by_user", (q) => q.eq("userId", args.user.id))
-            .collect()
+            .take(64)
         const now = Date.now()
         // A new sign-in signs out the least recently used sessions past the limit instead of locking the user out
         const live = previous.filter((old) => usable(old, now)).sort((a, b) => a.expiresAt - b.expiresAt)
@@ -222,6 +285,7 @@ export const admit = action({
         const sessionToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), (value) =>
             value.toString(16).padStart(2, "0"),
         ).join("")
+        const hash = await tokenHash(sessionToken)
         const {
             expiresAt,
             servers,
@@ -229,8 +293,8 @@ export const admit = action({
         }: { expiresAt: number; servers: Server[]; memberServers: MemberServer[] } = await ctx.runMutation(
             internal.dashboard.store,
             {
-                tokenHash: await tokenHash(sessionToken),
-                accessToken,
+                tokenHash: hash,
+                accessToken: await sealAccessToken(accessToken, hash, await sessionEncryptionKey()),
                 user: identity.user,
                 servers: identity.servers,
                 memberServers: identity.memberServers,
@@ -288,7 +352,7 @@ export const renew = internalMutation({
 export const refresh = action({
     args: { sessionToken: v.string() },
     handler: async (ctx, { sessionToken }): Promise<DashboardSession> => {
-        const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
+        const stored = await readProviderSession(ctx, sessionToken)
         try {
             const identity = await verifyProvider(stored.accessToken)
             const {
@@ -320,7 +384,11 @@ export const rotate = action({
         const stored = await ctx.runQuery(internal.dashboard.secret, { sessionToken })
         const identity = await verifyProvider(accessToken)
         if (identity.user.id !== stored.userId) fail(403, "Identity changed")
-        await ctx.runMutation(internal.dashboard.replaceToken, { sessionToken, userId: stored.userId, accessToken })
+        await ctx.runMutation(internal.dashboard.replaceToken, {
+            sessionToken,
+            userId: stored.userId,
+            accessToken: await sealAccessToken(accessToken, stored.tokenHash, await sessionEncryptionKey()),
+        })
         return null
     },
 })
@@ -330,6 +398,15 @@ export const replaceToken = internalMutation({
         const row = await storedSession(ctx, sessionToken)
         if (row.userId !== userId) fail(403, "Identity changed")
         await ctx.db.patch(row._id, { accessToken })
+        return null
+    },
+})
+// A concurrent rotation or sign-out wins over migration of an older read
+export const migrateAccessToken = internalMutation({
+    args: { sessionId: v.id("dashboardSessions"), previous: v.string(), sealed: v.string() },
+    handler: async (ctx, { sessionId, previous, sealed }) => {
+        const row = await ctx.db.get(sessionId)
+        if (row?.accessToken === previous) await ctx.db.patch(sessionId, { accessToken: sealed })
         return null
     },
 })
@@ -385,7 +462,7 @@ export const apply = internalMutation({
             { prefix: args.prefix, replyStyle: args.replyStyle },
             args.expectedRevision,
         )
-        if (result.saved) {
+        if (result.saved && result.revision !== args.expectedRevision) {
             await admitMetadata(
                 ctx,
                 args.serverId,

@@ -848,3 +848,89 @@ test("Change summaries show short values of any setting and name long ones and l
     )
     assert.equal(operationLabel({ type: "settings", patch: { enabled: false } }), "settings")
 })
+
+test("Saving identical settings records no redundant audit entry while explicit actions still record", async () => {
+    const { t, args, page } = await fixture()
+    // Unchanged general settings from chat and website bump no revision and write no audit or metadata log entry
+    assert.deepEqual(
+        await t.mutation(internal.generalSettings.manage, {
+            request: { serverId: "10", actorId: "99", managerAuthorized: true, expectedRevision: 0, prefix: "!" },
+        }),
+        { saved: true, revision: 0 },
+    )
+    assert.deepEqual(
+        await t.action(api.dashboard.save, {
+            ...args,
+            section: "general",
+            expectedRevision: 0,
+            prefix: "!",
+            replyStyle: "embed",
+        }),
+        { saved: true, revision: 0 },
+    )
+    assert.equal((await page()).entries.length, 0)
+    assert.equal((await t.run((ctx) => ctx.db.query("metadataLogRecords").collect())).length, 0)
+
+    // Unchanged configuration saves skip redundant audit rows
+    const job = await t.action(api.dashboardConfiguration.queue, {
+        ...args,
+        family: "leveling",
+        operation: { type: "settings", expectedRevision: 1, patch: { xpPerMessage: 15 } },
+        expectedConfigRevision: 0,
+        requestId: "00000000-0000-4000-8000-000000000099",
+    })
+    const executed = await botCall(t, "/dashboard-configuration/execute", {
+        serverId: "10",
+        originServerId: "10",
+        jobId: job.jobId,
+        actorId: "20",
+        managerAuthorized: true,
+        observedAt: now,
+        actor: manager,
+    })
+    assert.equal(executed.status, 200)
+    assert.equal((await page()).entries.length, 0)
+
+    // Unchanged role settings also record no audit entry
+    await t.mutation(internal.roles.manage, {
+        request: {
+            serverId: "10",
+            messageId: "910",
+            createdAt: now,
+            actor: { ...manager, userId: "99", isOwner: true },
+            operation: { type: "settings", patch: { verificationEnabled: false } },
+        },
+    })
+    assert.equal((await page()).entries.length, 0)
+
+    // Explicit action events (nickname reset even when already null, memberlist reorder, private view, export) still record
+    await t.mutation(internal.generalSettings.nickname, {
+        request: { serverId: "10", actorId: "99", managerAuthorized: true, createdAt: now, nickname: null },
+    })
+    await t.mutation(internal.memberList.manage, {
+        request: {
+            serverId: "10",
+            messageId: "911",
+            createdAt: now,
+            actor: { ...manager, userId: "99" },
+            managerAuthorized: true,
+            operation: { type: "set", roleIds: ["40"] },
+        },
+    })
+    await t.run((ctx) =>
+        recordAudit(
+            ctx,
+            "10",
+            { userId: "20", name: "Manager", source: "website" },
+            { kind: "server-exported", feature: "export", setting: "export", summary: "Exported server data" },
+        ),
+    )
+    assert.deepEqual(
+        (await page()).entries.map(({ kind, feature, setting }) => [kind, feature, setting]),
+        [
+            ["server-exported", "export", "export"],
+            ["setting", "memberlist", "set"],
+            ["setting", "nickname", "reset"],
+        ],
+    )
+})
