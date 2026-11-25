@@ -69,21 +69,23 @@ export function DashboardTour({ onClose }: { onClose: () => void }) {
                 if (event.key === "Escape") onClose()
             }}
         >
-            <p className="eyebrow">
-                Dashboard tour, step {index + 1} of {tourSteps.length}
-            </p>
-            <h2 id="tour-title" tabIndex={-1} ref={heading}>
-                {step.title}
-            </h2>
+            <div className="tour-head">
+                <h2 id="tour-title" tabIndex={-1} ref={heading}>
+                    {step.title}
+                </h2>
+                <p className="tour-step">
+                    Dashboard tour, step {index + 1} of {tourSteps.length}
+                </p>
+            </div>
             <p id="tour-text">{step.text}</p>
-            <div className="actions">
+            <div className="actions tour-actions">
                 <button type="button" className="secondary" disabled={!index} onClick={() => setIndex(index - 1)}>
                     Previous step
                 </button>
                 <button type="button" onClick={() => (last ? onClose() : setIndex(index + 1))}>
                     {last ? "Finish tour" : "Next step"}
                 </button>
-                <button type="button" className="secondary" onClick={onClose}>
+                <button type="button" className="ghost-action" onClick={onClose}>
                     Skip tour
                 </button>
             </div>

@@ -43,27 +43,68 @@ export function readWebSettings(env: Readonly<Record<string, string | undefined>
     }
 }
 
-// Read once when the server loads its routes, so a configuration problem is logged at start and not on every request
-const environment = readWebSettings(process.env)
-for (const problem of environment.problems) console.error(problem)
+/** Reads string environment variables from Node process.env and Cloudflare Workers request env bindings */
+export function runtimeEnv(): Readonly<Record<string, string | undefined>> {
+    const combined: Record<string, string | undefined> = {}
+    if (typeof process !== "undefined" && process.env) {
+        for (const [key, value] of Object.entries(process.env)) {
+            if (typeof value === "string") combined[key] = value
+        }
+    }
+    const cfEnv = (globalThis as { __env__?: unknown }).__env__
+    if (cfEnv && typeof cfEnv === "object") {
+        for (const [key, value] of Object.entries(cfEnv as Record<string, unknown>)) {
+            if (typeof value === "string") combined[key] = value
+        }
+    }
+    return combined
+}
 
-// Process-scoped rate limiters shared across requests on this web server
+type ResolvedDeployment = DashboardWebConfig & { websiteUrl: string }
+
+let loggedProblemsKey: string | undefined
+// Cache only resolved plain deployment config keyed by CONVEX_URL, never an in-flight Promise or shared HTTP client,
+// so Cloudflare Workers isolates pick up rotated secrets/bindings immediately and never share I/O across requests
+let cachedDeployment: { convexUrl: string; deployment: ResolvedDeployment } | undefined
+
+/** Clears cached deployment metadata, mainly for deterministic tests */
+export function resetWebRuntimeCache(): void {
+    loggedProblemsKey = undefined
+    cachedDeployment = undefined
+}
+
+function currentSettings(): WebSettings | undefined {
+    const parsed = readWebSettings(runtimeEnv())
+    if (parsed.settings) {
+        loggedProblemsKey = undefined
+        return parsed.settings
+    }
+    const key = parsed.problems.join("\n")
+    if (key && key !== loggedProblemsKey) {
+        loggedProblemsKey = key
+        for (const problem of parsed.problems) console.error(problem)
+    }
+    return undefined
+}
+
+// Process-scoped or isolate-scoped rate limiters shared across requests on this web server
 const authRateLimiters = createDefaultAuthRateLimiters()
 
 interface WebRuntime {
     settings: WebSettings
     client: ConvexHttpClient
-    /** The deployment's website origin and OAuth application ID, read once and kept */
-    deployment: DashboardWebConfig & { websiteUrl: string }
+    /** The deployment's website origin and OAuth application ID, cached per CONVEX_URL once resolved */
+    deployment: ResolvedDeployment
 }
-let runtime: Promise<WebRuntime> | undefined
-let cachedWebsiteUrl: string | undefined
-/** The web server's settings and the deployment's public website settings. A failed read is retried by the next request */
-export function webRuntime(): Promise<WebRuntime> {
-    const settings = environment.settings
-    if (!settings) return Promise.reject(new Error("Website not configured"))
-    runtime ??= (async () => {
-        const client = new ConvexHttpClient(settings.convexUrl)
+/** The web server's current settings, an isolated per-request Convex HTTP client, and the deployment's public website settings */
+export async function webRuntime(): Promise<WebRuntime> {
+    const settings = currentSettings()
+    if (!settings) throw new Error("Website not configured")
+    const client = new ConvexHttpClient(settings.convexUrl)
+    if (cachedDeployment && cachedDeployment.convexUrl === settings.convexUrl) {
+        return { settings, client, deployment: cachedDeployment.deployment }
+    }
+    try {
         const deployment = await client.query(dashboardApi.webConfig, {}).catch(() => {
             throw new Error(
                 "The Convex deployment's website settings could not be read. Check CONVEX_URL, and FLUXER_CLIENT_ID and NEONFLUX_WEBSITE_URL in the deployment's logs",
@@ -71,23 +112,30 @@ export function webRuntime(): Promise<WebRuntime> {
         })
         if (!deployment.websiteUrl)
             throw new Error("Set NEONFLUX_WEBSITE_URL in the Convex deployment to the website origin")
-        cachedWebsiteUrl = deployment.websiteUrl
-        return { settings, client, deployment: { ...deployment, websiteUrl: deployment.websiteUrl } }
-    })().catch((error: unknown) => {
-        runtime = undefined
+        const resolved: ResolvedDeployment = { ...deployment, websiteUrl: deployment.websiteUrl }
+        cachedDeployment = { convexUrl: settings.convexUrl, deployment: resolved }
+        return { settings, client, deployment: resolved }
+    } catch (error: unknown) {
         console.error(error instanceof Error ? error.message : "Website settings could not be read")
         throw error
-    })
-    return runtime
+    }
 }
-// Warm the deployment website origin once on server start so initial SSR responses know HTTPS behind a TLS proxy
-if (environment.settings) void webRuntime().catch(() => {})
 
-/** Non-blocking snapshot of the server's Convex URL and known website origin for response security headers */
-export function securityHeaderContext(): { convexUrl?: string | undefined; websiteUrl?: string | undefined } {
+/** Non-blocking snapshot of the server's live Convex URL, website origin, and proxy mode for response security headers */
+export function securityHeaderContext(): {
+    convexUrl?: string | undefined
+    websiteUrl?: string | undefined
+    trustProxy: TrustProxyMode
+} {
+    const env = runtimeEnv()
+    const convexUrl = env.CONVEX_URL?.trim() || undefined
+    const envWebsiteUrl = env.NEONFLUX_WEBSITE_URL?.trim() || undefined
+    const cachedOrigin =
+        convexUrl && cachedDeployment?.convexUrl === convexUrl ? cachedDeployment.deployment.websiteUrl : undefined
     return {
-        convexUrl: environment.settings?.convexUrl ?? (process.env.CONVEX_URL?.trim() || undefined),
-        websiteUrl: cachedWebsiteUrl ?? (process.env.NEONFLUX_WEBSITE_URL?.trim() || undefined),
+        convexUrl,
+        websiteUrl: envWebsiteUrl ?? cachedOrigin,
+        trustProxy: parseTrustProxyMode(env.TRUST_PROXY),
     }
 }
 

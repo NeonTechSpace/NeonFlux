@@ -2,6 +2,7 @@
 .tanstack/
 .nitro/
 .vite/
+.wrangler/
 .local/
 .env
 .env.*

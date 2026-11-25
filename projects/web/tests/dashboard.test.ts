@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { afterEach, mock, test } from "node:test"
 import { JSDOM } from "jsdom"
-import { createElement } from "react"
+import { StrictMode, createElement } from "react"
 import { getFunctionName } from "convex/server"
 import type { ConvexReactClient } from "convex/react"
 import type {
@@ -12,6 +12,7 @@ import type {
 } from "@neonflux/backend/dashboard-contracts"
 import type { WebSession } from "../src/dashboard-api.ts"
 import { Dashboard, ManagedDashboard, ServerDashboard, dashboardHref, dashboardSearch } from "../src/dashboard.tsx"
+import { AmbientLava, MotionToggle, useMotionPreference } from "../src/ambient-lava.tsx"
 import type { DashboardLocation } from "../src/dashboard.tsx"
 import { navigation, preloadSections } from "../src/dashboard-sections.tsx"
 import type { SectionId } from "../src/dashboard-sections.tsx"
@@ -918,5 +919,97 @@ test("Dashboard clears Account A sessionStorage cache across a tab-return re-ver
         dateNow.mock.restore()
         if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility)
         else delete (document as { visibilityState?: unknown }).visibilityState
+    }
+})
+
+test("MotionToggle hydrates cleanly under StrictMode with nf.motion=off, persists toggles, and updates data-still and data-motion", () => {
+    window.localStorage.setItem("nf.motion", "off")
+    document.documentElement.setAttribute("data-still", "")
+    document.documentElement.dataset.motion = "off"
+    const firstRenderValues: boolean[] = []
+    const seenMotionWrites: string[] = []
+    const originalToggle = document.documentElement.toggleAttribute.bind(document.documentElement)
+    document.documentElement.toggleAttribute = ((name: string, force?: boolean) => {
+        if (name === "data-still") seenMotionWrites.push(force ? "off" : "on")
+        return originalToggle(name, force)
+    }) as typeof document.documentElement.toggleAttribute
+    function Probe() {
+        const motion = useMotionPreference()
+        firstRenderValues.push(motion.enabled)
+        return createElement(MotionToggle, { enabled: motion.enabled, onToggle: motion.toggle })
+    }
+    try {
+        const ui = render(createElement(StrictMode, null, createElement(Probe)))
+        // First render matches SSR default (true) before mount effect syncs stored "off"
+        assert.equal(firstRenderValues[0], true)
+        // StrictMode mount must never flash data-still off / data-motion="on"
+        assert.equal(seenMotionWrites.includes("on"), false)
+        const toggle = ui.getByRole("switch", { name: "Animations" })
+        assert.equal(toggle.getAttribute("aria-checked"), "false")
+        assert.equal(document.documentElement.hasAttribute("data-still"), true)
+        assert.equal(document.documentElement.dataset.motion, "off")
+        fireEvent.click(toggle)
+        assert.equal(toggle.getAttribute("aria-checked"), "true")
+        assert.equal(window.localStorage.getItem("nf.motion"), "on")
+        assert.equal(document.documentElement.hasAttribute("data-still"), false)
+        assert.equal(document.documentElement.dataset.motion, "on")
+        fireEvent.click(toggle)
+        assert.equal(toggle.getAttribute("aria-checked"), "false")
+        assert.equal(window.localStorage.getItem("nf.motion"), "off")
+        assert.equal(document.documentElement.hasAttribute("data-still"), true)
+        assert.equal(document.documentElement.dataset.motion, "off")
+        ui.unmount()
+    } finally {
+        document.documentElement.toggleAttribute = originalToggle
+        window.localStorage.removeItem("nf.motion")
+        document.documentElement.removeAttribute("data-still")
+        delete document.documentElement.dataset.motion
+    }
+})
+
+test("AmbientLava falls back to a fresh 2D canvas when WebGL shader compilation fails", () => {
+    const proto = window.HTMLCanvasElement.prototype
+    const originalGetContext = proto.getContext
+    const seenContexts: Array<{ canvas: unknown; type: string }> = []
+    const lockedCanvases = new WeakSet<object>()
+    let drew2D = 0
+    proto.getContext = function (this: HTMLCanvasElement, type: string) {
+        seenContexts.push({ canvas: this, type })
+        if (type === "webgl") {
+            lockedCanvases.add(this)
+            // Simulate a WebGL context whose shader compilation fails after locking the canvas
+            return {
+                VERTEX_SHADER: 1,
+                FRAGMENT_SHADER: 2,
+                COMPILE_STATUS: 3,
+                createShader: () => ({}),
+                shaderSource: () => {},
+                compileShader: () => {},
+                getShaderParameter: () => false,
+                deleteShader: () => {},
+            } as unknown as WebGLRenderingContext
+        }
+        if (type === "2d") {
+            if (lockedCanvases.has(this)) return null
+            return {
+                createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+                putImageData: () => {
+                    drew2D++
+                },
+            } as unknown as CanvasRenderingContext2D
+        }
+        return null
+    } as typeof proto.getContext
+    try {
+        const ui = render(createElement(AmbientLava, { enabled: false }))
+        assert.equal(seenContexts.length, 2)
+        assert.equal(seenContexts[0]!.type, "webgl")
+        assert.equal(seenContexts[1]!.type, "2d")
+        // 2D fallback must run on a freshly mounted canvas element, not the WebGL-locked one
+        assert.notEqual(seenContexts[0]!.canvas, seenContexts[1]!.canvas)
+        assert.ok(drew2D >= 1)
+        ui.unmount()
+    } finally {
+        proto.getContext = originalGetContext
     }
 })

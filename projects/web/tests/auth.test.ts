@@ -10,7 +10,7 @@ import {
 } from "../src/server/auth.ts"
 import { createSlidingWindowRateLimiter } from "../src/server/rate-limit.ts"
 import { applySecurityHeaders, buildContentSecurityPolicy } from "../src/server/security-headers.ts"
-import { readWebSettings } from "../src/server/auth-runtime.ts"
+import { readWebSettings, resetWebRuntimeCache, runtimeEnv, securityHeaderContext } from "../src/server/auth-runtime.ts"
 import type { AuthDependencies } from "../src/server/auth.ts"
 
 const origin = "http://localhost:3000"
@@ -926,6 +926,179 @@ test("Provider discovery caches for 15 minutes, deduplicates in-flight requests,
     fail = false
     assert.equal(await discoverProvider(flaky, () => now), "https://api.fluxer.app")
     assert.equal(flakyCalls, 2)
+})
+
+test("runtimeEnv and securityHeaderContext pick up rotated Cloudflare Workers bindings immediately", () => {
+    resetWebRuntimeCache()
+    const holder = globalThis as { __env__?: unknown }
+    const previous = holder.__env__
+    holder.__env__ = {
+        CONVEX_URL: "https://cf-worker-a.convex.cloud",
+        NEONFLUX_WEBSITE_URL: "https://dash-a.example.com",
+        FLUXER_CLIENT_SECRET: "cf-secret-a",
+        WEB_SESSION_SECRET: "a".repeat(32),
+        TRUST_PROXY: "cloudflare",
+        ASSETS: { fetch: () => new Response() },
+    }
+    try {
+        const envA = runtimeEnv()
+        assert.equal(envA.CONVEX_URL, "https://cf-worker-a.convex.cloud")
+        assert.equal(envA.ASSETS, undefined)
+        const parsedA = readWebSettings(envA)
+        assert.deepEqual(parsedA.problems, [])
+        assert.equal(parsedA.settings?.trustProxy, "cloudflare")
+        assert.deepEqual(securityHeaderContext(), {
+            convexUrl: "https://cf-worker-a.convex.cloud",
+            websiteUrl: "https://dash-a.example.com",
+            trustProxy: "cloudflare",
+        })
+        // Rotating bindings on a warm isolate takes effect on the very next read
+        holder.__env__ = {
+            CONVEX_URL: "https://cf-worker-b.convex.cloud",
+            NEONFLUX_WEBSITE_URL: "https://dash-b.example.com",
+            FLUXER_CLIENT_SECRET: "cf-secret-b",
+            WEB_SESSION_SECRET: "b".repeat(32),
+            TRUST_PROXY: "forwarded",
+        }
+        const parsedB = readWebSettings(runtimeEnv())
+        assert.deepEqual(parsedB.problems, [])
+        assert.equal(parsedB.settings?.convexUrl, "https://cf-worker-b.convex.cloud")
+        assert.equal(parsedB.settings?.sessionSecret, "b".repeat(32))
+        assert.equal(parsedB.settings?.trustProxy, "forwarded")
+        assert.deepEqual(securityHeaderContext(), {
+            convexUrl: "https://cf-worker-b.convex.cloud",
+            websiteUrl: "https://dash-b.example.com",
+            trustProxy: "forwarded",
+        })
+    } finally {
+        if (previous === undefined) delete holder.__env__
+        else holder.__env__ = previous
+        resetWebRuntimeCache()
+    }
+})
+
+test("Cloudflare Workers mode avoids cross-request in-flight discovery Promises while caching resolved endpoints", async () => {
+    clearProviderDiscoveryCache()
+    const holder = globalThis as { __env__?: unknown }
+    const previous = holder.__env__
+    holder.__env__ = {}
+    try {
+        let now = 20_000
+        let calls = 0
+        let release!: () => void
+        const gate = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        const fetcher = (async () => {
+            calls++
+            if (calls <= 2) await gate
+            return Response.json({ endpoints: { api_public: "https://api.fluxer.app" } })
+        }) as typeof fetch
+        const first = discoverProvider(fetcher, () => now)
+        const second = discoverProvider(fetcher, () => now)
+        release()
+        assert.deepEqual(await Promise.all([first, second]), ["https://api.fluxer.app", "https://api.fluxer.app"])
+        assert.equal(calls, 2)
+        // Resolved plain string is still cached for subsequent requests
+        assert.equal(await discoverProvider(fetcher, () => now), "https://api.fluxer.app")
+        assert.equal(calls, 2)
+    } finally {
+        if (previous === undefined) delete holder.__env__
+        else holder.__env__ = previous
+        clearProviderDiscoveryCache()
+    }
+})
+
+test("Cloudflare Workers concurrent refresh never replays single-use refresh tokens or clears the rotated cookie", async () => {
+    clearProviderDiscoveryCache()
+    const holder = globalThis as { __env__?: unknown }
+    const previous = holder.__env__
+    holder.__env__ = {}
+    try {
+        let now = 100_000
+        let refreshCalls = 0
+        let releaseRefresh!: () => void
+        const refreshGate = new Promise<void>((resolve) => {
+            releaseRefresh = resolve
+        })
+        const f = fixture({
+            now: () => now,
+            fetch: (async (url: string | URL | Request, init?: RequestInit) => {
+                const href = String(url)
+                if (href.endsWith("/.well-known/fluxer"))
+                    return Response.json({ endpoints: { api_public: "https://api.fluxer.app" } })
+                const body = init?.body as URLSearchParams
+                if (body.get("grant_type") === "authorization_code") {
+                    return Response.json({
+                        access_token: "worker-initial-access",
+                        token_type: "bearer",
+                        scope: "identify guilds",
+                        refresh_token: "worker-refresh-1",
+                        expires_in: 30,
+                    })
+                }
+                refreshCalls++
+                await refreshGate
+                return Response.json({
+                    access_token: "worker-rotated-access",
+                    token_type: "bearer",
+                    refresh_token: "worker-refresh-2",
+                    expires_in: 7200,
+                })
+            }) as typeof fetch,
+        })
+        const started = await begin(f)
+        const callbackRes = await f.handlers.callback(
+            new Request(
+                `${origin}/auth/fluxer/callback?code=worker-code&state=${started.location.searchParams.get("state")}`,
+                { headers: { cookie: started.cookie } },
+            ),
+        )
+        const cookies = callbackRes.headers
+            .getSetCookie()
+            .map((entry) => entry.split(";")[0]!)
+            .filter((entry) => !entry.endsWith("="))
+            .join("; ")
+        const makeSessionReq = () =>
+            new Request(`${origin}/api/session`, {
+                method: "POST",
+                headers: { origin, "sec-fetch-site": "same-origin", cookie: cookies },
+            })
+        // Two concurrent requests arrive in the same Worker isolate within the refresh window
+        const firstPromise = f.handlers.session(makeSessionReq())
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        // Even if rotation takes >15s, a concurrent request defers with retryable 503 without calling Convex or clearing cookies
+        now += 20_000
+        const secondRes = await f.handlers.session(makeSessionReq())
+        assert.equal(secondRes.status, 503)
+        assert.equal(secondRes.headers.get("retry-after"), "1")
+        assert.deepEqual(secondRes.headers.getSetCookie(), [])
+        assert.equal(refreshCalls, 1)
+        // If the access token expires while rotation is still pending within the 60s lock, still returns retryable 503 instead of 401 cookie clear
+        now += 15_000
+        const expiredConcurrentRes = await f.handlers.session(makeSessionReq())
+        assert.equal(expiredConcurrentRes.status, 503)
+        assert.equal(expiredConcurrentRes.headers.get("retry-after"), "1")
+        assert.deepEqual(expiredConcurrentRes.headers.getSetCookie(), [])
+        assert.equal(refreshCalls, 1)
+        releaseRefresh()
+        const firstRes = await firstPromise
+        assert.equal(firstRes.status, 200)
+        assert.equal(refreshCalls, 1)
+        const firstCookies = firstRes.headers.getSetCookie()
+        assert.equal(firstCookies.length, 1)
+        assert.doesNotMatch(firstCookies[0]!, /Max-Age=0/)
+        // A later request carrying the stale cookie still receives the cached rotated cookie
+        const thirdRes = await f.handlers.session(makeSessionReq())
+        assert.equal(thirdRes.status, 200)
+        assert.equal(refreshCalls, 1)
+        assert.equal(thirdRes.headers.getSetCookie().length, 1)
+        assert.doesNotMatch(thirdRes.headers.getSetCookie()[0]!, /Max-Age=0/)
+    } finally {
+        if (previous === undefined) delete holder.__env__
+        else holder.__env__ = previous
+        clearProviderDiscoveryCache()
+    }
 })
 
 test("Security headers attach strict CSP, Turnstile and Convex allowances, and HTTPS-only HSTS", () => {

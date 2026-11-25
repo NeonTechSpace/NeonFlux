@@ -1,6 +1,7 @@
 import type { ConvexReactClient } from "convex/react"
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { DashboardMemberFeature } from "@neonflux/backend/dashboard-contracts"
+import { AmbientLava, MotionToggle, useMotionPreference } from "./ambient-lava"
 import { BrandMark } from "./brand-mark"
 import {
     CatalogRefreshProvider,
@@ -66,6 +67,14 @@ function readSidebarCollapsed(): boolean {
         return false
     }
 }
+function useShortcutLabel(): string {
+    const [label, setLabel] = useState("Ctrl K")
+    useEffect(() => {
+        if (typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent))
+            setLabel("Cmd K")
+    }, [])
+    return label
+}
 
 export function Dashboard({
     clientFactory,
@@ -109,6 +118,7 @@ function DashboardSession({
     catalogClock?: CatalogClock | undefined
 }) {
     const session = useSession(),
+        motion = useMotionPreference(),
         [logoutError, setLogoutError] = useState(""),
         [hadSession, setHadSession] = useState(false),
         [awaitingTabCheck, setAwaitingTabCheck] = useState(false)
@@ -179,91 +189,107 @@ function DashboardSession({
     }, [session.refetch])
 
     return (
-        <div className="app">
-            <AppHeader
-                userName={activeSession?.user.name}
-                onSignOut={async () => {
-                    try {
-                        const response = await fetch("/api/session", { method: "DELETE" })
-                        if (!response.ok) throw new Error()
-                        clearAllDrafts()
-                        clearCatalogCache()
-                        window.location.assign("/")
-                    } catch {
-                        setLogoutError("Sign-out failed. Try again")
-                    }
-                }}
-            />
-            <main className="app-main">
-                {logoutError && (
-                    <p role="alert" className="notice error">
-                        {logoutError}
-                    </p>
-                )}
-                {session.isPending && <SessionVerifyingCard message="Checking sign-in…" />}
-                {!session.isPending && verifyingReturn && (
-                    <SessionVerifyingCard message="Verifying your sign-in and permissions…" />
-                )}
-                {session.isError && !verifyingReturn && (
-                    <div role="alert" className="notice error">
-                        Unable to refresh your sign-in. Your drafts stay in this tab{" "}
-                        <button className="secondary" onClick={() => void session.refetch()}>
-                            Try again
-                        </button>
-                    </div>
-                )}
-                {session.data === null && !verifyingReturn && (
-                    <>
-                        {hadSession && (
-                            <p className="notice status-banner" role="status">
-                                Your sign-in expired. Any unsaved drafts stay in this tab. Sign in again before saving
-                            </p>
-                        )}
-                        <SignIn returnTo={dashboardHref(location ?? {})} />
-                    </>
-                )}
-                {activeSession &&
-                    (readyAccount === activeAccount ? (
-                        <ManagedDashboard
-                            session={activeSession}
-                            accessAvailable={!session.isError}
-                            refreshSession={() => void session.refetch()}
-                            refreshingSession={session.isFetching}
-                            clientFactory={clientFactory}
-                            catalogClock={catalogClock}
-                            location={location}
-                            navigate={navigate}
-                        />
-                    ) : (
-                        <SessionVerifyingCard message="Connecting to live settings…" />
-                    ))}
-            </main>
-        </div>
+        <>
+            <AmbientLava enabled={motion.enabled} />
+            <div className="app">
+                <AppHeader
+                    userName={activeSession?.user.name}
+                    motionEnabled={motion.enabled}
+                    onToggleMotion={motion.toggle}
+                    onSignOut={async () => {
+                        try {
+                            const response = await fetch("/api/session", { method: "DELETE" })
+                            if (!response.ok) throw new Error()
+                            clearAllDrafts()
+                            clearCatalogCache()
+                            window.location.assign("/")
+                        } catch {
+                            setLogoutError("Sign-out failed. Try again")
+                        }
+                    }}
+                />
+                <main className="app-main">
+                    {logoutError && (
+                        <p role="alert" className="notice error">
+                            {logoutError}
+                        </p>
+                    )}
+                    {session.isPending && <SessionVerifyingCard message="Checking sign-in…" />}
+                    {!session.isPending && verifyingReturn && (
+                        <SessionVerifyingCard message="Verifying your sign-in and permissions…" />
+                    )}
+                    {session.isError && !verifyingReturn && (
+                        <div role="alert" className="notice error">
+                            Unable to refresh your sign-in. Your drafts stay in this tab{" "}
+                            <button className="secondary" onClick={() => void session.refetch()}>
+                                Try again
+                            </button>
+                        </div>
+                    )}
+                    {session.data === null && !verifyingReturn && (
+                        <>
+                            {hadSession && (
+                                <p className="notice status-banner" role="status">
+                                    Your sign-in expired. Any unsaved drafts stay in this tab. Sign in again before
+                                    saving
+                                </p>
+                            )}
+                            <SignIn returnTo={dashboardHref(location ?? {})} />
+                        </>
+                    )}
+                    {activeSession &&
+                        (readyAccount === activeAccount ? (
+                            <ManagedDashboard
+                                session={activeSession}
+                                accessAvailable={!session.isError}
+                                refreshSession={() => void session.refetch()}
+                                refreshingSession={session.isFetching}
+                                clientFactory={clientFactory}
+                                catalogClock={catalogClock}
+                                location={location}
+                                navigate={navigate}
+                            />
+                        ) : (
+                            <SessionVerifyingCard message="Connecting to live settings…" />
+                        ))}
+                </main>
+            </div>
+        </>
     )
 }
-function AppHeader({ userName, onSignOut }: { userName?: string | undefined; onSignOut: () => void }) {
+function AppHeader({
+    userName,
+    motionEnabled,
+    onToggleMotion,
+    onSignOut,
+}: {
+    userName?: string | undefined
+    motionEnabled: boolean
+    onToggleMotion: () => void
+    onSignOut: () => void
+}) {
     return (
         <header className="header">
             <div className="brand">
-                <BrandMark size="md" />
-                <div>
-                    <h1>
-                        Neon<span className="brand-flux">Flux</span>
-                    </h1>
-                    <p className="muted">Server configuration</p>
-                </div>
+                <BrandMark size="sm" />
+                <h1>
+                    Neon<span className="brand-flux">Flux</span>
+                </h1>
             </div>
-            {userName && (
-                <div className="account">
-                    <span className="account-pill">
-                        <span className="account-dot" aria-hidden="true" />
-                        <span className="account-name">{userName}</span>
-                    </span>
-                    <button className="secondary" onClick={onSignOut}>
-                        Sign out
-                    </button>
-                </div>
-            )}
+            <div className="header-actions">
+                <MotionToggle enabled={motionEnabled} onToggle={onToggleMotion} />
+                {userName && (
+                    <div className="account">
+                        <span className="account-pill">
+                            <span className="account-dot" aria-hidden="true" />
+                            <span className="account-name">{userName}</span>
+                        </span>
+                        <button className="ghost-action" onClick={onSignOut}>
+                            Sign out
+                        </button>
+                    </div>
+                )}
+            </div>
         </header>
     )
 }
@@ -379,6 +405,7 @@ export function ServerDashboard({
     const [menuOpen, setMenuOpen] = useState(false),
         [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed),
         [paletteOpen, setPaletteOpen] = useState(false),
+        shortcutLabel = useShortcutLabel(),
         [confirmDiscardAll, setConfirmDiscardAll] = useState(false),
         [draftResetKey, setDraftResetKey] = useState(0),
         [sectionQuery, setSectionQuery] = useState(""),
@@ -552,27 +579,33 @@ export function ServerDashboard({
         return (
             <div className="content">
                 <div className="server-header">
-                    <ServerIcon server={server} large />
-                    <div className="server-title">
-                        <p className="eyebrow">{memberFeatureNames[shown]}</p>
-                        <h2>{server.name}</h2>
+                    <div className="server-identity">
+                        <ServerIcon server={server} large />
+                        <div className="server-title">
+                            <p className="eyebrow">{memberFeatureNames[shown]}</p>
+                            <h2>{server.name}</h2>
+                        </div>
+                        <span className={live ? "status-pill live" : "status-pill"}>
+                            {live ? "Live" : connected ? "Read only" : "Offline"}
+                        </span>
                     </div>
-                    <span className={live ? "status-pill live" : "status-pill"}>
-                        {live ? "Live" : connected ? "Read only" : "Offline"}
-                    </span>
                     {multi && (
                         <div className="server-toolbar-actions">
                             <button
                                 type="button"
-                                className="secondary command-trigger"
+                                className="search-trigger"
                                 aria-label="Open command palette"
                                 onClick={() => setPaletteOpen(true)}
                             >
-                                <span>Quick jump</span>
-                                <kbd>⌘K</kbd>
+                                <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <circle cx="11" cy="11" r="7" />
+                                    <path d="M20 20l-3.5-3.5" />
+                                </svg>
+                                <span className="search-trigger-label">Search</span>
+                                <kbd className="search-trigger-key">{shortcutLabel}</kbd>
                             </button>
                             <div className="server-switch">
-                                <button type="button" className="secondary" onClick={() => go({})}>
+                                <button type="button" className="ghost-action" onClick={() => go({})}>
                                     Switch server
                                 </button>
                             </div>
@@ -680,20 +713,22 @@ export function ServerDashboard({
                             aria-controls="configuration-navigation"
                             onClick={() => setMenuOpen((value) => !value)}
                         >
-                            {sectionNames[section]} · Sections
+                            <span>{sectionNames[section]}</span>
+                            <span className="section-menu-hint">Sections</span>
                         </button>
+                        <span className="sidebar-rail-title">Sections</span>
                         <button
                             type="button"
-                            className="sidebar-collapse secondary"
+                            className="sidebar-collapse"
                             aria-expanded={!sidebarCollapsed}
                             aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                             title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                             onClick={toggleSidebar}
                         >
                             <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
-                                {sidebarCollapsed ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />}
+                                <rect x="3" y="4" width="18" height="16" rx="2.5" />
+                                <path d="M9 4v16" />
                             </svg>
-                            <span className="sidebar-collapse-label">Collapse</span>
                         </button>
                     </div>
                     <div className="drawer-header">
@@ -713,13 +748,15 @@ export function ServerDashboard({
                         aria-label="Configuration sections"
                     >
                         <div className="section-search">
-                            <label htmlFor={`${searchId}-search`}>Find a section</label>
+                            <label className="visually-hidden" htmlFor={`${searchId}-search`}>
+                                Find a section
+                            </label>
                             <input
                                 id={`${searchId}-search`}
                                 type="search"
                                 autoComplete="off"
                                 value={sectionQuery}
-                                placeholder="Type a section name…"
+                                placeholder="Filter sections…"
                                 onChange={(event) => setSectionQuery(event.target.value)}
                                 onKeyDown={(event) => {
                                     if (event.key === "Escape") setSectionQuery("")
@@ -735,7 +772,7 @@ export function ServerDashboard({
                         {found ? (
                             <div className="nav-group">
                                 {found.map(({ id, name }) => link(id as SectionId, name))}
-                                {!found.length && <p className="muted">No section matches</p>}
+                                {!found.length && <p className="muted nav-empty">No section matches</p>}
                             </div>
                         ) : (
                             <div className="nav-group">{link("overview", "Overview")}</div>
@@ -749,20 +786,21 @@ export function ServerDashboard({
                             ))}
                     </nav>
                 </aside>
-                <div className="content" ref={content} tabIndex={-1}>
+                <div className={`content${drafts.size > 0 ? " has-draft-bar" : ""}`} ref={content} tabIndex={-1}>
                     <div className="server-header">
-                        <ServerIcon server={server} large />
-                        <div className="server-title">
-                            <p className="eyebrow">{multi ? "Configuring server" : "Server"}</p>
-                            <h2>{server.name}</h2>
+                        <div className="server-identity">
+                            <ServerIcon server={server} />
+                            <div className="server-title">
+                                <h2>{server.name}</h2>
+                            </div>
+                            <span className={writable ? "status-pill live" : "status-pill"}>
+                                {writable ? "Live" : connected ? "Read only" : "Offline"}
+                            </span>
                         </div>
-                        <span className={writable ? "status-pill live" : "status-pill"}>
-                            {writable ? "Live" : connected ? "Read only" : "Offline"}
-                        </span>
                         <div className="server-toolbar-actions">
                             <button
                                 type="button"
-                                className="secondary command-trigger"
+                                className="search-trigger"
                                 aria-label="Open command palette"
                                 onClick={() => setPaletteOpen(true)}
                             >
@@ -770,17 +808,17 @@ export function ServerDashboard({
                                     <circle cx="11" cy="11" r="7" />
                                     <path d="M20 20l-3.5-3.5" />
                                 </svg>
-                                <span>Jump</span>
-                                <kbd>⌘K</kbd>
+                                <span className="search-trigger-label">Search</span>
+                                <kbd className="search-trigger-key">{shortcutLabel}</kbd>
                             </button>
-                            <button type="button" className="secondary" onClick={tour.start}>
+                            <button type="button" className="ghost-action" onClick={tour.start}>
                                 Dashboard tour
                             </button>
                             {multi && (
                                 <div className="server-switch">
                                     <button
                                         type="button"
-                                        className="secondary"
+                                        className="ghost-action"
                                         onClick={() => {
                                             setMenuOpen(false)
                                             go({})

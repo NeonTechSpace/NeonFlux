@@ -258,12 +258,18 @@ async function openHandshakeCookie(raw: string | undefined, config: AuthConfig):
 const refreshToken = (value: unknown): value is string =>
     typeof value === "string" && value.length > 0 && !/\s/.test(value)
 const expiresIn = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0
-/** Keep the cookie, store this state in it, or clear it */
-type RefreshOutcome = { keep: true } | { state: RefreshState } | { clear: true }
+/** Keep the cookie, defer to an in-flight Worker refresh, store this state in it, or clear it */
+type RefreshOutcome = { keep: true } | { wait: true } | { state: RefreshState } | { clear: true }
 // One refresh per refresh token in this process. Fluxer replaces the refresh token on use, so a second request with the
-// same cookie shares the first one's outcome, also when it arrives within a minute after the first finished
-const refreshes = new Map<string, { outcome: Promise<RefreshOutcome>; settledAt?: number }>()
+// same cookie shares the first one's outcome, also when it arrives within a minute after the first finished. On
+// Cloudflare Workers only settled outcomes and an in-flight lock timestamp are shared, so no request ever awaits another
+// request's fetch or double-redeems a single-use refresh token
+const refreshes = new Map<
+    string,
+    { outcome?: Promise<RefreshOutcome>; settled?: RefreshOutcome; settledAt?: number; inFlightSince?: number }
+>()
 const sharedRefreshMs = 60 * 1000
+const workersRefreshLockMs = 60 * 1000
 
 function safeReturnTo(value: string | null): string {
     if (value === "/") return value
@@ -274,6 +280,15 @@ function safeReturnTo(value: string | null): string {
 }
 export function authorizeUrl(api: string, query: URLSearchParams): string {
     return `${api}/v1/oauth2/authorize?${query}`
+}
+
+/** Detects Cloudflare Workers (workerd) where awaiting another request's in-flight I/O Promise throws */
+export function isWorkersRuntime(): boolean {
+    return (
+        (typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers") ||
+        (typeof (globalThis as { __env__?: unknown }).__env__ === "object" &&
+            (globalThis as { __env__?: unknown }).__env__ !== null)
+    )
 }
 
 interface DiscoveryCacheEntry {
@@ -318,8 +333,14 @@ async function fetchProviderDiscovery(fetcher: typeof fetch): Promise<string> {
 export async function discoverProvider(fetcher: typeof fetch, now: () => number = Date.now): Promise<string> {
     const existing = discoveryCache.get(fetcher)
     if (existing?.api !== undefined && now() < existing.expiresAt) return existing.api
-    if (existing?.inFlight) return existing.inFlight
+    const workers = isWorkersRuntime()
+    if (!workers && existing?.inFlight) return existing.inFlight
     const cache = discoveryCache
+    if (workers) {
+        const api = await fetchProviderDiscovery(fetcher)
+        if (cache === discoveryCache) cache.set(fetcher, { api, expiresAt: now() + PROVIDER_DISCOVERY_TTL_MS })
+        return api
+    }
     const pending = fetchProviderDiscovery(fetcher).then(
         (api) => {
             if (cache === discoveryCache) cache.set(fetcher, { api, expiresAt: now() + PROVIDER_DISCOVERY_TTL_MS })
@@ -466,15 +487,39 @@ export function createAuthHandlers(deps: AuthDependencies) {
     async function sharedRenewal(sessionToken: string, state: RefreshState): Promise<RefreshOutcome> {
         const now = deps.now()
         for (const [key, entry] of refreshes)
-            if (entry.settledAt !== undefined && now - entry.settledAt > sharedRefreshMs) refreshes.delete(key)
+            if (
+                (entry.settledAt !== undefined && now - entry.settledAt > sharedRefreshMs) ||
+                (entry.inFlightSince !== undefined && now - entry.inFlightSince > workersRefreshLockMs)
+            )
+                refreshes.delete(key)
         const key = await sessionHash(`${state.session} ${state.refreshToken}`),
             found = refreshes.get(key)
-        if (found) return found.outcome
-        const entry: { outcome: Promise<RefreshOutcome>; settledAt?: number } = {
-            outcome: renewAccess(sessionToken, state).finally(() => {
-                entry.settledAt = deps.now()
-            }),
+        if (isWorkersRuntime()) {
+            if (found?.settled) return found.settled
+            // Another request in this isolate is already redeeming this single-use refresh token: leave the cookie
+            // untouched so the in-flight request sets the rotated cookie without a concurrent replay clearing it
+            if (found?.inFlightSince !== undefined && now - found.inFlightSince < workersRefreshLockMs)
+                return { wait: true }
+            refreshes.set(key, { inFlightSince: now })
+            try {
+                const settled = await renewAccess(sessionToken, state)
+                const latest = refreshes.get(key)
+                if (latest?.settled && "state" in latest.settled && !("state" in settled)) return latest.settled
+                refreshes.set(key, { settled, settledAt: deps.now() })
+                return settled
+            } catch (error) {
+                if (refreshes.get(key)?.inFlightSince === now) refreshes.delete(key)
+                throw error
+            }
         }
+        if (found?.settled) return found.settled
+        if (found?.outcome) return found.outcome
+        const entry: { outcome?: Promise<RefreshOutcome>; settled?: RefreshOutcome; settledAt?: number } = {}
+        entry.outcome = renewAccess(sessionToken, state).then((settled) => {
+            entry.settled = settled
+            entry.settledAt = deps.now()
+            return settled
+        })
         refreshes.set(key, entry)
         return entry.outcome
     }
@@ -625,11 +670,16 @@ export function createAuthHandlers(deps: AuthDependencies) {
                 state.accessExpiresAt - now < refreshMargin
             ) {
                 const outcome = await sharedRenewal(token, state)
-                if (!("keep" in outcome))
+                if ("wait" in outcome) {
+                    const retryHeaders = new Headers({ "Retry-After": "1" })
+                    return json({ error: "Sign-in is refreshing. Try again" }, 503, retryHeaders)
+                }
+                if (!("keep" in outcome)) {
                     headers.append(
                         "Set-Cookie",
                         await refreshCookieHeader(config, "state" in outcome ? outcome.state : undefined, deps.now()),
                     )
+                }
             }
             try {
                 const session = await deps.refresh(token)

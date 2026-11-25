@@ -9,6 +9,14 @@ export const Route = createRootRoute({
             { title: "NeonFlux dashboard" },
         ],
         links: [
+            {
+                rel: "preload",
+                href: "/fonts/bricolage.woff2",
+                as: "font",
+                type: "font/woff2",
+                crossOrigin: "anonymous",
+            },
+            { rel: "preload", href: "/fonts/atkinson.woff2", as: "font", type: "font/woff2", crossOrigin: "anonymous" },
             { rel: "stylesheet", href: stylesheet },
             { rel: "preconnect", href: "https://fluxerusercontent.com", crossOrigin: "anonymous" },
             { rel: "preconnect", href: "https://challenges.cloudflare.com", crossOrigin: "anonymous" },
@@ -30,11 +38,15 @@ export const Route = createRootRoute({
     ),
 })
 
+const motionInitScript =
+    '(()=>{try{var s=localStorage.getItem("nf.motion"),still=s?s!=="on":matchMedia("(prefers-reduced-motion: reduce)").matches;document.documentElement.toggleAttribute("data-still",still);document.documentElement.dataset.motion=still?"off":"on"}catch{}})()'
+
 function Root() {
     return (
-        <html lang="en">
+        <html lang="en" suppressHydrationWarning>
             <head>
                 <HeadContent />
+                <script dangerouslySetInnerHTML={{ __html: motionInitScript }} />
             </head>
             <body>
                 <Outlet />

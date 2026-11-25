@@ -84,3 +84,33 @@ test("expired sign-in never renders stale server data and shows the sign-in scre
     assert.equal(ui.container.textContent?.includes("Synthetic manager"), false)
     assert.ok(ui.container.textContent?.includes("Your sign-in expired"))
 })
+
+test("a 503 with Retry-After retries across a multi-second token rotation without surfacing an error", async (context) => {
+    context.mock.timers.enable({ apis: ["setInterval", "setTimeout"] })
+    notifyManager.setScheduler(queueMicrotask)
+    const active = {
+        sessionToken: "synthetic-session",
+        convexUrl: "https://synthetic.invalid",
+        expiresAt: 1,
+        user: { id: "1", name: "Recovered user" },
+        mode: "single",
+        servers: [],
+    } satisfies WebSession
+    const conflict = () =>
+        Response.json({ error: "Sign-in is refreshing. Try again" }, { status: 503, headers: { "Retry-After": "1" } })
+    const responses = [conflict(), conflict(), conflict(), Response.json(active)]
+    let calls = 0
+    context.mock.method(globalThis, "fetch", async () => responses[calls++]!)
+    const ui = render(createElement(SessionProvider, null, createElement(Probe)))
+    const text = () => ui.container.textContent
+    await until(() => calls === 1)
+    assert.equal(text(), "none")
+    // Progressive backoff: 1s, 2s, 3s (6s total elapsed) recovers seamlessly with no error banner
+    context.mock.timers.tick(1000)
+    await until(() => calls === 2)
+    context.mock.timers.tick(2000)
+    await until(() => calls === 3)
+    context.mock.timers.tick(3000)
+    await until(() => text() === "Recovered user")
+    assert.equal(calls, 4)
+})

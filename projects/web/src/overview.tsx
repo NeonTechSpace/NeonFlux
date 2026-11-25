@@ -81,38 +81,55 @@ function PermissionCheck({
         request()
     }, [checkFresh, check?.state, check?.checkedAt, request, sessionToken, serverId])
     const checking = check?.state === "queued" || check === undefined
+    const hasProblems = Boolean(check && check.state !== "failed" && check.problems.length > 0)
+    const isFailed = check?.state === "failed"
+    const stripClass = `health-strip${isFailed ? " is-error" : hasProblems ? " is-warn" : !checking && check ? " is-ok" : ""}`
     return (
-        <section className="panel" aria-labelledby="permission-check-title">
-            <h2 id="permission-check-title">Permission check</h2>
+        <section className={stripClass} aria-labelledby="permission-check-title">
+            <div className="health-strip-row">
+                <div className="health-strip-main">
+                    <span className="health-dot" aria-hidden="true" />
+                    <h2 id="permission-check-title">Permission check</h2>
+                    {checking ? (
+                        <p className="health-summary" role="status">
+                            Asking NeonFlux to check its permissions…
+                        </p>
+                    ) : check === null ? (
+                        <p className="health-summary" role="status">
+                            No check has run yet
+                        </p>
+                    ) : isFailed ? (
+                        <p className="health-summary is-error" role="alert">
+                            NeonFlux did not answer. Check that the bot is online, then check again
+                        </p>
+                    ) : hasProblems ? (
+                        <p className="health-summary is-warn" role="status">
+                            {check.problems.length === 1
+                                ? "1 item needs attention"
+                                : `${check.problems.length} items need attention`}
+                        </p>
+                    ) : (
+                        <p className="health-summary" role="status">
+                            No problems found. Every enabled feature has the permissions and role position it needs
+                        </p>
+                    )}
+                </div>
+                <button type="button" className="ghost-action health-check-btn" disabled={checking} onClick={request}>
+                    Check again
+                </button>
+            </div>
             {failed && (
-                <p className="notice error" role="alert">
+                <p className="notice error health-notice" role="alert">
                     The check could not be requested. Refresh your sign-in or try again
                 </p>
             )}
-            {checking ? (
-                <p role="status">Asking NeonFlux to check its permissions…</p>
-            ) : check === null ? (
-                <p role="status">No check has run yet</p>
-            ) : check.state === "failed" ? (
-                <p className="notice error" role="alert">
-                    NeonFlux did not answer. Check that the bot is online, then check again
-                </p>
-            ) : check.problems.length ? (
-                <ul>
+            {hasProblems && check && (
+                <ul className="health-problems">
                     {check.problems.map((problem, index) => (
                         <li key={index}>{problemText(problem)}</li>
                     ))}
                 </ul>
-            ) : (
-                <p role="status">
-                    No problems found. Every enabled feature has the permissions and role position it needs
-                </p>
             )}
-            <div className="actions">
-                <button type="button" className="secondary" disabled={checking} onClick={request}>
-                    Check again
-                </button>
-            </div>
         </section>
     )
 }
@@ -145,25 +162,31 @@ export function OverviewSection({ client, sessionToken, serverId, userId, sectio
                     Setup progress is unavailable. Refresh your sign-in or check your server permission
                 </p>
             )}
-            <section className="panel" aria-labelledby="overview-title">
-                <h2 id="overview-title">Overview</h2>
-                {!data ? (
-                    <p role="status">Loading setup progress…</p>
-                ) : (
-                    <>
-                        <p className="muted">
+            <section className="panel overview-summary" aria-labelledby="overview-title">
+                <div className="overview-top">
+                    <h2 id="overview-title">Overview</h2>
+                    {!data ? (
+                        <p className="overview-meta" role="status">
+                            Loading setup progress…
+                        </p>
+                    ) : (
+                        <p className="overview-meta">
                             {on} of {total} features are on
                             {setup
                                 ? `. ${setup} ${setup === 1 ? "is on but needs" : "are on but need"} setup, such as a channel or a first entry`
                                 : ""}
                         </p>
-                        <progress className="setup-progress" max={total} value={on} aria-label="Features on">
-                            {on} of {total}
-                        </progress>
+                    )}
+                </div>
+                <progress className="setup-progress" max={total || 1} value={data ? on : 0} aria-label="Features on">
+                    {data ? `${on} of ${total}` : "Loading"}
+                </progress>
+                <div className="overview-filters-slot">
+                    {data && (
                         <div className="overview-filters" role="group" aria-label="Filter features by state">
                             <button
                                 type="button"
-                                className={`secondary filter-chip${activeFilter === "all" ? " is-active" : ""}`}
+                                className={`filter-tab${activeFilter === "all" ? " is-active" : ""}`}
                                 aria-pressed={activeFilter === "all"}
                                 onClick={() => setFilter("all")}
                             >
@@ -171,7 +194,7 @@ export function OverviewSection({ client, sessionToken, serverId, userId, sectio
                             </button>
                             <button
                                 type="button"
-                                className={`secondary filter-chip${activeFilter === "on" ? " is-active" : ""}`}
+                                className={`filter-tab${activeFilter === "on" ? " is-active" : ""}`}
                                 aria-pressed={activeFilter === "on"}
                                 onClick={() => setFilter("on")}
                             >
@@ -179,7 +202,7 @@ export function OverviewSection({ client, sessionToken, serverId, userId, sectio
                             </button>
                             <button
                                 type="button"
-                                className={`secondary filter-chip${activeFilter === "setup" ? " is-active" : ""}`}
+                                className={`filter-tab${activeFilter === "setup" ? " is-active" : ""}`}
                                 aria-pressed={activeFilter === "setup"}
                                 onClick={() => setFilter("setup")}
                             >
@@ -187,7 +210,7 @@ export function OverviewSection({ client, sessionToken, serverId, userId, sectio
                             </button>
                             <button
                                 type="button"
-                                className={`secondary filter-chip${activeFilter === "off" ? " is-active" : ""}`}
+                                className={`filter-tab${activeFilter === "off" ? " is-active" : ""}`}
                                 aria-pressed={activeFilter === "off"}
                                 onClick={() => setFilter("off")}
                             >
@@ -196,7 +219,7 @@ export function OverviewSection({ client, sessionToken, serverId, userId, sectio
                             {drafts.size > 0 && (
                                 <button
                                     type="button"
-                                    className={`secondary filter-chip${activeFilter === "drafts" ? " is-active" : ""}`}
+                                    className={`filter-tab${activeFilter === "drafts" ? " is-active" : ""}`}
                                     aria-pressed={activeFilter === "drafts"}
                                     onClick={() => setFilter("drafts")}
                                 >
@@ -204,10 +227,10 @@ export function OverviewSection({ client, sessionToken, serverId, userId, sectio
                                 </button>
                             )}
                         </div>
-                    </>
-                )}
+                    )}
+                </div>
                 {drafts.size > 0 && (
-                    <p className="notice draft-note" role="status">
+                    <p className="draft-inline-note" role="status">
                         <strong>Unsaved drafts</strong> in{" "}
                         {[...drafts].map((id) => sectionNames[id as keyof typeof sectionNames] ?? id).join(", ")}. They
                         stay in this tab until you save or discard them
@@ -221,18 +244,24 @@ export function OverviewSection({ client, sessionToken, serverId, userId, sectio
                 </section>
             ) : (
                 visibleGroups.map(([group, items]) => (
-                    <section className="panel" aria-labelledby={`overview-${group}`} key={group}>
-                        <h2 id={`overview-${group}`}>{group}</h2>
+                    <section className="overview-group" aria-labelledby={`overview-${group}`} key={group}>
+                        <div className="overview-group-head">
+                            <h2 id={`overview-${group}`}>{group}</h2>
+                            <span className="overview-group-count">{items.length}</span>
+                        </div>
                         <ul className="overview-grid">
                             {items.map(([id, name]) => {
                                 const state = states.get(id)
                                 return (
                                     <li key={id}>
-                                        <a className="overview-card" {...sectionLink(id, sectionHref, openSection)}>
+                                        <a
+                                            className={`overview-card${state ? ` state-${state}` : ""}${drafts.has(id) ? " has-draft" : ""}`}
+                                            {...sectionLink(id, sectionHref, openSection)}
+                                        >
                                             <Icon path={sectionIcons[id]} />
                                             <span className="overview-name">{name}</span>
                                             {state && (
-                                                <span className={`state-pill ${state}`}>{stateLabels[state]}</span>
+                                                <span className={`state-tag ${state}`}>{stateLabels[state]}</span>
                                             )}
                                             {drafts.has(id) && <span className="draft-tag">Unsaved draft</span>}
                                         </a>

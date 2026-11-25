@@ -8,6 +8,7 @@ web/.output/
 web/.tanstack/
 web/.nitro/
 web/.vite/
+web/.wrangler/
 web/.local/
 # Astro's generated types, which site/.gitignore lists
 site/.astro/

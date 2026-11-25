@@ -35,16 +35,21 @@ export function ServerIcon({ server, large = false }: { server: Server; large?: 
     useEffect(() => {
         setFailed(false)
     }, [iconUrl])
-    if (iconUrl && !failed)
+    if (iconUrl && !failed) {
+        const size = large ? 54 : 36
         return (
             <img
                 className={className}
                 src={iconUrl}
+                width={size}
+                height={size}
+                decoding="async"
                 alt=""
                 referrerPolicy="no-referrer"
                 onError={() => setFailed(true)}
             />
         )
+    }
     const initials =
         server.name
             .trim()
