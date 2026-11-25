@@ -1,7 +1,7 @@
 import type { ConvexReactClient } from "convex/react"
 import type { ComponentType } from "react"
 import { useEffect, useState } from "react"
-import type { DashboardCatalog } from "@neonflux/backend/dashboard-contracts"
+import type { DashboardCatalog, DashboardMemberFeature } from "@neonflux/backend/dashboard-contracts"
 
 export const navigation = [
     [
@@ -271,12 +271,34 @@ export function lazyComponents<K extends string, C>(loaders: Record<K, () => Pro
         preload: () => Promise.all((Object.keys(loaders) as K[]).map(load)).then(() => undefined),
     }
 }
+export interface MemberViewProps {
+    client: ConvexReactClient
+    sessionToken: string
+    serverId: string
+    connected: boolean
+    title?: string
+}
+type MemberView = ComponentType<MemberViewProps>
+const memberView = <C,>(component: C) => component as unknown as MemberView
+/** Lazy member feature views shared between the member dashboard and manager configuration sections */
+export const memberViews = lazyComponents<DashboardMemberFeature, MemberView>({
+    rolepicker: () => import("./role-picker-member").then((module) => memberView(module.RolePickerMember)),
+    showcase: () => import("./showcase-member").then((module) => memberView(module.ShowcaseMember)),
+    profile: () => import("./profile-member").then((module) => memberView(module.ProfileMember)),
+    voice: () => import("./voice-room-member").then((module) => memberView(module.VoiceRoomMember)),
+    private: () => import("./private-cases").then((module) => memberView(module.PrivateCasesSection)),
+})
+export const preloadMemberViews = memberViews.preload
+export const useMemberView = memberViews.use
+
 const sections = lazyComponents(loaders)
-/** Loads every section and configuration form ahead of use, for tests that render sections without waiting */
+/** Loads every section, member view and configuration form ahead of use, for tests that render without waiting */
 export const preloadSections = () =>
-    Promise.all([sections.preload(), import("./configuration-section").then((module) => module.preloadForms())]).then(
-        () => undefined,
-    )
+    Promise.all([
+        sections.preload(),
+        memberViews.preload(),
+        import("./configuration-section").then((module) => module.preloadForms()),
+    ]).then(() => undefined)
 /** Starts loading a section early, such as when its link gets focus */
 const prefetchSection = (id: SectionId) => {
     if (!sections.loaded.has(id)) void sections.load(id).catch(() => {})

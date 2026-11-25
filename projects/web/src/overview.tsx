@@ -1,5 +1,5 @@
 import type { ConvexReactClient } from "convex/react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { permissionKeyTitles } from "@neonflux/contracts/permission-names"
 import type { StaffClass } from "@neonflux/contracts/moderation"
 import type { DashboardOverviewState, SetupProblem } from "@neonflux/backend/dashboard-contracts"
@@ -48,7 +48,10 @@ export function problemText(problem: SetupProblem) {
         : `${feature}: Move the NeonFlux role above ${list(problem.roles.map((role) => `@${role.name}`))}`
 }
 
-/** The bot's own permission check. The bot reads Fluxer with its token, so opening this asks it for a fresh check without using your sign-in */
+const AUTO_CHECK_COOLDOWN_MS = 60 * 1000
+
+/** The bot's own permission check. The bot reads Fluxer with its token, so opening this asks it for a fresh check without using your sign-in.
+ *  Skips duplicate automatic requests when the bot already answered within the last minute, while Check again always runs */
 function PermissionCheck({
     client,
     sessionToken,
@@ -58,13 +61,25 @@ function PermissionCheck({
     sessionToken: string
     serverId: string
 }) {
-    const { data: check } = useLiveQuery(client, dashboardApi.setupCheck, { sessionToken, serverId })
+    const { data: check, fresh: checkFresh } = useLiveQuery(client, dashboardApi.setupCheck, {
+        sessionToken,
+        serverId,
+    })
     const [failed, setFailed] = useState(false)
+    const requestedForServerRef = useRef<string | undefined>(undefined)
     const request = useCallback(() => {
         setFailed(false)
         client.mutation(dashboardApi.requestSetupCheck, { sessionToken, serverId }).catch(() => setFailed(true))
     }, [client, sessionToken, serverId])
-    useEffect(request, [request])
+    useEffect(() => {
+        if (!checkFresh) return
+        const serverKey = `${sessionToken}:${serverId}`
+        if (requestedForServerRef.current === serverKey) return
+        requestedForServerRef.current = serverKey
+        if (check?.state === "queued") return
+        if (check?.checkedAt !== undefined && Date.now() - check.checkedAt < AUTO_CHECK_COOLDOWN_MS) return
+        request()
+    }, [checkFresh, check?.state, check?.checkedAt, request, sessionToken, serverId])
     const checking = check?.state === "queued" || check === undefined
     return (
         <section className="panel" aria-labelledby="permission-check-title">
@@ -102,14 +117,27 @@ function PermissionCheck({
     )
 }
 
+type OverviewFilter = "all" | "on" | "setup" | "off" | "drafts"
+
 /** The landing page of a server: Setup progress, every section by group with its state, and sections holding unsaved drafts */
 export function OverviewSection({ client, sessionToken, serverId, userId, sectionHref, openSection }: SectionProps) {
     const { data, error } = useLiveQuery(client, dashboardApi.overview, { sessionToken, serverId })
     const drafts = useDraftSections(userId, serverId)
+    const [filter, setFilter] = useState<OverviewFilter>("all")
     const states = new Map(data?.sections.map((row) => [row.id as string, row.state]))
     const total = data?.sections.length ?? 0,
         on = data?.sections.filter((row) => row.state === "on").length ?? 0,
-        setup = data?.sections.filter((row) => row.state === "setup").length ?? 0
+        setup = data?.sections.filter((row) => row.state === "setup").length ?? 0,
+        off = data?.sections.filter((row) => row.state === "off").length ?? 0
+    const activeFilter = filter === "drafts" && drafts.size === 0 ? "all" : filter
+    const matchesFilter = (id: string) => {
+        if (activeFilter === "all") return true
+        if (activeFilter === "drafts") return drafts.has(id)
+        return states.get(id) === activeFilter
+    }
+    const visibleGroups = navigation
+        .map(([group, items]) => [group, items.filter(([id]) => matchesFilter(id))] as const)
+        .filter(([, items]) => items.length > 0)
     return (
         <>
             {error && (
@@ -132,6 +160,50 @@ export function OverviewSection({ client, sessionToken, serverId, userId, sectio
                         <progress className="setup-progress" max={total} value={on} aria-label="Features on">
                             {on} of {total}
                         </progress>
+                        <div className="overview-filters" role="group" aria-label="Filter features by state">
+                            <button
+                                type="button"
+                                className={`secondary filter-chip${activeFilter === "all" ? " is-active" : ""}`}
+                                aria-pressed={activeFilter === "all"}
+                                onClick={() => setFilter("all")}
+                            >
+                                All ({total})
+                            </button>
+                            <button
+                                type="button"
+                                className={`secondary filter-chip${activeFilter === "on" ? " is-active" : ""}`}
+                                aria-pressed={activeFilter === "on"}
+                                onClick={() => setFilter("on")}
+                            >
+                                Active ({on})
+                            </button>
+                            <button
+                                type="button"
+                                className={`secondary filter-chip${activeFilter === "setup" ? " is-active" : ""}`}
+                                aria-pressed={activeFilter === "setup"}
+                                onClick={() => setFilter("setup")}
+                            >
+                                Needs setup ({setup})
+                            </button>
+                            <button
+                                type="button"
+                                className={`secondary filter-chip${activeFilter === "off" ? " is-active" : ""}`}
+                                aria-pressed={activeFilter === "off"}
+                                onClick={() => setFilter("off")}
+                            >
+                                Off ({off})
+                            </button>
+                            {drafts.size > 0 && (
+                                <button
+                                    type="button"
+                                    className={`secondary filter-chip${activeFilter === "drafts" ? " is-active" : ""}`}
+                                    aria-pressed={activeFilter === "drafts"}
+                                    onClick={() => setFilter("drafts")}
+                                >
+                                    Drafts ({drafts.size})
+                                </button>
+                            )}
+                        </div>
                     </>
                 )}
                 {drafts.size > 0 && (
@@ -143,26 +215,34 @@ export function OverviewSection({ client, sessionToken, serverId, userId, sectio
                 )}
             </section>
             <PermissionCheck client={client} sessionToken={sessionToken} serverId={serverId} />
-            {navigation.map(([group, items]) => (
-                <section className="panel" aria-labelledby={`overview-${group}`} key={group}>
-                    <h2 id={`overview-${group}`}>{group}</h2>
-                    <ul className="overview-grid">
-                        {items.map(([id, name]) => {
-                            const state = states.get(id)
-                            return (
-                                <li key={id}>
-                                    <a className="overview-card" {...sectionLink(id, sectionHref, openSection)}>
-                                        <Icon path={sectionIcons[id]} />
-                                        <span className="overview-name">{name}</span>
-                                        {state && <span className={`state-pill ${state}`}>{stateLabels[state]}</span>}
-                                        {drafts.has(id) && <span className="draft-tag">Unsaved draft</span>}
-                                    </a>
-                                </li>
-                            )
-                        })}
-                    </ul>
+            {visibleGroups.length === 0 ? (
+                <section className="panel">
+                    <p className="muted">No features match this filter</p>
                 </section>
-            ))}
+            ) : (
+                visibleGroups.map(([group, items]) => (
+                    <section className="panel" aria-labelledby={`overview-${group}`} key={group}>
+                        <h2 id={`overview-${group}`}>{group}</h2>
+                        <ul className="overview-grid">
+                            {items.map(([id, name]) => {
+                                const state = states.get(id)
+                                return (
+                                    <li key={id}>
+                                        <a className="overview-card" {...sectionLink(id, sectionHref, openSection)}>
+                                            <Icon path={sectionIcons[id]} />
+                                            <span className="overview-name">{name}</span>
+                                            {state && (
+                                                <span className={`state-pill ${state}`}>{stateLabels[state]}</span>
+                                            )}
+                                            {drafts.has(id) && <span className="draft-tag">Unsaved draft</span>}
+                                        </a>
+                                    </li>
+                                )
+                            })}
+                        </ul>
+                    </section>
+                ))
+            )}
         </>
     )
 }

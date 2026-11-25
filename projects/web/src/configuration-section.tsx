@@ -11,17 +11,13 @@ import type {
 } from "@neonflux/backend/dashboard-contracts"
 import type { ConfigSectionProps, ConfigurationQueue, TemplateOption } from "./configuration-form"
 import { dashboardApi } from "./dashboard-api"
-import { lazyComponents } from "./dashboard-sections"
+import { lazyComponents, memberViews, useMemberView } from "./dashboard-sections"
 import type { SectionProps } from "./dashboard-sections"
 import { identitiesOf, PAGE_WINDOW, useConfigurationState } from "./configuration-live"
 import { clearRowDrafts, hasRowDraft, useDraftScope, useDraftVersion } from "./drafts"
 import { JobStatus } from "./job-status"
 import { preserveRemovedDefinitions } from "./configuration-retained"
-import { ShowcaseMember } from "./showcase-member"
-import { ProfileMember } from "./profile-member"
-import { RolePickerMember } from "./role-picker-member"
-import { VoiceRoomMember } from "./voice-room-member"
-import { SavedMessageSend } from "./saved-message-send"
+import type { SavedMessageSend as SavedMessageSendComponent } from "./saved-message-send"
 
 const configurationSections = {
     custom: { family: "responses", title: "Custom commands" },
@@ -126,8 +122,12 @@ const forms = lazyComponents<SectionFamily, Form>({
     reminders: () => import("./reminder-settings").then((module) => form(module.ReminderSettingsSection)),
     giveaways: () => import("./giveaway-settings").then((module) => form(module.GiveawaySettingsSection)),
 })
-/** Loads every configuration form ahead of use, for tests that render sections without waiting */
-export const preloadForms = forms.preload
+const extras = lazyComponents<"savedMessageSend", typeof SavedMessageSendComponent>({
+    savedMessageSend: () => import("./saved-message-send").then((module) => module.SavedMessageSend),
+})
+/** Loads every configuration form, member view and extra companion ahead of use, for tests that render without waiting */
+export const preloadForms = () =>
+    Promise.all([forms.preload(), extras.preload(), memberViews.preload()]).then(() => undefined)
 // Families whose forms choose a saved template revision
 const templateFamilies = new Set<DashboardConfigurationFamily>([
     "greetings",
@@ -227,6 +227,65 @@ export function ConfigurationView(props: SectionProps & { section: Configuration
         />
     )
 }
+function LazyMemberPanel({
+    feature,
+    client,
+    sessionToken,
+    serverId,
+    connected,
+    title,
+}: Pick<ConfigurationSectionProps, "client" | "sessionToken" | "serverId" | "connected"> & {
+    feature: "rolepicker" | "voice" | "showcase" | "profile"
+    title?: string
+}) {
+    const { component: View, failed, retry } = useMemberView(feature)
+    if (View)
+        return (
+            <View
+                client={client}
+                sessionToken={sessionToken}
+                serverId={serverId}
+                connected={connected}
+                {...(title ? { title } : {})}
+            />
+        )
+    if (failed)
+        return (
+            <section className="panel">
+                <p className="notice error" role="alert">
+                    This member view could not be loaded. Check your connection{" "}
+                    <button type="button" className="secondary" onClick={retry}>
+                        Try again
+                    </button>
+                </p>
+            </section>
+        )
+    return (
+        <section className="panel">
+            <p role="status">Loading…</p>
+        </section>
+    )
+}
+function LazySavedMessageSend(props: Parameters<typeof SavedMessageSendComponent>[0]) {
+    const { component: Send, failed, retry } = extras.use("savedMessageSend")
+    if (Send) return <Send {...props} />
+    if (failed)
+        return (
+            <section className="panel">
+                <p className="notice error" role="alert">
+                    Saved message sender could not be loaded. Check your connection{" "}
+                    <button type="button" className="secondary" onClick={retry}>
+                        Try again
+                    </button>
+                </p>
+            </section>
+        )
+    return (
+        <section className="panel">
+            <p role="status">Loading saved message sender…</p>
+        </section>
+    )
+}
 // The member page opens only on request, since it queues a role check by itself when none is recent
 function ManagerRolePicker(
     props: Pick<ConfigurationSectionProps, "client" | "sessionToken" | "serverId" | "connected">,
@@ -236,7 +295,8 @@ function ManagerRolePicker(
         <details onToggle={(event) => setOpen(event.currentTarget.open)}>
             <summary>Choose my roles</summary>
             {open && (
-                <RolePickerMember
+                <LazyMemberPanel
+                    feature="rolepicker"
                     client={props.client}
                     sessionToken={props.sessionToken}
                     serverId={props.serverId}
@@ -256,7 +316,8 @@ function ManagerVoiceRoom(
         <details onToggle={(event) => setOpen(event.currentTarget.open)}>
             <summary>Control my voice room</summary>
             {open && (
-                <VoiceRoomMember
+                <LazyMemberPanel
+                    feature="voice"
                     client={props.client}
                     sessionToken={props.sessionToken}
                     serverId={props.serverId}
@@ -404,7 +465,7 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
                 />
             )}
             {remote?.family === "publishing" && (
-                <SavedMessageSend
+                <LazySavedMessageSend
                     client={client}
                     sessionToken={sessionToken}
                     serverId={serverId}
@@ -433,7 +494,8 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
                 />
             )}
             {remote?.family === "showcase" && remote.data.settings.enabled && (
-                <ShowcaseMember
+                <LazyMemberPanel
+                    feature="showcase"
                     client={client}
                     sessionToken={sessionToken}
                     serverId={serverId}
@@ -441,7 +503,8 @@ export function ConfigurationSection(props: ConfigurationSectionProps) {
                 />
             )}
             {remote?.family === "profile" && remote.data.settings.enabled && (
-                <ProfileMember
+                <LazyMemberPanel
+                    feature="profile"
                     client={client}
                     sessionToken={sessionToken}
                     serverId={serverId}

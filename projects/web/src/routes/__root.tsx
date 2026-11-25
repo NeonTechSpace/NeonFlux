@@ -8,7 +8,11 @@ export const Route = createRootRoute({
             { name: "viewport", content: "width=device-width, initial-scale=1" },
             { title: "NeonFlux dashboard" },
         ],
-        links: [{ rel: "stylesheet", href: stylesheet }],
+        links: [
+            { rel: "stylesheet", href: stylesheet },
+            { rel: "preconnect", href: "https://fluxerusercontent.com", crossOrigin: "anonymous" },
+            { rel: "preconnect", href: "https://challenges.cloudflare.com", crossOrigin: "anonymous" },
+        ],
     }),
     component: Root,
     notFoundComponent: () => (

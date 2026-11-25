@@ -12,6 +12,7 @@ import type {
 import type { ConfigSectionProps } from "../src/configuration-form.tsx"
 import type { WebSession } from "../src/dashboard-api.ts"
 import { ServerDashboard } from "../src/dashboard.tsx"
+import { preloadMemberViews } from "../src/dashboard-sections.tsx"
 import { ShowcaseMember } from "../src/showcase-member.tsx"
 import { ProfileMember } from "../src/profile-member.tsx"
 import { ShowcaseSettings } from "../src/showcase-settings.tsx"
@@ -25,6 +26,7 @@ for (const [name, value] of Object.entries({
 }))
     Object.defineProperty(globalThis, name, { value, configurable: true })
 const { render, fireEvent, cleanup, act, within } = await import("@testing-library/react")
+await preloadMemberViews()
 afterEach(cleanup)
 
 const showcases = (overrides: Partial<DashboardShowcaseMember> = {}): DashboardShowcaseMember => ({

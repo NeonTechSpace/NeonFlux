@@ -1,6 +1,6 @@
-import { useId, useState } from "react"
+import { useEffect, useId, useState } from "react"
 import type { DashboardSession } from "@neonflux/backend/dashboard-contracts"
-import { fuzzyOptions } from "./search-picker"
+import { fuzzyOptions } from "./fuzzy"
 
 type Server = DashboardSession["servers"][number]
 type MemberServer = NonNullable<DashboardSession["memberServers"]>[number]
@@ -17,14 +17,29 @@ const tileColors = ["#4f5bd5", "#2f7d57", "#a8326f", "#9a6417", "#b83a3a", "#2a6
 // This many servers or more, managed and joined together, offer a search field
 export const SERVER_SEARCH_FROM = 7
 
+function safeServerIconUrl(raw: string | null | undefined): string | undefined {
+    if (!raw) return undefined
+    try {
+        const parsed = new URL(raw)
+        if (parsed.protocol !== "https:" || parsed.username || parsed.password) return undefined
+        return parsed.href
+    } catch {
+        return undefined
+    }
+}
+
 export function ServerIcon({ server, large = false }: { server: Server; large?: boolean }) {
     const [failed, setFailed] = useState(false)
     const className = large ? "server-icon large" : "server-icon"
-    if (server.icon && !failed)
+    const iconUrl = safeServerIconUrl(server.icon)
+    useEffect(() => {
+        setFailed(false)
+    }, [iconUrl])
+    if (iconUrl && !failed)
         return (
             <img
                 className={className}
-                src={server.icon}
+                src={iconUrl}
                 alt=""
                 referrerPolicy="no-referrer"
                 onError={() => setFailed(true)}

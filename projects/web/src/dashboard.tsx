@@ -1,18 +1,22 @@
 import type { ConvexReactClient } from "convex/react"
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { DashboardMemberFeature } from "@neonflux/backend/dashboard-contracts"
-import { CatalogRefreshProvider, useCatalog, useInviteReturn } from "./catalog"
+import { BrandMark } from "./brand-mark"
+import {
+    CatalogRefreshProvider,
+    clearCatalogCache,
+    clearOtherCatalogCaches,
+    useCatalog,
+    useInviteReturn,
+} from "./catalog"
 import type { CatalogClock } from "./catalog"
+import { CommandPalette } from "./command-palette"
 import type { WebSession } from "./dashboard-api"
 import { SessionProvider, SignIn, useSession } from "./session"
 import { useLiveClient } from "./live-client"
+import { clearLiveQueryCache } from "./live-query"
 import { ServerIcon, ServerPicker } from "./server-picker"
-import { RolePickerMember } from "./role-picker-member"
-import { ShowcaseMember } from "./showcase-member"
-import { ProfileMember } from "./profile-member"
-import { VoiceRoomMember } from "./voice-room-member"
-import { PrivateCasesSection } from "./private-cases"
-import { fuzzyOptions } from "./search-picker"
+import { fuzzyOptions } from "./fuzzy"
 import {
     Icon,
     isSectionId,
@@ -20,11 +24,16 @@ import {
     sectionIcons,
     sectionLink,
     sectionNames,
+    useMemberView,
     useSection,
 } from "./dashboard-sections"
 import type { SectionId, SectionProps } from "./dashboard-sections"
-import { DraftScopeProvider, clearAllDrafts, useDraftSections } from "./drafts"
+import { DraftScopeProvider, clearAllDrafts, clearServerDrafts, useDraftSections } from "./drafts"
 import { DashboardTour, useDashboardTour } from "./dashboard-tour"
+
+const SIDEBAR_STORAGE_KEY = "neonflux:sidebar-collapsed"
+const SESSION_FRESH_MS = 5 * 60 * 1000
+const TAB_RETURN_REVERIFY_MS = 60 * 1000
 
 /** Where the dashboard is, read from the page address so every server and section has its own link.
  *  Single-server mode needs no server, and the overview is the section when none is named */
@@ -50,30 +59,135 @@ interface Navigation {
     navigate?: ((location: DashboardLocation) => void) | undefined
 }
 
-export function Dashboard(props: Navigation) {
+function readSidebarCollapsed(): boolean {
+    try {
+        return typeof window !== "undefined" && window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "1"
+    } catch {
+        return false
+    }
+}
+
+export function Dashboard({
+    clientFactory,
+    catalogClock,
+    ...props
+}: Navigation & {
+    clientFactory?: ((url: string) => ConvexReactClient) | undefined
+    catalogClock?: CatalogClock | undefined
+}) {
     return (
         <SessionProvider>
-            <DashboardSession {...props} />
+            <DashboardSession clientFactory={clientFactory} catalogClock={catalogClock} {...props} />
         </SessionProvider>
     )
 }
-function DashboardSession({ location, navigate }: Navigation) {
+function SessionVerifyingCard({ message }: { message: string }) {
+    return (
+        <section className="panel status-card verifying-card" aria-busy="true">
+            <div className="status-card-emblem">
+                <BrandMark size="md" />
+            </div>
+            <p className="eyebrow">Session security check</p>
+            <p role="status" className="verifying-label">
+                {message}
+            </p>
+            <div className="verifying-skeleton" aria-hidden="true">
+                <span className="skeleton-bar wide" />
+                <span className="skeleton-bar medium" />
+                <span className="skeleton-bar short" />
+            </div>
+        </section>
+    )
+}
+function DashboardSession({
+    location,
+    navigate,
+    clientFactory,
+    catalogClock,
+}: Navigation & {
+    clientFactory?: ((url: string) => ConvexReactClient) | undefined
+    catalogClock?: CatalogClock | undefined
+}) {
     const session = useSession(),
-        [logoutError, setLogoutError] = useState("")
-    const [lastSession, setLastSession] = useState<WebSession>()
+        [logoutError, setLogoutError] = useState(""),
+        [hadSession, setHadSession] = useState(false),
+        [awaitingTabCheck, setAwaitingTabCheck] = useState(false)
+    const hadSessionRef = useRef(false)
+    const hiddenAtRef = useRef<number | undefined>(undefined)
+    const checkBaselineRef = useRef(0)
+    const updatedAtRef = useRef(0)
+    updatedAtRef.current = session.dataUpdatedAt
+
+    const staleSession = Boolean(
+        session.data && session.dataUpdatedAt > 0 && Date.now() - session.dataUpdatedAt > SESSION_FRESH_MS,
+    )
+    const verifyingReturn = awaitingTabCheck || (staleSession && session.isFetching)
+    const activeSession =
+        session.data && !verifyingReturn && !(session.isError && staleSession) ? session.data : undefined
+    const activeAccount = activeSession ? `${activeSession.user.id}:${activeSession.sessionToken}` : undefined
+    const lastAccountRef = useRef<string | undefined>(activeAccount)
+    const [readyAccount, setReadyAccount] = useState<string | undefined>(activeAccount)
+
     useEffect(() => {
-        if (session.data) setLastSession(session.data)
+        if (session.data) {
+            hadSessionRef.current = true
+            setHadSession(true)
+        } else if (session.data === null) {
+            lastAccountRef.current = undefined
+            setReadyAccount(undefined)
+            clearCatalogCache()
+        }
     }, [session.data])
-    const visibleSession = session.data ?? lastSession
+
+    useEffect(() => {
+        if (!activeSession || !activeAccount) return
+        if (lastAccountRef.current && lastAccountRef.current !== activeAccount) clearCatalogCache()
+        else clearOtherCatalogCaches(activeSession.sessionToken)
+        lastAccountRef.current = activeAccount
+        if (readyAccount !== activeAccount) setReadyAccount(activeAccount)
+    }, [activeSession, activeAccount, readyAccount])
+
+    // Returning to a tab that was hidden or whose verification aged past 60s confirms live permissions before showing data
+    useEffect(() => {
+        if (typeof document === "undefined" || typeof window === "undefined") return
+        let mounted = true
+        const checkOnReturn = () => {
+            const hiddenAt = hiddenAtRef.current
+            if (hiddenAt === undefined || !hadSessionRef.current) return
+            hiddenAtRef.current = undefined
+            const now = Date.now()
+            const sessionAge = updatedAtRef.current > 0 ? now - updatedAtRef.current : Infinity
+            const hiddenFor = now - hiddenAt
+            if (sessionAge < TAB_RETURN_REVERIFY_MS && hiddenFor < TAB_RETURN_REVERIFY_MS) return
+            const token = ++checkBaselineRef.current
+            setAwaitingTabCheck(true)
+            void session.refetch().finally(() => {
+                if (mounted && checkBaselineRef.current === token) setAwaitingTabCheck(false)
+            })
+        }
+        const onVisibilityChange = () => {
+            if (document.visibilityState === "hidden") hiddenAtRef.current ??= Date.now()
+            else checkOnReturn()
+        }
+        document.addEventListener("visibilitychange", onVisibilityChange)
+        window.addEventListener("focus", checkOnReturn)
+        return () => {
+            mounted = false
+            document.removeEventListener("visibilitychange", onVisibilityChange)
+            window.removeEventListener("focus", checkOnReturn)
+        }
+    }, [session.refetch])
+
     return (
         <div className="app">
             <AppHeader
-                userName={session.data?.user.name}
+                userName={activeSession?.user.name}
                 onSignOut={async () => {
                     try {
                         const response = await fetch("/api/session", { method: "DELETE" })
                         if (!response.ok) throw new Error()
                         clearAllDrafts()
+                        clearCatalogCache()
                         window.location.assign("/")
                     } catch {
                         setLogoutError("Sign-out failed. Try again")
@@ -86,40 +200,43 @@ function DashboardSession({ location, navigate }: Navigation) {
                         {logoutError}
                     </p>
                 )}
-                {session.isPending && (
-                    <p role="status" className="muted">
-                        Checking sign-in…
-                    </p>
+                {session.isPending && <SessionVerifyingCard message="Checking sign-in…" />}
+                {!session.isPending && verifyingReturn && (
+                    <SessionVerifyingCard message="Verifying your sign-in and permissions…" />
                 )}
-                {session.isError && (
+                {session.isError && !verifyingReturn && (
                     <div role="alert" className="notice error">
-                        Unable to refresh your sign-in. Your drafts remain below{" "}
-                        <button className="secondary" onClick={() => session.refetch()}>
+                        Unable to refresh your sign-in. Your drafts stay in this tab{" "}
+                        <button className="secondary" onClick={() => void session.refetch()}>
                             Try again
                         </button>
                     </div>
                 )}
-                {session.data === null && (
+                {session.data === null && !verifyingReturn && (
                     <>
-                        <SignIn returnTo={dashboardHref(location ?? {})} />
-                        {lastSession && (
-                            <p className="notice" role="status">
-                                Your sign-in expired. Your drafts remain below and in this tab. Sign in again before
-                                saving
+                        {hadSession && (
+                            <p className="notice status-banner" role="status">
+                                Your sign-in expired. Any unsaved drafts stay in this tab. Sign in again before saving
                             </p>
                         )}
+                        <SignIn returnTo={dashboardHref(location ?? {})} />
                     </>
                 )}
-                {visibleSession && (
-                    <ManagedDashboard
-                        session={visibleSession}
-                        accessAvailable={Boolean(session.data) && !session.isError}
-                        refreshSession={() => void session.refetch()}
-                        refreshingSession={session.isFetching}
-                        location={location}
-                        navigate={navigate}
-                    />
-                )}
+                {activeSession &&
+                    (readyAccount === activeAccount ? (
+                        <ManagedDashboard
+                            session={activeSession}
+                            accessAvailable={!session.isError}
+                            refreshSession={() => void session.refetch()}
+                            refreshingSession={session.isFetching}
+                            clientFactory={clientFactory}
+                            catalogClock={catalogClock}
+                            location={location}
+                            navigate={navigate}
+                        />
+                    ) : (
+                        <SessionVerifyingCard message="Connecting to live settings…" />
+                    ))}
             </main>
         </div>
     )
@@ -128,19 +245,20 @@ function AppHeader({ userName, onSignOut }: { userName?: string | undefined; onS
     return (
         <header className="header">
             <div className="brand">
-                <span className="brand-mark" aria-hidden="true">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
-                    </svg>
-                </span>
+                <BrandMark size="md" />
                 <div>
-                    <h1>NeonFlux</h1>
+                    <h1>
+                        Neon<span className="brand-flux">Flux</span>
+                    </h1>
                     <p className="muted">Server configuration</p>
                 </div>
             </div>
             {userName && (
                 <div className="account">
-                    <span className="account-name">{userName}</span>
+                    <span className="account-pill">
+                        <span className="account-dot" aria-hidden="true" />
+                        <span className="account-name">{userName}</span>
+                    </span>
                     <button className="secondary" onClick={onSignOut}>
                         Sign out
                     </button>
@@ -156,23 +274,83 @@ const memberFeatureNames: Record<DashboardMemberFeature, string> = {
     voice: "Your voice room",
     private: "Private cases",
 }
-function ManagedDashboard({
+function MemberFeatureView({
+    feature,
+    client,
+    sessionToken,
+    serverId,
+    connected,
+    userId,
+}: {
+    feature: DashboardMemberFeature
+    client: ConvexReactClient
+    sessionToken: string
+    serverId: string
+    connected: boolean
+    userId: string
+}) {
+    const { component: View, failed, retry } = useMemberView(feature)
+    if (View)
+        return (
+            <View
+                key={`${userId}:${serverId}:${feature}`}
+                client={client}
+                sessionToken={sessionToken}
+                serverId={serverId}
+                connected={connected}
+            />
+        )
+    if (failed)
+        return (
+            <section className="panel">
+                <p className="notice error" role="alert">
+                    This member view could not be loaded. Check your connection{" "}
+                    <button type="button" className="secondary" onClick={retry}>
+                        Try again
+                    </button>
+                </p>
+            </section>
+        )
+    return (
+        <section className="panel">
+            <p role="status">Loading {memberFeatureNames[feature].toLowerCase()}…</p>
+        </section>
+    )
+}
+export function ManagedDashboard({
     session,
     accessAvailable,
+    clientFactory,
+    catalogClock,
     ...props
 }: {
     session: WebSession
     accessAvailable: boolean
     refreshSession: () => void
     refreshingSession: boolean
+    clientFactory?: ((url: string) => ConvexReactClient) | undefined
+    catalogClock?: CatalogClock | undefined
 } & Navigation) {
-    const client = useLiveClient(session.convexUrl)
-    return client ? (
-        <ServerDashboard session={session} accessAvailable={accessAvailable} client={client} {...props} />
+    const client = useLiveClient(session.convexUrl, clientFactory)
+    const account = `${session.user.id}:${session.sessionToken}`
+    const [readyAccount, setReadyAccount] = useState(account)
+    useEffect(() => {
+        if (!client || readyAccount === account) return
+        clearLiveQueryCache(client)
+        clearCatalogCache()
+        setReadyAccount(account)
+    }, [client, account, readyAccount])
+    return client && readyAccount === account ? (
+        <ServerDashboard
+            key={account}
+            session={session}
+            accessAvailable={accessAvailable}
+            client={client}
+            catalogClock={catalogClock}
+            {...props}
+        />
     ) : (
-        <p role="status" className="muted">
-            Connecting to live settings…
-        </p>
+        <SessionVerifyingCard message="Connecting to live settings…" />
     )
 }
 export function ServerDashboard({
@@ -188,9 +366,9 @@ export function ServerDashboard({
     session: WebSession
     accessAvailable: boolean
     client: ConvexReactClient
-    refreshSession?: () => void
-    refreshingSession?: boolean
-    catalogClock?: CatalogClock
+    refreshSession?: (() => void) | undefined
+    refreshingSession?: boolean | undefined
+    catalogClock?: CatalogClock | undefined
 } & Navigation) {
     // Without a router, such as in tests, the location lives in component state
     const [localLocation, setLocalLocation] = useState<DashboardLocation>({})
@@ -199,6 +377,10 @@ export function ServerDashboard({
     const multi = session.mode === "multi",
         memberServers = session.memberServers ?? []
     const [menuOpen, setMenuOpen] = useState(false),
+        [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed),
+        [paletteOpen, setPaletteOpen] = useState(false),
+        [confirmDiscardAll, setConfirmDiscardAll] = useState(false),
+        [draftResetKey, setDraftResetKey] = useState(0),
         [sectionQuery, setSectionQuery] = useState(""),
         searchId = useId()
     const [connected, setConnected] = useState(client.connectionState().isWebSocketConnected)
@@ -237,6 +419,9 @@ export function ServerDashboard({
         refreshCatalog()
     })
     const drafts = useDraftSections(session.user.id, serverId)
+    useEffect(() => {
+        if (drafts.size === 0) setConfirmDiscardAll(false)
+    }, [drafts.size, serverId])
     const draftScope = useMemo(
         () => ({ userId: session.user.id, serverId, section }),
         [session.user.id, serverId, section],
@@ -252,40 +437,100 @@ export function ServerDashboard({
             content.current?.focus()
         }
     }, [section])
-    const place = (id: SectionId) => ({
-        server: multi ? serverId : undefined,
-        section: id === "overview" ? undefined : id,
-    })
-    const sectionHref = (id: SectionId) => dashboardHref(place(id))
-    const openSection = (id: SectionId) => {
-        setMenuOpen(false)
-        focusContent.current = true
-        go(place(id))
-    }
+    // Global Cmd+K / Ctrl+K shortcut opens the command palette whenever a server or switcher is available
+    const paletteAvailable = Boolean(serverId || (multi && (session.servers.length > 0 || memberServers.length > 0)))
+    useEffect(() => {
+        if (!paletteAvailable || typeof window === "undefined") return
+        const onKeyDown = (event: KeyboardEvent) => {
+            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+                event.preventDefault()
+                setPaletteOpen((open) => !open)
+            } else if (event.key === "Escape" && menuOpen) {
+                setMenuOpen(false)
+            }
+        }
+        window.addEventListener("keydown", onKeyDown)
+        return () => window.removeEventListener("keydown", onKeyDown)
+    }, [paletteAvailable, menuOpen])
+
+    const toggleSidebar = useCallback(() => {
+        setSidebarCollapsed((current) => {
+            const next = !current
+            try {
+                window.localStorage.setItem(SIDEBAR_STORAGE_KEY, next ? "1" : "0")
+            } catch {}
+            return next
+        })
+    }, [])
+
+    const place = useCallback(
+        (id: SectionId) => ({
+            server: multi ? serverId : undefined,
+            section: id === "overview" ? undefined : id,
+        }),
+        [multi, serverId],
+    )
+    const sectionHref = useCallback((id: SectionId) => dashboardHref(place(id)), [place])
+    const openSection = useCallback(
+        (id: SectionId) => {
+            setMenuOpen(false)
+            focusContent.current = true
+            go(place(id))
+        },
+        [go, place],
+    )
+    const selectServer = useCallback(
+        (id: string) => {
+            setMenuOpen(false)
+            go({ server: id })
+        },
+        [go],
+    )
+    const closePalette = useCallback(() => setPaletteOpen(false), [])
     const invite = multi ? session.inviteUrl : undefined
+    const commandPalette = (
+        <CommandPalette
+            open={paletteOpen}
+            onClose={closePalette}
+            currentSection={serverId ? section : undefined}
+            currentServerId={serverId || memberServerId || undefined}
+            drafts={drafts}
+            multi={multi}
+            servers={session.servers}
+            memberServers={memberServers}
+            onSelectSection={openSection}
+            onSelectServer={selectServer}
+        />
+    )
     if (!session.servers.length && !memberServers.length)
         return (
-            <section className="panel">
+            <section className="panel status-card no-access-card">
+                <div className="status-card-emblem">
+                    <BrandMark size="lg" />
+                </div>
+                <p className="eyebrow">Server access</p>
                 <h2>No manageable servers</h2>
                 {invite ? (
                     <>
-                        <p>
+                        <p className="status-card-copy">
                             You need to own a server with NeonFlux, or have Manage community permission in it, to edit
                             its settings. After you add NeonFlux, the server appears here when you come back to this
                             tab, within a few minutes or when you reload
                         </p>
-                        <a
-                            className="button"
-                            href={invite}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={markInvite}
-                        >
-                            Add NeonFlux to a server
-                        </a>
+                        <div className="status-card-actions">
+                            <a
+                                className="button button-primary"
+                                href={invite}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={markInvite}
+                            >
+                                Add NeonFlux to a server
+                            </a>
+                        </div>
                     </>
                 ) : (
-                    <p>
+                    <p className="status-card-copy">
                         You need to own a configured NeonFlux server or have Manage community permission to edit its
                         settings
                     </p>
@@ -304,7 +549,6 @@ export function ServerDashboard({
         })
         const memberHref = (id: SectionId) => dashboardHref(memberPlace(id)),
             openMember = (id: SectionId) => go(memberPlace(id))
-        const props = { client, sessionToken: session.sessionToken, serverId: memberServerId }
         return (
             <div className="content">
                 <div className="server-header">
@@ -317,15 +561,26 @@ export function ServerDashboard({
                         {live ? "Live" : connected ? "Read only" : "Offline"}
                     </span>
                     {multi && (
-                        <div className="server-switch">
-                            <button type="button" className="secondary" onClick={() => go({})}>
-                                Switch server
+                        <div className="server-toolbar-actions">
+                            <button
+                                type="button"
+                                className="secondary command-trigger"
+                                aria-label="Open command palette"
+                                onClick={() => setPaletteOpen(true)}
+                            >
+                                <span>Quick jump</span>
+                                <kbd>⌘K</kbd>
                             </button>
+                            <div className="server-switch">
+                                <button type="button" className="secondary" onClick={() => go({})}>
+                                    Switch server
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
                 {server.features.length > 1 && (
-                    <nav className="inline-field" aria-label="Member features">
+                    <nav className="inline-field member-nav" aria-label="Member features">
                         {server.features.map((id) => (
                             <a
                                 key={id}
@@ -337,17 +592,15 @@ export function ServerDashboard({
                         ))}
                     </nav>
                 )}
-                {shown === "private" ? (
-                    <PrivateCasesSection key={memberServerId} {...props} />
-                ) : shown === "showcase" ? (
-                    <ShowcaseMember key={memberServerId} {...props} connected={live} />
-                ) : shown === "profile" ? (
-                    <ProfileMember key={memberServerId} {...props} connected={live} />
-                ) : shown === "voice" ? (
-                    <VoiceRoomMember key={memberServerId} {...props} connected={live} />
-                ) : (
-                    <RolePickerMember key={memberServerId} {...props} connected={live} />
-                )}
+                <MemberFeatureView
+                    feature={shown}
+                    client={client}
+                    sessionToken={session.sessionToken}
+                    serverId={memberServerId}
+                    connected={live}
+                    userId={session.user.id}
+                />
+                {commandPalette}
             </div>
         )
     }
@@ -367,11 +620,9 @@ export function ServerDashboard({
                     onInvite={markInvite}
                     onCheckServers={refreshSession}
                     checking={refreshingSession}
-                    onSelect={(id) => {
-                        setMenuOpen(false)
-                        go({ server: id })
-                    }}
+                    onSelect={selectServer}
                 />
+                {commandPalette}
             </>
         )
     const server = session.servers.find((value) => value.id === serverId)!
@@ -392,7 +643,12 @@ export function ServerDashboard({
         openSection,
     }
     const link = (id: SectionId, name: string) => (
-        <a key={id} {...sectionLink(id, sectionHref, openSection)} aria-current={section === id ? "page" : undefined}>
+        <a
+            key={id}
+            {...sectionLink(id, sectionHref, openSection)}
+            aria-current={section === id ? "page" : undefined}
+            title={sidebarCollapsed ? name : undefined}
+        >
             <Icon path={sectionIcons[id]} />
             <span className="nav-name">{name}</span>
             {drafts.has(id) && (
@@ -409,18 +665,48 @@ export function ServerDashboard({
               sectionQuery,
           )
         : undefined
+    const draftSectionIds = [...drafts].filter((id): id is SectionId => isSectionId(id))
+
     return (
         <CatalogRefreshProvider value={catalogRefresh}>
-            <div className="layout">
-                <aside className="sidebar">
-                    <button
-                        className="section-menu secondary"
-                        aria-expanded={menuOpen}
-                        aria-controls="configuration-navigation"
-                        onClick={() => setMenuOpen((value) => !value)}
-                    >
-                        {sectionNames[section]} · Sections
-                    </button>
+            <div className={`layout${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+                {menuOpen && <div className="drawer-backdrop" aria-hidden="true" onClick={() => setMenuOpen(false)} />}
+                <aside className={`sidebar${menuOpen ? " drawer-open" : ""}`}>
+                    <div className="sidebar-controls">
+                        <button
+                            type="button"
+                            className="section-menu secondary"
+                            aria-expanded={menuOpen}
+                            aria-controls="configuration-navigation"
+                            onClick={() => setMenuOpen((value) => !value)}
+                        >
+                            {sectionNames[section]} · Sections
+                        </button>
+                        <button
+                            type="button"
+                            className="sidebar-collapse secondary"
+                            aria-expanded={!sidebarCollapsed}
+                            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                            onClick={toggleSidebar}
+                        >
+                            <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+                                {sidebarCollapsed ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />}
+                            </svg>
+                            <span className="sidebar-collapse-label">Collapse</span>
+                        </button>
+                    </div>
+                    <div className="drawer-header">
+                        <span className="drawer-title">Sections</span>
+                        <button
+                            type="button"
+                            className="secondary drawer-close"
+                            aria-label="Close sections menu"
+                            onClick={() => setMenuOpen(false)}
+                        >
+                            Close
+                        </button>
+                    </div>
                     <nav
                         id="configuration-navigation"
                         className={menuOpen ? "menu-open" : ""}
@@ -473,31 +759,46 @@ export function ServerDashboard({
                         <span className={writable ? "status-pill live" : "status-pill"}>
                             {writable ? "Live" : connected ? "Read only" : "Offline"}
                         </span>
-                        <button type="button" className="secondary" onClick={tour.start}>
-                            Dashboard tour
-                        </button>
-                        {multi && (
-                            <div className="server-switch">
-                                <button
-                                    type="button"
-                                    className="secondary"
-                                    onClick={() => {
-                                        setMenuOpen(false)
-                                        go({})
-                                    }}
-                                >
-                                    Switch server
-                                </button>
-                                {drafts.size > 0 && (
-                                    <span className="field-help">
-                                        {drafts.size === 1
-                                            ? "1 section of this server has"
-                                            : `${drafts.size} sections of this server have`}{" "}
-                                        unsaved drafts. They stay in this tab until you save or discard them
-                                    </span>
-                                )}
-                            </div>
-                        )}
+                        <div className="server-toolbar-actions">
+                            <button
+                                type="button"
+                                className="secondary command-trigger"
+                                aria-label="Open command palette"
+                                onClick={() => setPaletteOpen(true)}
+                            >
+                                <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <circle cx="11" cy="11" r="7" />
+                                    <path d="M20 20l-3.5-3.5" />
+                                </svg>
+                                <span>Jump</span>
+                                <kbd>⌘K</kbd>
+                            </button>
+                            <button type="button" className="secondary" onClick={tour.start}>
+                                Dashboard tour
+                            </button>
+                            {multi && (
+                                <div className="server-switch">
+                                    <button
+                                        type="button"
+                                        className="secondary"
+                                        onClick={() => {
+                                            setMenuOpen(false)
+                                            go({})
+                                        }}
+                                    >
+                                        Switch server
+                                    </button>
+                                    {drafts.size > 0 && (
+                                        <span className="field-help">
+                                            {drafts.size === 1
+                                                ? "1 section of this server has"
+                                                : `${drafts.size} sections of this server have`}{" "}
+                                            unsaved drafts. They stay in this tab until you save or discard them
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                     {catalogError && (
                         <p className="notice error" role="alert">
@@ -527,7 +828,10 @@ export function ServerDashboard({
                     )}
                     <DraftScopeProvider value={draftScope}>
                         {Section ? (
-                            <div className="section-content" key={`${session.user.id}:${serverId}:${section}`}>
+                            <div
+                                className="section-content"
+                                key={`${session.user.id}:${serverId}:${section}:${draftResetKey}`}
+                            >
                                 <Section {...props} />
                             </div>
                         ) : sectionFailed ? (
@@ -547,6 +851,56 @@ export function ServerDashboard({
                     </DraftScopeProvider>
                 </div>
             </div>
+            {drafts.size > 0 && (
+                <aside className="floating-draft-bar" aria-label="Unsaved drafts">
+                    <div className="floating-draft-summary">
+                        <span className="floating-draft-dot" aria-hidden="true" />
+                        <span>
+                            {drafts.size === 1 ? "1 unsaved draft section" : `${drafts.size} unsaved draft sections`}
+                        </span>
+                    </div>
+                    <div className="floating-draft-links">
+                        {draftSectionIds.slice(0, 4).map((id) => (
+                            <button
+                                key={id}
+                                type="button"
+                                className={`secondary floating-draft-chip${id === section ? " is-active" : ""}`}
+                                onClick={() => openSection(id)}
+                            >
+                                {sectionNames[id]}
+                            </button>
+                        ))}
+                        {draftSectionIds.length > 4 && (
+                            <span className="muted floating-draft-more">+{draftSectionIds.length - 4} more</span>
+                        )}
+                    </div>
+                    <div className="floating-draft-actions">
+                        {confirmDiscardAll ? (
+                            <>
+                                <button
+                                    type="button"
+                                    className="danger-button"
+                                    onClick={() => {
+                                        clearServerDrafts(session.user.id, serverId)
+                                        setConfirmDiscardAll(false)
+                                        setDraftResetKey((value) => value + 1)
+                                    }}
+                                >
+                                    Confirm discard all
+                                </button>
+                                <button type="button" className="secondary" onClick={() => setConfirmDiscardAll(false)}>
+                                    Cancel
+                                </button>
+                            </>
+                        ) : (
+                            <button type="button" className="secondary" onClick={() => setConfirmDiscardAll(true)}>
+                                Discard all drafts
+                            </button>
+                        )}
+                    </div>
+                </aside>
+            )}
+            {commandPalette}
         </CatalogRefreshProvider>
     )
 }

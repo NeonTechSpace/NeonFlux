@@ -6,7 +6,7 @@ import { createElement, useState } from "react"
 import type { ConvexReactClient } from "convex/react"
 import type { PublishingDraft } from "@neonflux/contracts/publishing"
 import type { DashboardMessageJob } from "@neonflux/backend/dashboard-contracts"
-import { MessageBuilder } from "../src/message-builder.tsx"
+import { MessageBuilder, MessagePreview } from "../src/message-builder.tsx"
 import { Messages, MessagesSection } from "../src/messages.tsx"
 import { SavedMessageSend } from "../src/saved-message-send.tsx"
 import { DraftScopeProvider } from "../src/drafts.ts"
@@ -635,4 +635,49 @@ test("A failed or unconfirmed send keeps one request ID, a failed job allows a n
     })
     assert.equal(requests.length, 3)
     assert.notEqual(requests[2]?.requestId, requests[1]?.requestId)
+})
+
+test("Message preview allows only HTTPS image, thumbnail and author icon URLs with no-referrer policy", () => {
+    const valid = render(
+        createElement(MessagePreview, {
+            message: {
+                content: "Preview",
+                embed: {
+                    author: { name: "Staff", iconUrl: "https://cdn.example.test/author.png" },
+                    thumbnail: { url: "https://cdn.example.test/thumb.png", description: "Thumb" },
+                    image: { url: "https://cdn.example.test/image.png", description: "Banner" },
+                    footer: { text: "Foot", iconUrl: "https://cdn.example.test/foot.png" },
+                },
+            },
+        }),
+    )
+    const imgs = [...valid.container.querySelectorAll("img")]
+    assert.equal(imgs.length, 4)
+    for (const img of imgs) {
+        assert.equal(img.getAttribute("referrerpolicy"), "no-referrer")
+        assert.ok(img.getAttribute("src")?.startsWith("https://cdn.example.test/"))
+    }
+    cleanup()
+    for (const unsafeUrl of [
+        "http://insecure.example.test/pic.png",
+        "javascript:alert(1)",
+        "data:image/svg+xml,<svg/>",
+        "https://user:pass@cdn.example.test/pic.png",
+    ]) {
+        const unsafe = render(
+            createElement(MessagePreview, {
+                message: {
+                    content: "Preview",
+                    embed: {
+                        author: { name: "Staff", iconUrl: unsafeUrl },
+                        thumbnail: { url: unsafeUrl },
+                        image: { url: unsafeUrl },
+                        footer: { text: "Foot", iconUrl: unsafeUrl },
+                    },
+                },
+            }),
+        )
+        assert.equal(unsafe.container.querySelectorAll("img").length, 0, `rejects ${unsafeUrl}`)
+        cleanup()
+    }
 })

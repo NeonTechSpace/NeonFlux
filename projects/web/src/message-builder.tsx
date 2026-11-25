@@ -336,6 +336,18 @@ export function MessageBuilder({
     )
 }
 
+/** Accepts only clean HTTPS image URLs without embedded credentials for untrusted embed previews */
+export function safeHttpsUrl(raw: string | undefined): string | undefined {
+    if (!raw) return undefined
+    try {
+        const parsed = new URL(raw)
+        if (parsed.protocol !== "https:" || parsed.username || parsed.password) return undefined
+        return parsed.href
+    } catch {
+        return undefined
+    }
+}
+
 export function MessagePreview({
     message,
     profile = "publishing",
@@ -346,6 +358,10 @@ export function MessagePreview({
     heading?: string
 }) {
     const embed = message.embed
+    const thumbnailUrl = safeHttpsUrl(embed?.thumbnail?.url)
+    const imageUrl = safeHttpsUrl(embed?.image?.url)
+    const authorIconUrl = safeHttpsUrl(embed?.author?.iconUrl)
+    const footerIconUrl = safeHttpsUrl(embed?.footer?.iconUrl)
     let warning = ""
     try {
         if (profile === "response") validateResponseMessage(message)
@@ -363,14 +379,27 @@ export function MessagePreview({
                     className="preview-embed"
                     style={{ borderLeftColor: `#${(embed.color ?? 0).toString(16).padStart(6, "0")}` }}
                 >
-                    {embed.thumbnail?.url && (
+                    {thumbnailUrl && (
                         <img
                             className="preview-thumbnail"
-                            src={embed.thumbnail.url}
-                            alt={embed.thumbnail.description ?? "Embed thumbnail"}
+                            src={thumbnailUrl}
+                            alt={embed.thumbnail?.description ?? "Embed thumbnail"}
+                            referrerPolicy="no-referrer"
                         />
                     )}
-                    {embed.author && <p className="preview-author">{embed.author.name}</p>}
+                    {embed.author && (
+                        <p className="preview-author">
+                            {authorIconUrl && (
+                                <img
+                                    className="preview-author-icon"
+                                    src={authorIconUrl}
+                                    alt=""
+                                    referrerPolicy="no-referrer"
+                                />
+                            )}
+                            <span>{embed.author.name}</span>
+                        </p>
+                    )}
                     {embed.title && <h3>{embed.title}</h3>}
                     {embed.description && <div className="preview-text">{embed.description}</div>}
                     <div className="preview-fields">
@@ -381,14 +410,27 @@ export function MessagePreview({
                             </div>
                         ))}
                     </div>
-                    {embed.image?.url && (
+                    {imageUrl && (
                         <img
                             className="preview-image"
-                            src={embed.image.url}
-                            alt={embed.image.description ?? "Embed image"}
+                            src={imageUrl}
+                            alt={embed.image?.description ?? "Embed image"}
+                            referrerPolicy="no-referrer"
                         />
                     )}
-                    {embed.footer && <p className="muted">{embed.footer.text}</p>}
+                    {embed.footer && (
+                        <p className="preview-footer muted">
+                            {footerIconUrl && (
+                                <img
+                                    className="preview-footer-icon"
+                                    src={footerIconUrl}
+                                    alt=""
+                                    referrerPolicy="no-referrer"
+                                />
+                            )}
+                            <span>{embed.footer.text}</span>
+                        </p>
+                    )}
                     {embed.timestamp && <small className="muted">{embed.timestamp}</small>}
                 </div>
             )}

@@ -1,15 +1,8 @@
-import {
-    createCipheriv,
-    createDecipheriv,
-    createHash,
-    createHmac,
-    hkdfSync,
-    randomBytes,
-    timingSafeEqual,
-} from "node:crypto"
 import type { DashboardSession } from "@neonflux/backend/dashboard-contracts"
 import { ConvexError } from "convex/values"
 import { inviteUrl } from "./invite.ts"
+import { clientIpKey, createSlidingWindowRateLimiter, type RateLimiter, type TrustProxyMode } from "./rate-limit.ts"
+import { apiSecurityHeaders } from "./security-headers.ts"
 
 export interface AuthConfig {
     origin: string
@@ -17,6 +10,11 @@ export interface AuthConfig {
     clientSecret: string
     convexUrl: string
     sessionSecret: string
+    trustProxy?: TrustProxyMode
+}
+export interface AuthRateLimiters {
+    auth: RateLimiter
+    api: RateLimiter
 }
 export interface AuthDependencies {
     config: AuthConfig
@@ -26,6 +24,7 @@ export interface AuthDependencies {
     refresh: (sessionToken: string) => Promise<DashboardSession>
     rotate: (sessionToken: string, accessToken: string) => Promise<unknown>
     logout: (sessionToken: string) => Promise<unknown>
+    rateLimiters?: AuthRateLimiters
 }
 const sessionCookie = "neonflux_session"
 const handshakeCookie = "neonflux_oauth"
@@ -35,12 +34,150 @@ const maxHandshakeAge = 10 * 60 * 1000
 const sessionAge = 90 * 86400
 // The access token is renewed once less than this remains, so it never runs out while the dashboard is in use
 const refreshMargin = 3600 * 1000
-const privateHeaders = {
-    "Cache-Control": "no-store",
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff",
-}
+export const PROVIDER_DISCOVERY_TTL_MS = 15 * 60 * 1000
+const HANDSHAKE_KEY_INFO = "neonflux oauth handshake cookie v1"
+const REFRESH_KEY_INFO = "neonflux refresh cookie v1"
+const MAX_DERIVED_KEYS = 32
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
+
 class ClientMismatch extends Error {}
+
+const isHttpsOrigin = (origin: string) => origin.startsWith("https:")
+export function sessionCookieName(origin: string): string {
+    return isHttpsOrigin(origin) ? `__Host-${sessionCookie}` : sessionCookie
+}
+export function handshakeCookieName(origin: string): string {
+    return isHttpsOrigin(origin) ? `__Host-${handshakeCookie}` : handshakeCookie
+}
+export function refreshCookieName(origin: string): string {
+    return isHttpsOrigin(origin) ? `__Secure-${refreshCookie}` : refreshCookie
+}
+
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+const BASE64URL_LOOKUP = new Int16Array(128).fill(-1)
+for (let index = 0; index < BASE64_ALPHABET.length; index++) {
+    const ch = BASE64_ALPHABET.charCodeAt(index)
+    BASE64URL_LOOKUP[ch] = index
+}
+BASE64URL_LOOKUP["-".charCodeAt(0)] = 62
+BASE64URL_LOOKUP["_".charCodeAt(0)] = 63
+
+function bytesToBase64(bytes: Uint8Array): string {
+    let out = ""
+    for (let index = 0; index < bytes.length; index += 3) {
+        const a = bytes[index]!
+        const b = bytes[index + 1]
+        const c = bytes[index + 2]
+        const triplet = (a << 16) | ((b ?? 0) << 8) | (c ?? 0)
+        out += BASE64_ALPHABET[(triplet >>> 18) & 63]!
+        out += BASE64_ALPHABET[(triplet >>> 12) & 63]!
+        out += b === undefined ? "=" : BASE64_ALPHABET[(triplet >>> 6) & 63]!
+        out += c === undefined ? "=" : BASE64_ALPHABET[triplet & 63]!
+    }
+    return out
+}
+function bytesToBase64Url(bytes: Uint8Array): string {
+    return bytesToBase64(bytes).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+}
+function base64UrlToBytes(input: string): Uint8Array | undefined {
+    const remainder = input.length % 4
+    if (remainder === 1) return undefined
+    const outputLength = Math.floor((input.length * 3) / 4)
+    const out = new Uint8Array(outputLength)
+    let outIndex = 0
+    for (let index = 0; index < input.length; index += 4) {
+        const c0 = input.charCodeAt(index)
+        const c1 = input.charCodeAt(index + 1)
+        const c2 = index + 2 < input.length ? input.charCodeAt(index + 2) : -1
+        const c3 = index + 3 < input.length ? input.charCodeAt(index + 3) : -1
+        const v0 = c0 < 128 ? BASE64URL_LOOKUP[c0]! : -1
+        const v1 = c1 < 128 ? BASE64URL_LOOKUP[c1]! : -1
+        const v2 = c2 === -1 ? 0 : c2 < 128 ? BASE64URL_LOOKUP[c2]! : -1
+        const v3 = c3 === -1 ? 0 : c3 < 128 ? BASE64URL_LOOKUP[c3]! : -1
+        if (v0 < 0 || v1 < 0 || v2 < 0 || v3 < 0) return undefined
+        const triplet = (v0 << 18) | (v1 << 12) | (v2 << 6) | v3
+        out[outIndex++] = (triplet >>> 16) & 255
+        if (c2 !== -1 && outIndex < outputLength) out[outIndex++] = (triplet >>> 8) & 255
+        if (c3 !== -1 && outIndex < outputLength) out[outIndex++] = triplet & 255
+    }
+    return out
+}
+function bytesToHex(bytes: Uint8Array): string {
+    let hex = ""
+    for (let index = 0; index < bytes.length; index++) hex += bytes[index]!.toString(16).padStart(2, "0")
+    return hex
+}
+function randomBytes(length: number): Uint8Array<ArrayBuffer> {
+    const bytes = new Uint8Array(new ArrayBuffer(length))
+    globalThis.crypto.getRandomValues(bytes)
+    return bytes
+}
+function constantTimeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
+    const length = Math.max(a.length, b.length)
+    let diff = a.length ^ b.length
+    for (let index = 0; index < length; index++) diff |= (a[index] ?? 0) ^ (b[index] ?? 0)
+    return diff === 0
+}
+function constantTimeEqualString(a: string, b: string): boolean {
+    return constantTimeEqualBytes(encoder.encode(a), encoder.encode(b))
+}
+async function sha256Bytes(value: string): Promise<Uint8Array> {
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", encoder.encode(value))
+    return new Uint8Array(digest)
+}
+async function sessionHash(sessionToken: string): Promise<string> {
+    return bytesToHex(await sha256Bytes(sessionToken))
+}
+
+const derivedKeys = new Map<string, Promise<CryptoKey>>()
+function deriveAesGcmKey(secret: string, info: string): Promise<CryptoKey> {
+    const cacheKey = `${info}\0${secret}`
+    const cached = derivedKeys.get(cacheKey)
+    if (cached) return cached
+    const derived = (async () => {
+        const keyMaterial = await globalThis.crypto.subtle.importKey("raw", encoder.encode(secret), "HKDF", false, [
+            "deriveKey",
+        ])
+        return globalThis.crypto.subtle.deriveKey(
+            { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: encoder.encode(info) },
+            keyMaterial,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["encrypt", "decrypt"],
+        )
+    })()
+    if (derivedKeys.size >= MAX_DERIVED_KEYS) {
+        const oldest = derivedKeys.keys().next().value
+        if (oldest !== undefined) derivedKeys.delete(oldest)
+    }
+    derivedKeys.set(cacheKey, derived)
+    return derived
+}
+async function sealJson(payload: unknown, secret: string, info: string): Promise<string> {
+    const key = await deriveAesGcmKey(secret, info)
+    const iv = randomBytes(12)
+    const plaintext = encoder.encode(JSON.stringify(payload))
+    const encrypted = new Uint8Array(await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext))
+    const combined = new Uint8Array(iv.length + encrypted.length)
+    combined.set(iv, 0)
+    combined.set(encrypted, iv.length)
+    return bytesToBase64Url(combined)
+}
+async function openJson(raw: string | undefined, secret: string, info: string, maxLength: number): Promise<unknown> {
+    if (!raw || raw.length > maxLength || !/^[\w-]+$/.test(raw)) return undefined
+    const bytes = base64UrlToBytes(raw)
+    if (!bytes || bytes.length <= 28) return undefined
+    try {
+        const key = await deriveAesGcmKey(secret, info)
+        const iv = bytes.slice(0, 12)
+        const ciphertext = bytes.slice(12)
+        const plaintext = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext)
+        return JSON.parse(decoder.decode(plaintext)) as unknown
+    } catch {
+        return undefined
+    }
+}
 
 export function cookieValue(request: Request, name = sessionCookie): string | undefined {
     const values = (request.headers.get("cookie") ?? "")
@@ -53,10 +190,12 @@ export function cookieValue(request: Request, name = sessionCookie): string | un
 // reads http: behind it. Only its host is compared. The browser's Origin header still has to match the origin in full
 const sameHost = (request: Request, origin: string) => new URL(request.url).host === new URL(origin).host
 export function sameOrigin(request: Request, origin: string): boolean {
+    const fetchSite = request.headers.get("sec-fetch-site")
+    if (fetchSite !== null && fetchSite !== "same-origin") return false
     return sameHost(request, origin) && request.headers.get("origin") === origin
 }
 function cookie(config: AuthConfig, name: string, value: string, maxAge: number): string {
-    return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${config.origin.startsWith("https:") ? "; Secure" : ""}`
+    return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${isHttpsOrigin(config.origin) ? "; Secure" : ""}`
 }
 /**
  * The Fluxer refresh token, the access token's end, the session it belongs to and that session's latest end. The web server
@@ -68,46 +207,53 @@ interface RefreshState {
     session: string
     until: number
 }
-const sessionHash = (sessionToken: string) => createHash("sha256").update(sessionToken).digest("hex")
-const refreshKey = (secret: string) => Buffer.from(hkdfSync("sha256", secret, "", "neonflux refresh cookie", 32))
+interface HandshakeState {
+    state: string
+    verifier: string
+    issuedAt: number
+    returnTo: string
+}
 // Browsers keep a cookie only while its name and value together stay within 4096 bytes, so that is the only bound on a refresh
 // token: One whose encrypted state does not fit gets no cookie, and the session then ends when its access token does
-const maxRefreshValue = 4096 - `${refreshCookie}=`.length
-function refreshCookieHeader(config: AuthConfig, state: RefreshState | undefined, now: number): string {
+const maxCookieValue = (name: string) => 4096 - `${name}=`.length
+async function refreshCookieHeader(config: AuthConfig, state: RefreshState | undefined, now: number): Promise<string> {
+    const name = refreshCookieName(config.origin)
+    const maxValue = maxCookieValue(name)
     let value = "",
         maxAge = 0
     if (state) {
-        const iv = randomBytes(12),
-            cipher = createCipheriv("aes-256-gcm", refreshKey(config.sessionSecret), iv)
-        const data = Buffer.concat([cipher.update(JSON.stringify(state), "utf8"), cipher.final()])
-        const sealed = Buffer.concat([iv, cipher.getAuthTag(), data]).toString("base64url")
+        const sealed = await sealJson(state, config.sessionSecret, REFRESH_KEY_INFO)
         // A rotated token that does not fit replaced the stored one at Fluxer, so the cookie is cleared rather than kept
-        if (sealed.length <= maxRefreshValue) {
+        if (sealed.length <= maxValue) {
             value = sealed
             maxAge = Math.max(0, Math.floor((state.until - now) / 1000))
         }
     }
-    return `${refreshCookie}=${value}; Path=/api/session; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${config.origin.startsWith("https:") ? "; Secure" : ""}`
+    return `${name}=${value}; Path=/api/session; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${isHttpsOrigin(config.origin) ? "; Secure" : ""}`
 }
-function openRefreshCookie(raw: string | undefined, config: AuthConfig): RefreshState | undefined {
-    if (!raw || raw.length > maxRefreshValue || !/^[\w-]+$/.test(raw)) return
-    const bytes = Buffer.from(raw, "base64url")
-    if (bytes.length <= 28) return
-    try {
-        const decipher = createDecipheriv("aes-256-gcm", refreshKey(config.sessionSecret), bytes.subarray(0, 12))
-        decipher.setAuthTag(bytes.subarray(12, 28))
-        const state = JSON.parse(
-            Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString("utf8"),
-        ) as Partial<RefreshState>
-        return refreshToken(state.refreshToken) &&
-            Number.isSafeInteger(state.accessExpiresAt) &&
-            typeof state.session === "string" &&
-            Number.isSafeInteger(state.until)
-            ? (state as RefreshState)
-            : undefined
-    } catch {
-        return
-    }
+async function openRefreshCookie(raw: string | undefined, config: AuthConfig): Promise<RefreshState | undefined> {
+    const name = refreshCookieName(config.origin)
+    const parsed = (await openJson(raw, config.sessionSecret, REFRESH_KEY_INFO, maxCookieValue(name))) as
+        Partial<RefreshState> | undefined
+    if (!parsed || typeof parsed !== "object") return undefined
+    return refreshToken(parsed.refreshToken) &&
+        Number.isSafeInteger(parsed.accessExpiresAt) &&
+        typeof parsed.session === "string" &&
+        Number.isSafeInteger(parsed.until)
+        ? (parsed as RefreshState)
+        : undefined
+}
+async function openHandshakeCookie(raw: string | undefined, config: AuthConfig): Promise<HandshakeState | undefined> {
+    const name = handshakeCookieName(config.origin)
+    const parsed = (await openJson(raw, config.sessionSecret, HANDSHAKE_KEY_INFO, maxCookieValue(name))) as
+        Partial<HandshakeState> | undefined
+    if (!parsed || typeof parsed !== "object") return undefined
+    return typeof parsed.state === "string" &&
+        typeof parsed.verifier === "string" &&
+        typeof parsed.issuedAt === "number" &&
+        typeof parsed.returnTo === "string"
+        ? (parsed as HandshakeState)
+        : undefined
 }
 const refreshToken = (value: unknown): value is string =>
     typeof value === "string" && value.length > 0 && !/\s/.test(value)
@@ -119,25 +265,6 @@ type RefreshOutcome = { keep: true } | { state: RefreshState } | { clear: true }
 const refreshes = new Map<string, { outcome: Promise<RefreshOutcome>; settledAt?: number }>()
 const sharedRefreshMs = 60 * 1000
 
-function signature(value: string, secret: string): string {
-    return createHmac("sha256", secret).update(value).digest("base64url")
-}
-function decodeHandshake(
-    raw: string | undefined,
-    config: AuthConfig,
-): { state: string; verifier: string; issuedAt: number; returnTo: string } | undefined {
-    if (!raw || raw.length > 4096) return
-    const [value, mac, extra] = raw.split(".")
-    if (!value || !mac || extra || !/^[\w-]+$/.test(mac)) return
-    const supplied = Buffer.from(mac, "base64url"),
-        expected = Buffer.from(signature(value, config.sessionSecret), "base64url")
-    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return
-    try {
-        return JSON.parse(Buffer.from(value, "base64url").toString("utf8"))
-    } catch {
-        return
-    }
-}
 function safeReturnTo(value: string | null): string {
     if (value === "/") return value
     if (value && /^\/verify\?token=[a-f0-9]{32}$/.test(value)) return value
@@ -148,7 +275,18 @@ function safeReturnTo(value: string | null): string {
 export function authorizeUrl(api: string, query: URLSearchParams): string {
     return `${api}/v1/oauth2/authorize?${query}`
 }
-export async function discoverProvider(fetcher: typeof fetch): Promise<string> {
+
+interface DiscoveryCacheEntry {
+    api?: string
+    expiresAt: number
+    inFlight?: Promise<string>
+}
+let discoveryCache = new WeakMap<typeof fetch, DiscoveryCacheEntry>()
+/** Clears cached provider discovery documents, mainly for deterministic tests */
+export function clearProviderDiscoveryCache(): void {
+    discoveryCache = new WeakMap<typeof fetch, DiscoveryCacheEntry>()
+}
+async function fetchProviderDiscovery(fetcher: typeof fetch): Promise<string> {
     let response = await fetcher("https://fluxer.app/.well-known/fluxer", {
         signal: AbortSignal.timeout(5000),
         redirect: "manual",
@@ -166,13 +304,34 @@ export async function discoverProvider(fetcher: typeof fetch): Promise<string> {
     if (
         url.protocol !== "https:" ||
         url.hostname !== "api.fluxer.app" ||
+        url.port ||
         url.username ||
         url.password ||
         url.search ||
-        url.hash
+        url.hash ||
+        api.includes("?") ||
+        api.includes("#")
     )
         throw new Error("Provider discovery unavailable")
-    return api.replace(/\/$/, "")
+    return url.href.replace(/\/$/, "")
+}
+export async function discoverProvider(fetcher: typeof fetch, now: () => number = Date.now): Promise<string> {
+    const existing = discoveryCache.get(fetcher)
+    if (existing?.api !== undefined && now() < existing.expiresAt) return existing.api
+    if (existing?.inFlight) return existing.inFlight
+    const cache = discoveryCache
+    const pending = fetchProviderDiscovery(fetcher).then(
+        (api) => {
+            if (cache === discoveryCache) cache.set(fetcher, { api, expiresAt: now() + PROVIDER_DISCOVERY_TTL_MS })
+            return api
+        },
+        (error: unknown) => {
+            if (cache === discoveryCache && cache.get(fetcher)?.inFlight === pending) cache.delete(fetcher)
+            throw error
+        },
+    )
+    cache.set(fetcher, { expiresAt: 0, inFlight: pending })
+    return pending
 }
 // The backend refused the session itself, so it has ended
 const ended = (error: unknown) =>
@@ -181,30 +340,59 @@ const ended = (error: unknown) =>
     error.data !== null &&
     "status" in error.data &&
     (error.data.status === 401 || error.data.status === 403)
-function signedOut(config: AuthConfig): Headers {
+async function signedOut(config: AuthConfig): Promise<Headers> {
     const headers = new Headers()
-    headers.append("Set-Cookie", cookie(config, sessionCookie, "", 0))
-    headers.append("Set-Cookie", refreshCookieHeader(config, undefined, 0))
+    headers.append("Set-Cookie", cookie(config, sessionCookieName(config.origin), "", 0))
+    headers.append("Set-Cookie", await refreshCookieHeader(config, undefined, 0))
     return headers
+}
+
+export function createDefaultAuthRateLimiters(): AuthRateLimiters {
+    return {
+        auth: createSlidingWindowRateLimiter({ limit: 30, windowMs: 60_000 }),
+        api: createSlidingWindowRateLimiter({ limit: 120, windowMs: 60_000 }),
+    }
 }
 
 export function createAuthHandlers(deps: AuthDependencies) {
     const { config } = deps
+    const limiters = deps.rateLimiters ?? createDefaultAuthRateLimiters()
+    const baseHeaders = apiSecurityHeaders(config.origin)
     const json = (data: unknown, status = 200, extra: HeadersInit = {}) => {
-        const headers = new Headers(privateHeaders)
+        const headers = new Headers(baseHeaders)
         new Headers(extra).forEach((value, name) => headers.append(name, value))
         return Response.json(data, { status, headers })
     }
     const redirect = (location: string, cookies: string[]) => {
-        const headers = new Headers({ ...privateHeaders, Location: location })
+        const headers = new Headers({ ...baseHeaders, Location: location })
         for (const value of cookies) headers.append("Set-Cookie", value)
         return new Response(null, { status: 303, headers })
+    }
+    const tooMany = (retryAfterSeconds: number) =>
+        json({ error: "Too many requests. Try again shortly" }, 429, { "Retry-After": String(retryAfterSeconds) })
+    async function enforceRateLimit(
+        bucket: keyof AuthRateLimiters,
+        request: Request,
+        sessionToken?: string,
+    ): Promise<Response | undefined> {
+        const now = deps.now()
+        const limiter = limiters[bucket]
+        const ip = clientIpKey(request, config.trustProxy)
+        if (ip) {
+            const ipCheck = limiter.check(`${bucket}:ip:${ip}`, now)
+            if (!ipCheck.allowed) return tooMany(ipCheck.retryAfterSeconds)
+        }
+        if (sessionToken) {
+            const sessionCheck = limiter.check(`${bucket}:session:${await sessionHash(sessionToken)}`, now)
+            if (!sessionCheck.allowed) return tooMany(sessionCheck.retryAfterSeconds)
+        }
+        return undefined
     }
     // Asks Fluxer for a new access token and hands it to the backend. An outcome that is not known is never repeated
     async function renewAccess(sessionToken: string, state: RefreshState): Promise<RefreshOutcome> {
         let api: string
         try {
-            api = await discoverProvider(deps.fetch)
+            api = await discoverProvider(deps.fetch, deps.now)
         } catch {
             // Nothing was sent yet, so the refresh token is unspent and a later call tries again
             return { keep: true }
@@ -261,24 +449,25 @@ export function createAuthHandlers(deps: AuthDependencies) {
     // failure leaves only a token no one holds
     async function revoke(refreshToken: string): Promise<void> {
         try {
-            const api = await discoverProvider(deps.fetch)
+            const api = await discoverProvider(deps.fetch, deps.now)
+            const credentials = bytesToBase64(encoder.encode(`${config.clientId}:${config.clientSecret}`))
             await deps.fetch(`${api}/v1/oauth2/token/revoke`, {
                 method: "POST",
                 redirect: "error",
                 signal: AbortSignal.timeout(5000),
                 headers: {
-                    Authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
+                    Authorization: `Basic ${credentials}`,
                     "Content-Type": "application/x-www-form-urlencoded",
                 },
                 body: new URLSearchParams({ token: refreshToken, token_type_hint: "refresh_token" }),
             })
         } catch {}
     }
-    function sharedRenewal(sessionToken: string, state: RefreshState): Promise<RefreshOutcome> {
+    async function sharedRenewal(sessionToken: string, state: RefreshState): Promise<RefreshOutcome> {
         const now = deps.now()
         for (const [key, entry] of refreshes)
             if (entry.settledAt !== undefined && now - entry.settledAt > sharedRefreshMs) refreshes.delete(key)
-        const key = sessionHash(`${state.session} ${state.refreshToken}`),
+        const key = await sessionHash(`${state.session} ${state.refreshToken}`),
             found = refreshes.get(key)
         if (found) return found.outcome
         const entry: { outcome: Promise<RefreshOutcome>; settledAt?: number } = {
@@ -291,49 +480,59 @@ export function createAuthHandlers(deps: AuthDependencies) {
     }
     return {
         async begin(request: Request): Promise<Response> {
+            const limited = await enforceRateLimit("auth", request)
+            if (limited) return limited
             if (!sameHost(request, config.origin)) return json({ error: "Invalid website origin" }, 400)
-            const state = randomBytes(32).toString("base64url"),
-                verifier = randomBytes(32).toString("base64url")
+            const state = bytesToBase64Url(randomBytes(32)),
+                verifier = bytesToBase64Url(randomBytes(32))
             const returnTo = safeReturnTo(new URL(request.url).searchParams.get("returnTo"))
-            const value = Buffer.from(JSON.stringify({ state, verifier, returnTo, issuedAt: deps.now() })).toString(
-                "base64url",
+            const sealed = await sealJson(
+                { state, verifier, returnTo, issuedAt: deps.now() } satisfies HandshakeState,
+                config.sessionSecret,
+                HANDSHAKE_KEY_INFO,
             )
+            const codeChallenge = bytesToBase64Url(await sha256Bytes(verifier))
             const query = new URLSearchParams({
                 client_id: config.clientId,
                 redirect_uri: `${config.origin}/auth/fluxer/callback`,
                 response_type: "code",
                 scope: "identify guilds",
                 state,
-                code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+                code_challenge: codeChallenge,
                 code_challenge_method: "S256",
             })
             try {
-                const api = await discoverProvider(deps.fetch)
+                const api = await discoverProvider(deps.fetch, deps.now)
                 return redirect(authorizeUrl(api, query), [
-                    cookie(config, handshakeCookie, `${value}.${signature(value, config.sessionSecret)}`, 600),
+                    cookie(config, handshakeCookieName(config.origin), sealed, 600),
                 ])
             } catch {
                 return json({ error: "Fluxer sign-in is temporarily unavailable. Try again" }, 503)
             }
         },
         async callback(request: Request): Promise<Response> {
-            const clear = cookie(config, handshakeCookie, "", 0)
-            const handshake = decodeHandshake(cookieValue(request, handshakeCookie), config)
+            const limited = await enforceRateLimit("auth", request)
+            if (limited) return limited
+            const handshakeName = handshakeCookieName(config.origin)
+            const clear = cookie(config, handshakeName, "", 0)
+            const handshake = await openHandshakeCookie(cookieValue(request, handshakeName), config)
             const params = new URL(request.url).searchParams
+            const returnedState = params.get("state")
             if (
                 !sameHost(request, config.origin) ||
                 !handshake ||
                 typeof handshake.issuedAt !== "number" ||
                 deps.now() < handshake.issuedAt ||
                 deps.now() - handshake.issuedAt > maxHandshakeAge ||
-                params.get("state") !== handshake.state
+                returnedState === null ||
+                !constantTimeEqualString(returnedState, handshake.state)
             ) {
                 return redirect("/?authError=state", [clear])
             }
             const code = params.get("code")
             if (params.has("error") || !code || code.length > 256) return redirect("/?authError=denied", [clear])
             try {
-                const api = await discoverProvider(deps.fetch)
+                const api = await discoverProvider(deps.fetch, deps.now)
                 const response = await deps.fetch(`${api}/v1/oauth2/token`, {
                     method: "POST",
                     redirect: "error",
@@ -385,14 +584,14 @@ export function createAuthHandlers(deps: AuthDependencies) {
                         ? {
                               refreshToken: data.refresh_token,
                               accessExpiresAt: now + data.expires_in * 1000,
-                              session: sessionHash(session.sessionToken),
+                              session: await sessionHash(session.sessionToken),
                               until: now + sessionAge * 1000,
                           }
                         : undefined
                 return redirect(safeReturnTo(handshake.returnTo), [
                     clear,
-                    cookie(config, sessionCookie, session.sessionToken, sessionAge),
-                    refreshCookieHeader(config, refresh, now),
+                    cookie(config, sessionCookieName(config.origin), session.sessionToken, sessionAge),
+                    await refreshCookieHeader(config, refresh, now),
                 ])
             } catch (error) {
                 // A client secret of another application than the deployment's FLUXER_CLIENT_ID is an operator problem, not a retryable outage
@@ -410,16 +609,18 @@ export function createAuthHandlers(deps: AuthDependencies) {
             }
         },
         async session(request: Request): Promise<Response> {
+            const token = cookieValue(request, sessionCookieName(config.origin))
+            const limited = await enforceRateLimit("api", request, token)
+            if (limited) return limited
             if (!sameOrigin(request, config.origin)) return json({ error: "Invalid website origin" }, 403)
-            const token = cookieValue(request)
             if (!token) return json({ user: null }, 401)
             const headers = new Headers(),
-                state = openRefreshCookie(cookieValue(request, refreshCookie), config),
+                state = await openRefreshCookie(cookieValue(request, refreshCookieName(config.origin)), config),
                 now = deps.now()
             // A refresh cookie of another session or past its session's end is ignored
             if (
                 state &&
-                state.session === sessionHash(token) &&
+                state.session === (await sessionHash(token)) &&
                 state.until > now &&
                 state.accessExpiresAt - now < refreshMargin
             ) {
@@ -427,7 +628,7 @@ export function createAuthHandlers(deps: AuthDependencies) {
                 if (!("keep" in outcome))
                     headers.append(
                         "Set-Cookie",
-                        refreshCookieHeader(config, "state" in outcome ? outcome.state : undefined, deps.now()),
+                        await refreshCookieHeader(config, "state" in outcome ? outcome.state : undefined, deps.now()),
                     )
             }
             try {
@@ -444,23 +645,25 @@ export function createAuthHandlers(deps: AuthDependencies) {
                     headers,
                 )
             } catch (error) {
-                if (ended(error)) return json({ error: "Session expired. Sign in again" }, 401, signedOut(config))
+                if (ended(error)) return json({ error: "Session expired. Sign in again" }, 401, await signedOut(config))
                 return json({ error: "Session refresh unavailable. Try again" }, 503, headers)
             }
         },
         async logout(request: Request): Promise<Response> {
+            const token = cookieValue(request, sessionCookieName(config.origin))
+            const limited = await enforceRateLimit("api", request, token)
+            if (limited) return limited
             if (!sameOrigin(request, config.origin)) return json({ error: "Invalid website origin" }, 403)
-            const token = cookieValue(request)
             if (token) {
                 try {
                     await deps.logout(token)
                 } catch {
                     return json({ error: "Sign-out failed. Try again" }, 503)
                 }
-                const state = openRefreshCookie(cookieValue(request, refreshCookie), config)
-                if (state && state.session === sessionHash(token)) await revoke(state.refreshToken)
+                const state = await openRefreshCookie(cookieValue(request, refreshCookieName(config.origin)), config)
+                if (state && state.session === (await sessionHash(token))) await revoke(state.refreshToken)
             }
-            return json({ signedOut: true }, 200, signedOut(config))
+            return json({ signedOut: true }, 200, await signedOut(config))
         },
     }
 }

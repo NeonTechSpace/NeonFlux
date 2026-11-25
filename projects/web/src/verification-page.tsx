@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import type { VerificationView } from "@neonflux/backend/verification-contracts"
 import { VERIFICATION_SOLVE_TTL, type SparkSample } from "@neonflux/contracts/motion-captcha"
 import { SessionProvider, SignIn, useSession } from "./session"
+import { BrandMark } from "./brand-mark"
 import { MotionCanvas } from "./motion-canvas"
 import { Turnstile } from "./turnstile"
 
@@ -20,7 +21,12 @@ function VerificationSession({ token }: { token: string }) {
     return (
         <main className="verification-main">
             <header className="verification-brand">
-                <a href="/">NeonFlux</a>
+                <a className="verification-brand-link" href="/">
+                    <BrandMark size="sm" />
+                    <span>
+                        Neon<span className="brand-flux">Flux</span>
+                    </span>
+                </a>
                 <span>Server access</span>
             </header>
             {!token ? (

@@ -22,16 +22,25 @@ function ProfileForm({
         [links, setLinks] = useState(profile?.links.join("\n") ?? ""),
         [accent, setAccent] = useState(profile ? profile.color !== null : false),
         [color, setColor] = useState(hex(profile?.color ?? 0x3d66b8))
+    const parsedLinks = linkLines(links)
+    const nextColor = accent ? Number.parseInt(color.slice(1), 16) : null
+    const unchanged =
+        profile !== null &&
+        bio.trim() === profile.bio &&
+        nextColor === profile.color &&
+        parsedLinks.length === profile.links.length &&
+        parsedLinks.every((link, index) => link === profile.links[index])
     return (
         <form
             className="role-section"
             onSubmit={(event) => {
                 event.preventDefault()
+                if (unchanged) return
                 onSubmit({
                     type: "save",
                     bio: bio.trim(),
-                    links: linkLines(links),
-                    color: accent ? Number.parseInt(color.slice(1), 16) : null,
+                    links: parsedLinks,
+                    color: nextColor,
                 })
             }}
         >
@@ -76,9 +85,10 @@ function ProfileForm({
                 </label>
             )}
             <div className="actions">
-                <button type="submit" disabled={disabled || linkLines(links).length > 3}>
+                <button type="submit" disabled={disabled || unchanged || parsedLinks.length > 3}>
                     Save profile
                 </button>
+                {profile !== null && <span className="muted">{unchanged ? "Up to date" : "Unsaved changes"}</span>}
             </div>
         </form>
     )

@@ -1,8 +1,16 @@
 import { isSparkPath } from "@neonflux/contracts/motion-captcha"
 import { anyApi, type FunctionArgs, type FunctionReturnType } from "convex/server"
 import type { VerificationApi } from "@neonflux/backend/verification-contracts"
-import { cookieValue, sameOrigin } from "./auth.ts"
-import { webRuntime } from "./auth-runtime.ts"
+import { cookieValue, sameOrigin, sessionCookieName } from "./auth.ts"
+import { securityHeaderContext, webRuntime } from "./auth-runtime.ts"
+import {
+    clientIpKey,
+    createSlidingWindowRateLimiter,
+    hashRateLimitKey,
+    type RateLimiter,
+    type TrustProxyMode,
+} from "./rate-limit.ts"
+import { apiSecurityHeaders } from "./security-headers.ts"
 
 // The backend functions behind each operation, typed by their own definitions
 const verification = (anyApi as unknown as { verification: VerificationApi }).verification
@@ -11,12 +19,48 @@ type VerificationBridge = {
         args: FunctionArgs<VerificationApi[K]>,
     ) => Promise<FunctionReturnType<VerificationApi[K]>>
 }
-const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" }
-export function createVerificationHandler(origin: string, bridge: VerificationBridge, turnstileSiteKey = "") {
+export interface VerificationHandlerOptions {
+    rateLimiter?: RateLimiter
+    now?: () => number
+    trustProxy?: TrustProxyMode
+}
+const defaultVerificationRateLimiter = createSlidingWindowRateLimiter({ limit: 60, windowMs: 60_000 })
+
+export function createVerificationHandler(
+    origin: string,
+    bridge: VerificationBridge,
+    turnstileSiteKey = "",
+    options: VerificationHandlerOptions = {},
+) {
+    const headers = apiSecurityHeaders(origin)
+    const rateLimiter = options.rateLimiter ?? createSlidingWindowRateLimiter({ limit: 60, windowMs: 60_000 })
+    const now = options.now ?? Date.now
+    const trustProxy = options.trustProxy ?? false
     return async (request: Request): Promise<Response> => {
+        const sessionToken = cookieValue(request, sessionCookieName(origin))
+        const checkedAt = now()
+        const ip = clientIpKey(request, trustProxy)
+        if (ip) {
+            const ipCheck = rateLimiter.check(`verification:ip:${ip}`, checkedAt)
+            if (!ipCheck.allowed)
+                return Response.json(
+                    { error: "Too many requests. Try again shortly" },
+                    { status: 429, headers: { ...headers, "Retry-After": String(ipCheck.retryAfterSeconds) } },
+                )
+        }
+        if (sessionToken) {
+            const sessionCheck = rateLimiter.check(
+                `verification:session:${await hashRateLimitKey(sessionToken)}`,
+                checkedAt,
+            )
+            if (!sessionCheck.allowed)
+                return Response.json(
+                    { error: "Too many requests. Try again shortly" },
+                    { status: 429, headers: { ...headers, "Retry-After": String(sessionCheck.retryAfterSeconds) } },
+                )
+        }
         if (!sameOrigin(request, origin))
             return Response.json({ error: "Invalid website origin" }, { status: 403, headers })
-        const sessionToken = cookieValue(request)
         if (!sessionToken) return Response.json({ error: "Sign in before verification" }, { status: 401, headers })
         if (Number(request.headers.get("content-length") ?? 0) > 16384)
             return Response.json({ error: "Invalid request" }, { status: 400, headers })
@@ -134,8 +178,13 @@ export async function verificationRoute(request: Request): Promise<Response> {
                 answer: (args) => client.action(verification.answer, args),
             },
             settings.turnstileSiteKey,
+            { rateLimiter: defaultVerificationRateLimiter, trustProxy: settings.trustProxy },
         )(request)
     } catch {
-        return Response.json({ error: "Verification is not configured" }, { status: 503, headers })
+        const origin = securityHeaderContext().websiteUrl ?? request.url
+        return Response.json(
+            { error: "Verification is not configured" },
+            { status: 503, headers: apiSecurityHeaders(origin) },
+        )
     }
 }

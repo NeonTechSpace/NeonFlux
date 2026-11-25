@@ -13,6 +13,7 @@ import type {
 } from "@neonflux/backend/dashboard-contracts"
 import type { WebSession } from "../src/dashboard-api.ts"
 import { ServerDashboard } from "../src/dashboard.tsx"
+import { preloadMemberViews } from "../src/dashboard-sections.tsx"
 import { PrivateCasesSection } from "../src/private-cases.tsx"
 import { auditFeatures } from "../src/audit-log.tsx"
 
@@ -25,6 +26,7 @@ for (const [name, value] of Object.entries({
 }))
     Object.defineProperty(globalThis, name, { value, configurable: true })
 const { render, fireEvent, cleanup, act, within } = await import("@testing-library/react")
+await preloadMemberViews()
 afterEach(cleanup)
 
 const record = (caseNo: number, extra: Partial<ModerationCase> = {}): ModerationCase => ({

@@ -11,13 +11,15 @@ import type {
     DashboardSetupCheck,
 } from "@neonflux/backend/dashboard-contracts"
 import type { WebSession } from "../src/dashboard-api.ts"
-import { ServerDashboard, dashboardHref, dashboardSearch } from "../src/dashboard.tsx"
+import { Dashboard, ManagedDashboard, ServerDashboard, dashboardHref, dashboardSearch } from "../src/dashboard.tsx"
 import type { DashboardLocation } from "../src/dashboard.tsx"
 import { navigation, preloadSections } from "../src/dashboard-sections.tsx"
 import type { SectionId } from "../src/dashboard-sections.tsx"
 import { SearchPicker } from "../src/search-picker.tsx"
 import { parseSearch, stringifySearch } from "../src/search-params.ts"
 import { ConfigForm } from "../src/configuration-form.tsx"
+import { useLiveQuery } from "../src/live-query.ts"
+import { dashboardApi } from "../src/dashboard-api.ts"
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost:3000" })
 for (const [name, value] of Object.entries({
@@ -579,4 +581,342 @@ test("A permission check the bot did not answer says so", () => {
     setupCheck = { serverId: "2", state: "failed", requestedAt: 1, problems: [] }
     const { ui } = harness("single", servers.slice(0, 1))
     assert.match(ui.getByRole("alert").textContent ?? "", /NeonFlux did not answer/)
+})
+
+test("Command palette opens with Cmd/Ctrl+K, searches sections and servers, and jumps on Enter", async () => {
+    const { ui } = harness("multi")
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Configure Synthetic Alpha" }))
+    })
+    await act(async () => {
+        fireEvent.keyDown(window, { key: "k", ctrlKey: true })
+    })
+    const dialog = ui.getByRole("dialog", { name: "Command palette" })
+    const input = within(dialog).getByRole("searchbox", { name: "Jump to a section or server" })
+    fireEvent.change(input, { target: { value: "audit" } })
+    await act(async () => {
+        fireEvent.keyDown(dialog, { key: "Enter" })
+    })
+    assert.ok(ui.queryByRole("dialog", { name: "Command palette" }) === null)
+    assert.equal(nav(ui, "Audit log").getAttribute("aria-current"), "page")
+    // Also jumps directly to another server in multi-server mode
+    await act(async () => {
+        fireEvent.click(ui.getByRole("button", { name: "Open command palette" }))
+    })
+    const serverDialog = ui.getByRole("dialog", { name: "Command palette" })
+    // Pressing Enter on the Esc close button must not navigate to the highlighted option
+    const closeBtn = within(serverDialog).getByRole("button", { name: "Esc" })
+    fireEvent.keyDown(closeBtn, { key: "Enter" })
+    assert.equal(nav(ui, "Audit log").getAttribute("aria-current"), "page")
+    fireEvent.change(within(serverDialog).getByRole("searchbox", { name: "Jump to a section or server" }), {
+        target: { value: "Synthetic beta" },
+    })
+    await act(async () => {
+        fireEvent.keyDown(serverDialog, { key: "Enter" })
+    })
+    assert.ok(ui.getByRole("heading", { name: "Synthetic beta" }))
+})
+
+test("Sidebar collapses cleanly and floating unsaved-changes bar jumps to and discards drafts", async () => {
+    const { ui } = harness("single", servers.slice(0, 1))
+    const toggle = ui.getByRole("button", { name: "Collapse sidebar" })
+    assert.equal(toggle.getAttribute("aria-expanded"), "true")
+    fireEvent.click(toggle)
+    assert.equal(ui.getByRole("button", { name: "Expand sidebar" }).getAttribute("aria-expanded"), "false")
+    assert.equal(window.localStorage.getItem("neonflux:sidebar-collapsed"), "1")
+    fireEvent.click(ui.getByRole("button", { name: "Expand sidebar" }))
+    window.localStorage.clear()
+    await act(async () => {
+        fireEvent.click(nav(ui, "General"))
+    })
+    fireEvent.change(prefix(ui), { target: { value: "$" } })
+    await act(async () => {
+        fireEvent.click(nav(ui, "Overview"))
+    })
+    const bar = ui.getByRole("complementary", { name: "Unsaved drafts" })
+    assert.ok(within(bar).getByText("1 unsaved draft section"))
+    await act(async () => {
+        fireEvent.click(within(bar).getByRole("button", { name: "General" }))
+    })
+    assert.equal(nav(ui, "General").getAttribute("aria-current"), "page")
+    assert.equal(prefix(ui).value, "$")
+    fireEvent.click(
+        within(ui.getByRole("complementary", { name: "Unsaved drafts" })).getByRole("button", {
+            name: "Discard all drafts",
+        }),
+    )
+    await act(async () => {
+        fireEvent.click(
+            within(ui.getByRole("complementary", { name: "Unsaved drafts" })).getByRole("button", {
+                name: "Confirm discard all",
+            }),
+        )
+    })
+    assert.ok(ui.queryByRole("complementary", { name: "Unsaved drafts" }) === null)
+    assert.equal(prefix(ui).value, "!")
+})
+
+test("Switching sessionToken in useLiveQuery immediately drops the previous account's data", () => {
+    const fakeClient = {
+        watchQuery(_query: unknown, args: { sessionToken: string }) {
+            return {
+                localQueryResult: () =>
+                    args.sessionToken === "account-a" ? { secret: "Account A private case" } : undefined,
+                onUpdate: () => () => {},
+            }
+        },
+    } as unknown as ConvexReactClient
+    function Probe({ sessionToken }: { sessionToken: string }) {
+        const { data } = useLiveQuery(fakeClient, dashboardApi.privateAccess, {
+            sessionToken,
+            serverId: "2",
+        })
+        return createElement("p", { "data-testid": "probe" }, JSON.stringify(data ?? null))
+    }
+    const ui = render(createElement(Probe, { sessionToken: "account-a" }))
+    assert.ok(ui.getByTestId("probe").textContent?.includes("Account A private case"))
+    // Switching accounts must never render Account A's cached data while Account B loads
+    ui.rerender(createElement(Probe, { sessionToken: "account-b" }))
+    assert.equal(ui.getByTestId("probe").textContent, "null")
+})
+
+test("useLiveQuery marks warm SWR cache snapshots as not fresh until a live update arrives", async () => {
+    let liveValue: unknown = { state: "done", checkedAt: 100 }
+    let notify: (() => void) | undefined
+    const fakeClient = {
+        watchQuery() {
+            return {
+                localQueryResult: () => liveValue,
+                onUpdate: (callback: () => void) => {
+                    notify = callback
+                    return () => {}
+                },
+            }
+        },
+    } as unknown as ConvexReactClient
+    function Probe() {
+        const { data, fresh } = useLiveQuery(fakeClient, dashboardApi.setupCheck, {
+            sessionToken: "account-swr",
+            serverId: "2",
+        })
+        return createElement("p", { "data-testid": "swr" }, `${fresh}:${JSON.stringify(data ?? null)}`)
+    }
+    const first = render(createElement(Probe))
+    assert.ok(first.getByTestId("swr").textContent?.startsWith("true:"))
+    first.unmount()
+    // Next mount sees cached SWR data immediately with fresh=false until the live subscription delivers
+    liveValue = undefined
+    const second = render(createElement(Probe))
+    assert.equal(second.getByTestId("swr").textContent, 'false:{"state":"done","checkedAt":100}')
+    liveValue = { state: "done", checkedAt: 200 }
+    await act(async () => {
+        notify?.()
+    })
+    assert.equal(second.getByTestId("swr").textContent, 'true:{"state":"done","checkedAt":200}')
+    second.unmount()
+})
+
+test("ManagedDashboard clears caches before mounting a switched account so the new account catalog loads", async () => {
+    const catalogCalls: Array<{
+        sessionToken: string
+        resolve: (value: {
+            serverId: string
+            channels: never[]
+            roles: { id: string; name: string; position: number; managed: boolean }[]
+        }) => void
+    }> = []
+    const client = {
+        connectionState: () => ({ isWebSocketConnected: true }),
+        subscribeToConnectionState: () => () => {},
+        close: async () => {},
+        mutation: async () => null,
+        action: async (_ref: unknown, args: { sessionToken: string; serverId: string }) =>
+            new Promise((resolve) => {
+                catalogCalls.push({ sessionToken: args.sessionToken, resolve })
+            }),
+        watchQuery: (ref: unknown, args: { serverId: string; family?: string }) => {
+            const name = getFunctionName(ref as never)
+            return {
+                localQueryResult: () => result(name, args),
+                onUpdate: () => () => {},
+            }
+        },
+    } as unknown as ConvexReactClient
+    const factory = () => client
+    const sessionFor = (userId: string, name: string, sessionToken: string): WebSession => ({
+        sessionToken,
+        convexUrl: "https://synthetic.invalid",
+        expiresAt: 1,
+        user: { id: userId, name },
+        mode: "single",
+        servers: [servers[0]!],
+    })
+    const ui = render(
+        createElement(ManagedDashboard, {
+            session: sessionFor("1", "Account A", "tok-a"),
+            accessAvailable: true,
+            refreshSession: () => {},
+            refreshingSession: false,
+            clientFactory: factory,
+            location: { server: "2" },
+            navigate: () => {},
+        }),
+    )
+    assert.equal(catalogCalls.length, 1)
+    assert.equal(catalogCalls[0]!.sessionToken, "tok-a")
+    await act(async () => {
+        catalogCalls[0]!.resolve({
+            serverId: "2",
+            channels: [],
+            roles: [{ id: "40", name: "AccountARole", position: 1, managed: false }],
+        })
+    })
+    // Account A catalog is cached in sessionStorage
+    const keysAfterA = Array.from({ length: window.sessionStorage.length }, (_, i) =>
+        window.sessionStorage.key(i),
+    ).filter((key) => key?.startsWith("neonflux.catalog.v1:"))
+    assert.equal(keysAfterA.length, 1)
+    // Switch accounts in-place through ManagedDashboard
+    ui.rerender(
+        createElement(ManagedDashboard, {
+            session: sessionFor("2", "Account B", "tok-b"),
+            accessAvailable: true,
+            refreshSession: () => {},
+            refreshingSession: false,
+            clientFactory: factory,
+            location: { server: "2" },
+            navigate: () => {},
+        }),
+    )
+    // Account A's cached catalog was cleared before Account B mounted and requested its own catalog
+    assert.equal(window.sessionStorage.getItem(keysAfterA[0]!), null)
+    assert.equal(catalogCalls.length, 2)
+    assert.equal(catalogCalls[1]!.sessionToken, "tok-b")
+    await act(async () => {
+        catalogCalls[1]!.resolve({
+            serverId: "2",
+            channels: [],
+            roles: [{ id: "50", name: "AccountBRole", position: 1, managed: false }],
+        })
+    })
+    // Account B's catalog response was accepted and stored, not discarded by the clear generation
+    const keysAfterB = Array.from({ length: window.sessionStorage.length }, (_, i) =>
+        window.sessionStorage.key(i),
+    ).filter((key) => key?.startsWith("neonflux.catalog.v1:"))
+    assert.equal(keysAfterB.length, 1)
+    assert.ok(window.sessionStorage.getItem(keysAfterB[0]!)?.includes("AccountBRole"))
+    assert.ok(!window.sessionStorage.getItem(keysAfterB[0]!)?.includes("AccountARole"))
+    ui.unmount()
+})
+
+test("Dashboard clears Account A sessionStorage cache across a tab-return re-verification switch to Account B", async () => {
+    const sessionFor = (userId: string, name: string, sessionToken: string): WebSession => ({
+        sessionToken,
+        convexUrl: "https://synthetic.invalid",
+        expiresAt: 1,
+        user: { id: userId, name },
+        mode: "single",
+        servers: [servers[0]!],
+    })
+    let activeSession = sessionFor("1", "Account A", "tab-tok-a")
+    let resolvePendingSession: ((response: Response) => void) | undefined
+    const originalFetch = globalThis.fetch
+    let now = 1_700_000_000_000
+    const dateNow = mock.method(Date, "now", () => now)
+    let visibility: DocumentVisibilityState = "visible"
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState")
+    Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => visibility,
+    })
+    const catalogCalls: Array<{
+        sessionToken: string
+        resolve: (value: {
+            serverId: string
+            channels: never[]
+            roles: { id: string; name: string; position: number; managed: boolean }[]
+        }) => void
+    }> = []
+    const client = {
+        connectionState: () => ({ isWebSocketConnected: true }),
+        subscribeToConnectionState: () => () => {},
+        close: async () => {},
+        mutation: async () => null,
+        action: async (_ref: unknown, args: { sessionToken: string; serverId: string }) =>
+            new Promise((resolve) => {
+                catalogCalls.push({ sessionToken: args.sessionToken, resolve })
+            }),
+        watchQuery: (ref: unknown, args: { serverId: string; family?: string }) => {
+            const name = getFunctionName(ref as never)
+            return {
+                localQueryResult: () => result(name, args),
+                onUpdate: () => () => {},
+            }
+        },
+    } as unknown as ConvexReactClient
+    let sessionFetchCount = 0
+    globalThis.fetch = (async () => {
+        sessionFetchCount += 1
+        if (sessionFetchCount === 1) return Response.json(activeSession)
+        return new Promise<Response>((resolve) => {
+            resolvePendingSession = resolve
+        })
+    }) as typeof fetch
+    const storageCatalogKeys = () =>
+        Array.from({ length: window.sessionStorage.length }, (_, i) => window.sessionStorage.key(i)).filter((key) =>
+            key?.startsWith("neonflux.catalog.v1:"),
+        )
+    try {
+        const ui = render(
+            createElement(Dashboard, { clientFactory: () => client, location: { server: "2" }, navigate: () => {} }),
+        )
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 10))
+        })
+        assert.equal(catalogCalls.length, 1)
+        assert.equal(catalogCalls[0]!.sessionToken, "tab-tok-a")
+        await act(async () => {
+            catalogCalls[0]!.resolve({
+                serverId: "2",
+                channels: [],
+                roles: [{ id: "40", name: "TabAccountARole", position: 1, managed: false }],
+            })
+        })
+        const keysAfterA = storageCatalogKeys()
+        assert.equal(keysAfterA.length, 1)
+        // Hide the tab for >60s, switch session to Account B, and return so verifyingReturn unmounts ManagedDashboard
+        visibility = "hidden"
+        fireEvent(document, new window.Event("visibilitychange"))
+        now += 65_000
+        activeSession = sessionFor("2", "Account B", "tab-tok-b")
+        visibility = "visible"
+        fireEvent(document, new window.Event("visibilitychange"))
+        assert.ok(ui.getByText("Verifying your sign-in and permissions…"))
+        assert.ok(resolvePendingSession)
+        await act(async () => {
+            resolvePendingSession!(Response.json(activeSession))
+            await new Promise((resolve) => setTimeout(resolve, 10))
+        })
+        // Account A's cached catalog is gone and Account B's catalog call started after the clear
+        assert.equal(window.sessionStorage.getItem(keysAfterA[0]!), null)
+        assert.equal(catalogCalls.length, 2)
+        assert.equal(catalogCalls[1]!.sessionToken, "tab-tok-b")
+        await act(async () => {
+            catalogCalls[1]!.resolve({
+                serverId: "2",
+                channels: [],
+                roles: [{ id: "50", name: "TabAccountBRole", position: 1, managed: false }],
+            })
+        })
+        const keysAfterB = storageCatalogKeys()
+        assert.equal(keysAfterB.length, 1)
+        assert.ok(window.sessionStorage.getItem(keysAfterB[0]!)?.includes("TabAccountBRole"))
+        assert.ok(!window.sessionStorage.getItem(keysAfterB[0]!)?.includes("TabAccountARole"))
+        ui.unmount()
+    } finally {
+        globalThis.fetch = originalFetch
+        dateNow.mock.restore()
+        if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility)
+        else delete (document as { visibilityState?: unknown }).visibilityState
+    }
 })

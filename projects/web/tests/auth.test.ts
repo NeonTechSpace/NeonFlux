@@ -2,7 +2,14 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { createHash } from "node:crypto"
 import { ConvexError } from "convex/values"
-import { createAuthHandlers, discoverProvider } from "../src/server/auth.ts"
+import {
+    PROVIDER_DISCOVERY_TTL_MS,
+    clearProviderDiscoveryCache,
+    createAuthHandlers,
+    discoverProvider,
+} from "../src/server/auth.ts"
+import { createSlidingWindowRateLimiter } from "../src/server/rate-limit.ts"
+import { applySecurityHeaders, buildContentSecurityPolicy } from "../src/server/security-headers.ts"
 import { readWebSettings } from "../src/server/auth-runtime.ts"
 import type { AuthDependencies } from "../src/server/auth.ts"
 
@@ -68,12 +75,19 @@ test("OAuth uses bound state, S256 PKCE and exact callback, and keeps provider c
         ),
     )
     assert.equal(response.headers.get("location"), `/verify?token=${"a".repeat(32)}`)
-    assert.equal(f.calls[2]?.url, "https://api.fluxer.app/v1/oauth2/token")
-    const body = f.calls[2]!.init!.body as URLSearchParams
+    assert.equal(f.calls.filter((call) => call.url.endsWith("/.well-known/fluxer")).length, 1)
+    const tokenCall = f.calls.find((call) => call.url === "https://api.fluxer.app/v1/oauth2/token")
+    assert.ok(tokenCall)
+    const body = tokenCall.init!.body as URLSearchParams
     assert.equal(
         createHash("sha256").update(body.get("code_verifier")!).digest("base64url"),
         started.location.searchParams.get("code_challenge"),
     )
+    // Handshake cookie is AES-256-GCM encrypted so verifier and returnTo are never readable in plaintext
+    const rawCookieValue = started.cookie.slice("neonflux_oauth=".length)
+    assert.equal(rawCookieValue.includes("."), false)
+    assert.equal(Buffer.from(rawCookieValue, "base64url").toString("utf8").includes("/verify?token="), false)
+    assert.equal(Buffer.from(rawCookieValue, "base64url").toString("utf8").includes(body.get("code_verifier")!), false)
     assert.deepEqual(f.admitted, ["synthetic-provider-token"])
     assert.equal(
         response.headers.getSetCookie().some((cookie) => cookie.includes("synthetic-provider-token")),
@@ -82,11 +96,20 @@ test("OAuth uses bound state, S256 PKCE and exact callback, and keeps provider c
     const exposed = await f.handlers.session(
         new Request(`${origin}/api/session`, {
             method: "POST",
-            headers: { origin, cookie: "neonflux_session=synthetic-session-capability" },
+            headers: {
+                origin,
+                "sec-fetch-site": "same-origin",
+                cookie: "neonflux_session=synthetic-session-capability",
+            },
         }),
     )
     assert.equal(exposed.status, 200)
-    assert.equal(exposed.headers.get("cache-control"), "no-store")
+    assert.equal(exposed.headers.get("cache-control"), "private, no-store")
+    assert.equal(exposed.headers.get("x-frame-options"), "DENY")
+    assert.equal(exposed.headers.get("x-content-type-options"), "nosniff")
+    assert.equal(exposed.headers.get("referrer-policy"), "no-referrer")
+    assert.equal(exposed.headers.get("permissions-policy"), "camera=(), microphone=(), geolocation=()")
+    assert.equal(exposed.headers.get("strict-transport-security"), null)
     const data = await exposed.json()
     assert.equal(data.sessionToken, session.sessionToken)
     assert.equal(JSON.stringify(data).includes("synthetic-provider-token"), false)
@@ -166,9 +189,13 @@ test("The web environment keeps its own settings and names problems without valu
             clientSecret: valid.FLUXER_CLIENT_SECRET,
             sessionSecret: valid.WEB_SESSION_SECRET,
             turnstileSiteKey: "",
+            trustProxy: false,
         },
         problems: [],
     })
+    assert.equal(readWebSettings({ ...valid, TRUST_PROXY: "cloudflare" }).settings?.trustProxy, "cloudflare")
+    assert.equal(readWebSettings({ ...valid, TRUST_PROXY: "forwarded" }).settings?.trustProxy, "forwarded")
+    assert.equal(readWebSettings({ ...valid, TRUST_PROXY: "invalid" }).settings?.trustProxy, false)
     const broken = readWebSettings({ CONVEX_URL: "not a URL", WEB_SESSION_SECRET: "synthetic-private-short" })
     assert.equal(broken.settings, undefined)
     assert.deepEqual(
@@ -375,16 +402,41 @@ test("Sign-in keeps the session for 90 days and the refresh token only in an enc
     assert.equal(fresh.status, 200)
     assert.deepEqual([f.refreshes, cookieNamed(fresh, "neonflux_refresh")], [[], undefined])
     assert.equal(JSON.stringify(await fresh.json()).includes(f.refreshToken), false)
-    // HTTPS origins mark the cookie Secure
+    // HTTPS origins use __Host- and __Secure- cookie prefixes, Secure flag, and Strict-Transport-Security
     const secure = refreshFixture({ origin: "https://dashboard.invalid" }),
         started = await secure.handlers.begin(new Request("https://dashboard.invalid/auth/fluxer"))
+    const oauthCookie = cookieNamed(started, "__Host-neonflux_oauth")!
+    assert.match(oauthCookie, /^__Host-neonflux_oauth=[\w-]+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=600; Secure$/)
+    assert.equal(started.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains")
     const signedIn = await secure.handlers.callback(
         new Request(
             `https://dashboard.invalid/auth/fluxer/callback?code=x&state=${new URL(started.headers.get("location")!).searchParams.get("state")}`,
-            { headers: { cookie: started.headers.getSetCookie()[0]!.split(";")[0]! } },
+            { headers: { cookie: oauthCookie.split(";")[0]! } },
         ),
     )
-    assert.match(cookieNamed(signedIn, "neonflux_refresh")!, /; Secure$/)
+    assert.match(
+        cookieNamed(signedIn, "__Host-neonflux_session")!,
+        /^__Host-neonflux_session=synthetic-session-capability; Path=\/; HttpOnly; SameSite=Lax; Max-Age=7776000; Secure$/,
+    )
+    assert.match(
+        cookieNamed(signedIn, "__Secure-neonflux_refresh")!,
+        /^__Secure-neonflux_refresh=[\w-]+; Path=\/api\/session; HttpOnly; SameSite=Strict; Max-Age=7776000; Secure$/,
+    )
+    const httpsSession = await secure.handlers.session(
+        new Request("https://dashboard.invalid/api/session", {
+            method: "POST",
+            headers: {
+                origin: "https://dashboard.invalid",
+                "sec-fetch-site": "same-origin",
+                cookie: [
+                    cookieNamed(signedIn, "__Host-neonflux_session")!.split(";")[0]!,
+                    cookieNamed(signedIn, "__Secure-neonflux_refresh")!.split(";")[0]!,
+                ].join("; "),
+            },
+        }),
+    )
+    assert.equal(httpsSession.status, 200)
+    assert.equal(httpsSession.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains")
 })
 test("A session call with under an hour of access left renews the token once, stores it and keeps the new refresh token", async () => {
     const f = refreshFixture(),
@@ -691,4 +743,209 @@ test("Behind a TLS proxy the request URL reads http, and sign-in still works on 
     assert.equal((await session({ origin: "http://dashboard.example.test" })).status, 403)
     assert.equal((await session({ origin: "https://other.example.test" })).status, 403)
     assert.equal((await session({ origin: httpsOrigin })).status, 401)
+})
+
+test("Sec-Fetch-Site rejects cross-site, same-site and none values on state-changing API requests", async () => {
+    let revoked = false
+    const f = fixture({
+        logout: async () => {
+            revoked = true
+        },
+    })
+    for (const fetchSite of ["cross-site", "same-site", "none", ""]) {
+        for (const method of ["session", "logout"] as const) {
+            const response = await f.handlers[method](
+                new Request(`${origin}/api/session`, {
+                    method: method === "logout" ? "DELETE" : "POST",
+                    headers: {
+                        origin,
+                        "sec-fetch-site": fetchSite,
+                        cookie: "neonflux_session=synthetic-session-capability",
+                    },
+                }),
+            )
+            assert.equal(response.status, 403)
+        }
+    }
+    assert.equal(revoked, false)
+    const allowed = await f.handlers.session(
+        new Request(`${origin}/api/session`, {
+            method: "POST",
+            headers: {
+                origin,
+                "sec-fetch-site": "same-origin",
+                cookie: "neonflux_session=synthetic-session-capability",
+            },
+        }),
+    )
+    assert.equal(allowed.status, 200)
+})
+
+test("HKDF domain separation prevents decrypting a handshake cookie as a refresh cookie", async () => {
+    const f = refreshFixture()
+    const started = await begin(f)
+    const handshakeValue = started.cookie.slice("neonflux_oauth=".length)
+    f.clock.now += 604800000
+    const response = await f.handlers.session(sessionCall(`neonflux_refresh=${handshakeValue}`))
+    assert.equal(response.status, 200)
+    assert.deepEqual(f.refreshes, [])
+})
+
+test("Sliding-window rate limiter enforces trusted proxy IP limits, ignores spoofed headers, returns 429 with Retry-After, and stays bounded", async () => {
+    let now = 1000
+    const authLimiter = createSlidingWindowRateLimiter({ limit: 2, windowMs: 10_000, maxEntries: 3 })
+    const apiLimiter = createSlidingWindowRateLimiter({ limit: 2, windowMs: 10_000, maxEntries: 3 })
+    const f = fixture({
+        config: {
+            origin,
+            clientId: "synthetic-client-id",
+            clientSecret: "synthetic-client-secret",
+            convexUrl: "https://synthetic.convex.cloud",
+            sessionSecret: "synthetic-handshake-key-longer-than-thirty-two",
+            trustProxy: "cloudflare",
+        },
+        now: () => now,
+        rateLimiters: { auth: authLimiter, api: apiLimiter },
+    })
+    const authReq = () => new Request(`${origin}/auth/fluxer`, { headers: { "cf-connecting-ip": "198.51.100.10" } })
+    assert.equal((await f.handlers.begin(authReq())).status, 303)
+    now += 1000
+    assert.equal((await f.handlers.begin(authReq())).status, 303)
+    now += 1000
+    const blocked = await f.handlers.begin(authReq())
+    assert.equal(blocked.status, 429)
+    assert.equal(blocked.headers.get("retry-after"), "8")
+    // Different IP is unaffected, and exceeding maxEntries evicts cleanly without throwing
+    for (const ip of ["198.51.100.11", "198.51.100.12", "198.51.100.13"]) {
+        const res = await f.handlers.begin(
+            new Request(`${origin}/auth/fluxer`, { headers: { "cf-connecting-ip": ip } }),
+        )
+        assert.equal(res.status, 303)
+    }
+    // Original window expires and requests succeed again
+    now += 11_000
+    assert.equal((await f.handlers.begin(authReq())).status, 303)
+    // API session rate limiter returns 429 + Retry-After per session/IP
+    const apiReq = (ip = "198.51.100.20") =>
+        new Request(`${origin}/api/session`, {
+            method: "POST",
+            headers: {
+                origin,
+                "cf-connecting-ip": ip,
+                cookie: "neonflux_session=synthetic-session-capability",
+            },
+        })
+    assert.equal((await f.handlers.session(apiReq())).status, 200)
+    assert.equal((await f.handlers.session(apiReq())).status, 200)
+    const apiBlocked = await f.handlers.session(apiReq("198.51.100.21"))
+    assert.equal(apiBlocked.status, 429)
+    assert.ok(Number(apiBlocked.headers.get("retry-after")) >= 1)
+    // Without trustProxy, spoofed proxy headers are ignored and anonymous users do not share a single global bucket
+    const untrusted = fixture({
+        now: () => now,
+        rateLimiters: {
+            auth: createSlidingWindowRateLimiter({ limit: 2, windowMs: 10_000 }),
+            api: createSlidingWindowRateLimiter({ limit: 2, windowMs: 10_000 }),
+        },
+    })
+    for (let attempt = 0; attempt < 4; attempt++) {
+        const res = await untrusted.handlers.begin(
+            new Request(`${origin}/auth/fluxer`, { headers: { "cf-connecting-ip": "198.51.100.55" } }),
+        )
+        assert.equal(res.status, 303)
+    }
+    // Authenticated session rate limit still enforces even when proxy headers are spoofed
+    const untrustedSession = (ip: string) =>
+        new Request(`${origin}/api/session`, {
+            method: "POST",
+            headers: {
+                origin,
+                "x-forwarded-for": ip,
+                cookie: "neonflux_session=synthetic-session-capability",
+            },
+        })
+    assert.equal((await untrusted.handlers.session(untrustedSession("198.51.100.1"))).status, 200)
+    assert.equal((await untrusted.handlers.session(untrustedSession("198.51.100.2"))).status, 200)
+    assert.equal((await untrusted.handlers.session(untrustedSession("198.51.100.3"))).status, 429)
+    // Forwarded proxy mode uses rightmost X-Forwarded-For and ignores spoofed X-Real-IP
+    const forwarded = fixture({
+        config: {
+            origin,
+            clientId: "synthetic-client-id",
+            clientSecret: "synthetic-client-secret",
+            convexUrl: "https://synthetic.convex.cloud",
+            sessionSecret: "synthetic-handshake-key-longer-than-thirty-two",
+            trustProxy: "forwarded",
+        },
+        now: () => now,
+        rateLimiters: {
+            auth: createSlidingWindowRateLimiter({ limit: 2, windowMs: 10_000 }),
+            api: createSlidingWindowRateLimiter({ limit: 2, windowMs: 10_000 }),
+        },
+    })
+    const fwdReq = (realIp: string, xff: string) =>
+        new Request(`${origin}/auth/fluxer`, { headers: { "x-real-ip": realIp, "x-forwarded-for": xff } })
+    assert.equal((await forwarded.handlers.begin(fwdReq("203.0.113.1", "10.0.0.1, 198.51.100.77"))).status, 303)
+    assert.equal((await forwarded.handlers.begin(fwdReq("203.0.113.2", "10.0.0.2, 198.51.100.77"))).status, 303)
+    assert.equal((await forwarded.handlers.begin(fwdReq("203.0.113.3", "10.0.0.3, 198.51.100.77"))).status, 429)
+})
+
+test("Provider discovery caches for 15 minutes, deduplicates in-flight requests, and does not cache errors", async () => {
+    clearProviderDiscoveryCache()
+    let now = 10_000
+    let calls = 0
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+        release = resolve
+    })
+    const fetcher = (async () => {
+        calls++
+        if (calls === 1) await gate
+        return Response.json({ endpoints: { api_public: "https://api.fluxer.app" } })
+    }) as typeof fetch
+    const first = discoverProvider(fetcher, () => now)
+    const second = discoverProvider(fetcher, () => now)
+    release()
+    assert.deepEqual(await Promise.all([first, second]), ["https://api.fluxer.app", "https://api.fluxer.app"])
+    assert.equal(calls, 1)
+    now += PROVIDER_DISCOVERY_TTL_MS - 1
+    assert.equal(await discoverProvider(fetcher, () => now), "https://api.fluxer.app")
+    assert.equal(calls, 1)
+    now += 1
+    assert.equal(await discoverProvider(fetcher, () => now), "https://api.fluxer.app")
+    assert.equal(calls, 2)
+    // Transient failure is not cached
+    let fail = true
+    let flakyCalls = 0
+    const flaky = (async () => {
+        flakyCalls++
+        if (fail) return new Response("unavailable", { status: 503 })
+        return Response.json({ endpoints: { api_public: "https://api.fluxer.app" } })
+    }) as typeof fetch
+    await assert.rejects(discoverProvider(flaky, () => now))
+    fail = false
+    assert.equal(await discoverProvider(flaky, () => now), "https://api.fluxer.app")
+    assert.equal(flakyCalls, 2)
+})
+
+test("Security headers attach strict CSP, Turnstile and Convex allowances, and HTTPS-only HSTS", () => {
+    const csp = buildContentSecurityPolicy({ https: true, convexUrl: "https://demo.convex.cloud" })
+    assert.ok(csp.includes("https://challenges.cloudflare.com"))
+    assert.ok(csp.includes("https://*.convex.cloud"))
+    assert.ok(csp.includes("wss://*.convex.cloud"))
+    assert.ok(csp.includes("wss://demo.convex.cloud"))
+    assert.ok(csp.includes("frame-ancestors 'none'"))
+    assert.ok(csp.includes("upgrade-insecure-requests"))
+    const httpsRes = applySecurityHeaders(new Response("<html></html>"), {
+        https: true,
+        convexUrl: "https://demo.convex.cloud",
+    })
+    assert.equal(httpsRes.headers.get("x-frame-options"), "DENY")
+    assert.equal(httpsRes.headers.get("referrer-policy"), "no-referrer")
+    assert.equal(httpsRes.headers.get("x-content-type-options"), "nosniff")
+    assert.equal(httpsRes.headers.get("permissions-policy"), "camera=(), microphone=(), geolocation=()")
+    assert.equal(httpsRes.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains")
+    const httpRes = applySecurityHeaders(new Response("<html></html>"), { https: false })
+    assert.equal(httpRes.headers.get("strict-transport-security"), null)
+    assert.equal(httpRes.headers.get("content-security-policy")?.includes("upgrade-insecure-requests"), false)
 })

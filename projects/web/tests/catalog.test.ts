@@ -5,7 +5,14 @@ import { createElement } from "react"
 import { getFunctionName } from "convex/server"
 import type { ConvexReactClient } from "convex/react"
 import type { DashboardCatalog } from "@neonflux/backend/dashboard-contracts"
-import { CATALOG_REFRESH_MS, CatalogRefreshProvider, useCatalog, useInviteReturn } from "../src/catalog.tsx"
+import {
+    CATALOG_FRESH_MS,
+    CATALOG_REFRESH_MS,
+    CatalogRefreshProvider,
+    clearCatalogCache,
+    useCatalog,
+    useInviteReturn,
+} from "../src/catalog.tsx"
 import type { CatalogClock } from "../src/catalog.tsx"
 import { SearchPicker } from "../src/search-picker.tsx"
 
@@ -18,7 +25,10 @@ for (const [name, value] of Object.entries({
 }))
     Object.defineProperty(globalThis, name, { value, configurable: true })
 const { render, fireEvent, cleanup, act } = await import("@testing-library/react")
-afterEach(cleanup)
+afterEach(() => {
+    cleanup()
+    window.sessionStorage.clear()
+})
 
 // A clock the test moves by hand, so the wait between catalog calls never depends on real time
 function manualClock() {
@@ -193,4 +203,88 @@ test("Coming back from the bot invitation refreshes once, and a later return wit
     fireEvent(window, new window.Event("focus"))
     fireEvent(document, new window.Event("visibilitychange"))
     assert.equal(returns, 1)
+})
+
+test("Catalog uses short-TTL sessionStorage cache, revalidates when stale, bypasses on refresh, and clears on sign-out", async () => {
+    const time = manualClock(),
+        live = catalogClient()
+    const first = render(createElement(Harness, { client: live.client, clock: time.clock }))
+    assert.equal(live.calls.length, 1)
+    await live.answer(0, ["Crimson"])
+    first.unmount()
+    // Reopening within fresh TTL paints immediately from sessionStorage with zero Convex calls
+    await time.advance(CATALOG_REFRESH_MS)
+    const warm = render(createElement(Harness, { client: live.client, clock: time.clock }))
+    assert.equal(live.calls.length, 1)
+    fireEvent.change(warm.getByRole("combobox", { name: "Reward role" }), { target: { value: "cri" } })
+    assert.ok(warm.getByRole("option", { name: "Crimson 40" }))
+    // Manual refresh explicitly bypasses the fresh cache
+    fireEvent.click(refreshButton(warm))
+    assert.equal(live.calls.length, 2)
+    await live.answer(1, ["Crimson", "Violet"])
+    warm.unmount()
+    // After the fresh window ends, reopening shows cached data immediately and revalidates once in the background
+    await time.advance(CATALOG_FRESH_MS + 1)
+    const stale = render(createElement(Harness, { client: live.client, clock: time.clock }))
+    assert.equal(live.calls.length, 3)
+    fireEvent.change(stale.getByRole("combobox", { name: "Reward role" }), { target: { value: "vio" } })
+    assert.ok(stale.getByRole("option", { name: "Violet 41" }))
+    await live.answer(2, ["Cyan"])
+    fireEvent.change(stale.getByRole("combobox", { name: "Reward role" }), { target: { value: "cya" } })
+    assert.ok(stale.getByRole("option", { name: "Cyan 40" }))
+    stale.unmount()
+    // Sign-out clears cached catalogs while leaving unrelated sessionStorage keys intact
+    window.sessionStorage.setItem("other.key", "keep")
+    clearCatalogCache()
+    assert.equal(window.sessionStorage.getItem("other.key"), "keep")
+    const afterClear = render(createElement(Harness, { client: live.client, clock: time.clock }))
+    assert.equal(live.calls.length, 4)
+    // Clearing cache while a request is in flight prevents the late response from repopulating sessionStorage
+    clearCatalogCache()
+    await live.answer(3, ["Leaked"])
+    assert.equal(
+        Array.from({ length: window.sessionStorage.length }, (_, i) => window.sessionStorage.key(i)).some((key) =>
+            key?.startsWith("neonflux.catalog.v1:"),
+        ),
+        false,
+    )
+    afterClear.unmount()
+})
+
+test("Catalog immediately hides previous account data on sessionToken change and loads the new account", async () => {
+    const time = manualClock(),
+        live = catalogClient()
+    function Probe({ sessionToken }: { sessionToken: string }) {
+        const result = useCatalog(live.client, sessionToken, "1", true, time.clock)
+        return createElement(
+            "div",
+            null,
+            createElement("p", { "data-testid": "cat" }, result.catalog?.roles.map((r) => r.name).join(",") ?? "none"),
+            createElement("p", { "data-testid": "loading" }, String(result.loading)),
+            createElement("button", { type: "button", onClick: result.refresh }, "Retry"),
+        )
+    }
+    const ui = render(createElement(Probe, { sessionToken: "session-a" }))
+    await live.answer(0, ["SecretRole"])
+    assert.equal(ui.getByTestId("cat").textContent, "SecretRole")
+    ui.rerender(createElement(Probe, { sessionToken: "session-b" }))
+    assert.equal(ui.getByTestId("cat").textContent, "none")
+    assert.equal(live.calls.length, 2)
+    await live.answer(1, ["AccountBRole"])
+    assert.equal(ui.getByTestId("cat").textContent, "AccountBRole")
+    assert.equal(ui.getByTestId("loading").textContent, "false")
+    // A cache clear mid-flight must reset loading and let a subsequent manual refresh complete
+    await time.advance(CATALOG_REFRESH_MS)
+    fireEvent.click(ui.getByRole("button", { name: "Retry" }))
+    assert.equal(live.calls.length, 3)
+    clearCatalogCache()
+    await live.answer(2, ["DiscardedRole"])
+    assert.equal(ui.getByTestId("cat").textContent, "AccountBRole")
+    assert.equal(ui.getByTestId("loading").textContent, "false")
+    await time.advance(CATALOG_REFRESH_MS)
+    fireEvent.click(ui.getByRole("button", { name: "Retry" }))
+    assert.equal(live.calls.length, 4)
+    await live.answer(3, ["FreshRole"])
+    assert.equal(ui.getByTestId("cat").textContent, "FreshRole")
+    ui.unmount()
 })

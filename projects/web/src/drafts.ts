@@ -96,6 +96,15 @@ export function clearAllDrafts() {
     for (const entry of entries(store)) store.removeItem(entry.key)
     changed()
 }
+/** Discards every stored draft belonging to one user and server in this tab */
+export function clearServerDrafts(userId: string, serverId: string) {
+    const store = storage()
+    if (!store) return
+    const matching = entries(store).filter((entry) => entry.scope[0] === userId && entry.scope[1] === serverId)
+    if (!matching.length) return
+    for (const entry of matching) store.removeItem(entry.key)
+    changed()
+}
 /** The stored name of a form that belongs to one row of a list, so the row can tell whether any of its forms holds a draft */
 export const rowForm = (row: string, form: string) => `${row}\n${form}`
 const rowDrafts = (store: Storage, scope: DraftScope, row: string) =>

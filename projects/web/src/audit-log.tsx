@@ -1,6 +1,6 @@
 import type { DashboardAuditEntry, DashboardAuditFeature } from "@neonflux/backend/dashboard-contracts"
 import type { ConvexReactClient } from "convex/react"
-import { Fragment, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { FieldChanges } from "./change-table"
 import { dashboardApi } from "./dashboard-api"
 import type { SectionProps } from "./dashboard-sections"
@@ -102,8 +102,14 @@ function EntryDetail({
 /** Setting changes from the website and chat, members' deletions of their own data and views of private cases, newest first in pages of 25 */
 export function AuditLogSection({ client, sessionToken, serverId, catalog }: SectionProps) {
     const [feature, setFeature] = useState(""),
+        [queryInput, setQueryInput] = useState(""),
+        [debouncedQuery, setDebouncedQuery] = useState(""),
         [cursors, setCursors] = useState<string[]>([]),
         [open, setOpen] = useState<ReadonlySet<string>>(new Set())
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedQuery(queryInput.trim().toLowerCase()), 200)
+        return () => clearTimeout(timer)
+    }, [queryInput])
     const cursor = cursors.at(-1) ?? null
     const { data, error, current } = useLiveQuery(client, dashboardApi.auditLog, {
         sessionToken,
@@ -112,27 +118,55 @@ export function AuditLogSection({ client, sessionToken, serverId, catalog }: Sec
         ...(feature ? { feature } : {}),
     })
     const next = current ? data?.nextCursor : null
+    const visibleEntries = data
+        ? debouncedQuery
+            ? data.entries.filter((entry) =>
+                  [
+                      entry.actorName ?? "",
+                      entry.actorId,
+                      entry.source,
+                      auditFeatures[entry.feature],
+                      entry.setting,
+                      entry.summary,
+                  ]
+                      .join(" ")
+                      .toLowerCase()
+                      .includes(debouncedQuery),
+              )
+            : data.entries
+        : []
     return (
         <section className="panel" aria-labelledby="audit-title">
             <div className="panel-heading">
                 <h2 id="audit-title">Audit log</h2>
-                <label className="inline-field">
-                    Feature
-                    <select
-                        value={feature}
-                        onChange={(event) => {
-                            setFeature(event.target.value)
-                            setCursors([])
-                        }}
-                    >
-                        <option value="">All features</option>
-                        {Object.entries(auditFeatures).map(([id, name]) => (
-                            <option key={id} value={id}>
-                                {name}
-                            </option>
-                        ))}
-                    </select>
-                </label>
+                <div className="audit-controls">
+                    <label className="inline-field">
+                        Filter page
+                        <input
+                            type="search"
+                            value={queryInput}
+                            placeholder="Actor, action or change…"
+                            onChange={(event) => setQueryInput(event.target.value)}
+                        />
+                    </label>
+                    <label className="inline-field">
+                        Feature
+                        <select
+                            value={feature}
+                            onChange={(event) => {
+                                setFeature(event.target.value)
+                                setCursors([])
+                            }}
+                        >
+                            <option value="">All features</option>
+                            {Object.entries(auditFeatures).map(([id, name]) => (
+                                <option key={id} value={id}>
+                                    {name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
             </div>
             <p className="muted">
                 Every setting change, from this website or a chat command, every member's deletion of their own data,
@@ -148,6 +182,8 @@ export function AuditLogSection({ client, sessionToken, serverId, catalog }: Sec
                 !error && <p role="status">Loading the audit log…</p>
             ) : !data.entries.length ? (
                 <p className="muted">{cursor ? "No older entries" : "No entries yet"}</p>
+            ) : !visibleEntries.length ? (
+                <p className="muted">No entries on this page match “{queryInput.trim()}”</p>
             ) : (
                 <table className="audit-table">
                     <thead>
@@ -161,7 +197,7 @@ export function AuditLogSection({ client, sessionToken, serverId, catalog }: Sec
                         </tr>
                     </thead>
                     <tbody>
-                        {data.entries.map((entry) => (
+                        {visibleEntries.map((entry) => (
                             <Fragment key={entry.id}>
                                 <tr>
                                     <td>{localTime(entry.createdAt)}</td>

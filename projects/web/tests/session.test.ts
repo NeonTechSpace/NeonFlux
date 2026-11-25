@@ -16,6 +16,7 @@ for (const [name, value] of Object.entries({
 const { render, cleanup, act } = await import("@testing-library/react")
 const { focusManager, notifyManager, defaultScheduler } = await import("@tanstack/react-query")
 const { SessionProvider, useSession } = await import("../src/session.tsx")
+const { Dashboard } = await import("../src/dashboard.tsx")
 afterEach(() => {
     cleanup()
     focusManager.setFocused(undefined)
@@ -60,4 +61,26 @@ test("a hidden tab keeps refreshing its sign-in, and a transient failure recover
     context.mock.timers.tick(3 * 60 * 1000)
     await until(() => text() === "Synthetic user")
     assert.equal(calls, 3)
+})
+
+test("expired sign-in never renders stale server data and shows the sign-in screen", async (context) => {
+    context.mock.timers.enable({ apis: ["setInterval", "setTimeout"] })
+    notifyManager.setScheduler(queueMicrotask)
+    const active = {
+        sessionToken: "synthetic-session",
+        convexUrl: "https://synthetic.invalid",
+        expiresAt: 1,
+        user: { id: "1", name: "Synthetic manager" },
+        mode: "single",
+        servers: [],
+    } satisfies WebSession
+    const responses = [Response.json(active), Response.json({ user: null }, { status: 401 })]
+    let calls = 0
+    context.mock.method(globalThis, "fetch", async () => responses[calls++]!)
+    const ui = render(createElement(Dashboard))
+    await until(() => ui.container.textContent?.includes("Synthetic manager") ?? false)
+    context.mock.timers.tick(3 * 60 * 1000)
+    await until(() => ui.container.textContent?.includes("Sign in to continue") ?? false)
+    assert.equal(ui.container.textContent?.includes("Synthetic manager"), false)
+    assert.ok(ui.container.textContent?.includes("Your sign-in expired"))
 })

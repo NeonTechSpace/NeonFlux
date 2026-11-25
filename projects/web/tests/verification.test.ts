@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { createSlidingWindowRateLimiter } from "../src/server/rate-limit.ts"
 import { createVerificationHandler } from "../src/server/verification.ts"
 
 test("Verification bridge takes identity only from HttpOnly session and rejects cross-origin/malformed answers", async () => {
@@ -256,4 +257,85 @@ test("Verification keeps a rejected Turnstile token retryable", async () => {
         assert.equal(response.status, status)
         assert.equal(((await response.json()) as { final?: boolean }).final, undefined)
     }
+})
+
+test("Verification enforces __Host- session cookie on HTTPS, Sec-Fetch-Site, rate limiting and strict headers", async () => {
+    const view = {
+        challengeId: "test",
+        serverId: "2",
+        panelName: "Test",
+        status: "issued" as const,
+        linkExpiresAt: 10000,
+        expiresAt: 10000,
+        attemptsRemaining: 2,
+        instruction: "Test",
+    }
+    let now = 1000
+    const handler = createVerificationHandler(
+        "https://dashboard.example.test",
+        { inspect: async () => view, start: async () => view, answer: async () => view },
+        "",
+        {
+            rateLimiter: createSlidingWindowRateLimiter({ limit: 2, windowMs: 10_000 }),
+            now: () => now,
+        },
+    )
+    const makeReq = (headers: Record<string, string>) =>
+        new Request("https://dashboard.example.test/api/verification", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ operation: "inspect", linkToken: "a".repeat(32) }),
+        })
+    const crossSite = await handler(
+        makeReq({
+            origin: "https://dashboard.example.test",
+            "sec-fetch-site": "cross-site",
+            cookie: "__Host-neonflux_session=synthetic-session",
+        }),
+    )
+    assert.equal(crossSite.status, 403)
+    const ok = await handler(
+        makeReq({
+            origin: "https://dashboard.example.test",
+            "sec-fetch-site": "same-origin",
+            cookie: "__Host-neonflux_session=synthetic-session",
+        }),
+    )
+    assert.equal(ok.status, 200)
+    assert.equal(ok.headers.get("cache-control"), "private, no-store")
+    assert.equal(ok.headers.get("x-frame-options"), "DENY")
+    assert.equal(ok.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains")
+    const limited = await handler(
+        makeReq({
+            origin: "https://dashboard.example.test",
+            "sec-fetch-site": "same-origin",
+            "cf-connecting-ip": "198.51.100.99",
+            cookie: "__Host-neonflux_session=synthetic-session",
+        }),
+    )
+    assert.equal(limited.status, 429)
+    assert.ok(Number(limited.headers.get("retry-after")) >= 1)
+    // Rotating spoofed proxy IP headers cannot bypass session rate limiting
+    const spoofedBypass = await handler(
+        makeReq({
+            origin: "https://dashboard.example.test",
+            "sec-fetch-site": "same-origin",
+            "cf-connecting-ip": "198.51.100.100",
+            cookie: "__Host-neonflux_session=synthetic-session",
+        }),
+    )
+    assert.equal(spoofedBypass.status, 429)
+    now += 10_001
+    assert.equal(
+        (
+            await handler(
+                makeReq({
+                    origin: "https://dashboard.example.test",
+                    "sec-fetch-site": "same-origin",
+                    cookie: "__Host-neonflux_session=synthetic-session",
+                }),
+            )
+        ).status,
+        200,
+    )
 })
