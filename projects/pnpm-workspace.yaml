@@ -10,7 +10,7 @@ packages:
 # stays at one version because the Effect typecheck needs an @effect/tsgo release that supports the version every package uses
 catalog:
     convex: 1.46.0
-    effect: 4.1.2
+    effect: 4.1.5
     typescript: 7.0.2
 
 allowBuilds:
@@ -18,7 +18,7 @@ allowBuilds:
     esbuild@0.28.2: true
 
 minimumReleaseAgeExclude:
-    - "@neontechspace/fluxerly@1000.0.0-nightly.20261030.41"
+    - "@neontechspace/fluxerly@1003.1.0-nightly.20261125.106"
     - "@pagefind/darwin-arm64@1.6.0"
     - "@pagefind/darwin-x64@1.6.0"
     - "@pagefind/freebsd-x64@1.6.0"
@@ -27,3 +27,4 @@ minimumReleaseAgeExclude:
     - "@pagefind/windows-arm64@1.6.0"
     - "@pagefind/windows-x64@1.6.0"
     - pagefind@1.6.0
+    - "@types/node@26.6.7"

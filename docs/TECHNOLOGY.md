@@ -8,10 +8,10 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md), [the 
 
 | Area | Selection |
 | --- | --- |
-| Bot SDK | [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js) as `@neontechspace/fluxerly` 1000.0.0-nightly.20261030.41, through its `@neontechspace/fluxerly/effect` entry point |
+| Bot SDK | [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js) as `@neontechspace/fluxerly` 1003.1.0-nightly.20261125.106, through its `@neontechspace/fluxerly/effect` entry point |
 | Runtime composition | Effect 4 |
 | Language and modules | TypeScript 7 with ECMAScript modules in the bot, backend, contracts and dashboard packages, and JavaScript modules in the public site |
-| Runtime | Node.js 24 |
+| Runtime | Node.js 26 |
 | Backend and database | Convex, which the bot reaches with the Convex client library |
 | Website | React 19, TanStack Start, TanStack Router, TanStack Query, Vite 8, Nitro 3 release candidate and Tailwind CSS 4 |
 | Public site and docs | Astro 7 with static output, Pagefind for search |
@@ -44,7 +44,7 @@ counts each at the size of the whole frame
 
 The bot owns its Fluxer token and every provider operation.
 It decodes every backend answer with the [shared contracts](#shared-contracts) and takes its types from them, so no backend implementation code enters the bot's executable.
-The bot calls the backend's public functions with the `convex` package, the same exact version as the backend and website. Requests use its HTTP client, one per request, so each keeps its own abort signal and five-second timeout, and mutations skip that client's queue so concurrent requests still run in parallel. The WebSocket client would run every mutation of the process one after another, so the bot uses it only for its one work signal subscription. Node 24 provides the global `WebSocket` it uses. The package also brings its own command-line dependencies, such as `esbuild` and `prettier`, into the bot's install, which matters for the planned container image
+The bot calls the backend's public functions with the `convex` package, the same exact version as the backend and website. Requests use its HTTP client, one per request, so each keeps its own abort signal and five-second timeout, and mutations skip that client's queue so concurrent requests still run in parallel. The WebSocket client would run every mutation of the process one after another, so the bot uses it only for its one work signal subscription. Node 26 provides the global `WebSocket` it uses. The package also brings its own command-line dependencies, such as `esbuild` and `prettier`, into the bot's install, which matters for the planned container image
 
 Selective backup encryption uses Node's built-in `node:crypto` with AES-256-GCM, without a compression or archive dependency
 
@@ -111,7 +111,7 @@ The docs are Markdown rendered with Astro's own Markdown tools and a custom code
 
 - Node: The exact development version lives in [projects/.node-version](../projects/.node-version). The workspace manifest's `engines.node` keeps the supported major range, not a second exact pin
 - pnpm: The exact version lives in `packageManager` in [projects/package.json](../projects/package.json). Use pnpm 12 without Corepack. Update the pin deliberately, regenerate the lockfile with that version and verify a frozen install
-- Shared versions: The `catalog` in the [workspace configuration](../projects/pnpm-workspace.yaml) pins Convex, Effect and TypeScript once, and every package that uses them names `catalog:`. Convex must match because both sides of the bot's function calls and the website's come from it, Effect because each side decodes with the schema values the contracts build, and TypeScript because the Effect typecheck needs an `@effect/tsgo` release that supports the version every package checks with. Keep Effect within the SDK's `effect` peer range, currently `^4.1.0`, and recheck it on every SDK upgrade
+- Shared versions: The `catalog` in the [workspace configuration](../projects/pnpm-workspace.yaml) pins Convex, Effect and TypeScript once, and every package that uses them names `catalog:`. Convex must match because both sides of the bot's function calls and the website's come from it, Effect because each side decodes with the schema values the contracts build, and TypeScript because the Effect typecheck needs an `@effect/tsgo` release that supports the version every package checks with. Keep Effect within the SDK's `effect` peer range, currently `^4.1.2`, and recheck it on every SDK upgrade
 - Bot: The [bot manifest](../projects/bot/package.json) pins the SDK and Node type declarations, and takes Effect, TypeScript and the Convex client from the catalog
 - Backend: The [backend manifest](../projects/backend/package.json) pins `convex-test` and Node type declarations, and takes Convex, Effect and TypeScript from the catalog
 - Contracts: The [contracts manifest](../projects/contracts/package.json) takes Effect and TypeScript from the catalog

@@ -13,12 +13,12 @@
         "smoke:live": "node --env-file-if-exists=.env scripts/smoke-live.ts"
     },
     "devDependencies": {
-        "@types/node": "24.19.1",
+        "@types/node": "26.6.7",
         "typescript": "catalog:"
     },
     "dependencies": {
         "@neonflux/contracts": "workspace:*",
-        "@neontechspace/fluxerly": "1000.0.0-nightly.20261030.41",
+        "@neontechspace/fluxerly": "1003.1.0-nightly.20261125.106",
         "convex": "catalog:",
         "effect": "catalog:"
     }

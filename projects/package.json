@@ -1,10 +1,11 @@
 {
     "name": "neonflux-workspace",
     "private": true,
-    "packageManager": "pnpm@12.9.1",
+    "packageManager": "pnpm@12.23.0",
     "scripts": {
         "build": "pnpm --filter @neonflux/bot run build && pnpm --filter @neonflux/web run build && pnpm --filter @neonflux/site run build",
         "check": "pnpm run format:check && pnpm run lint && node --test scripts/*.test.mjs && pnpm --filter @neonflux/contracts run check && pnpm --filter @neonflux/backend run check && pnpm --filter @neonflux/bot run check && pnpm --filter @neonflux/web run check && pnpm --filter @neonflux/site run check",
+        "doctor": "node scripts/doctor.mjs",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "lint": "node scripts/heavy.mjs node scripts/lint.mjs",
@@ -17,10 +18,10 @@
         "evals": "node scripts/evals.mjs"
     },
     "engines": {
-        "node": ">=24 <25"
+        "node": ">=26.13.0 <27"
     },
     "devDependencies": {
-        "@effect/tsgo": "0.53.3",
+        "@effect/tsgo": "0.73.4",
         "oxlint": "1.90.0",
         "oxlint-tsgolint": "7.0.2005",
         "prettier": "3.9.9"

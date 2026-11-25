@@ -26,7 +26,7 @@
         "effect": "catalog:"
     },
     "devDependencies": {
-        "@types/node": "24.19.1",
+        "@types/node": "26.6.7",
         "convex-test": "0.0.60",
         "typescript": "catalog:"
     }
