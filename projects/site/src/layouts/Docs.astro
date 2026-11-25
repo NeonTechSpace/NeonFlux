@@ -39,6 +39,8 @@ const speculation = { prerender: [{ where: { href_matches: "/docs/*" }, eagernes
             type={slug === "index" ? "website" : "article"}
             {graph}
         />
+        <link rel="alternate" type="text/plain" href="/llms.txt" title="NeonFlux for LLMs" />
+        <link rel="preload" href="/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin />
         <link rel="preload" href="/fonts/atkinson.woff2" as="font" type="font/woff2" crossorigin />
         <script is:inline type="speculationrules" set:html={JSON.stringify(speculation)} />
         <script is:inline>
@@ -194,6 +196,10 @@ const speculation = { prerender: [{ where: { href_matches: "/docs/*" }, eagernes
                             )
                         })
                     }
+                </div>
+                <div class="side-links">
+                    <a href="https://github.com/NeonTechSpace/NeonFlux" target="_blank" rel="noopener">GitHub</a>
+                    <a href={dashboardUrl}>Dashboard</a>
                 </div>
             </aside>
             <script is:inline>

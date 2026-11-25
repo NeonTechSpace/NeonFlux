@@ -291,6 +291,31 @@ html.page.snap {
     background: var(--blue);
     transform: translateX(16px);
 }
+html[data-still] .top .tog i {
+    border-color: var(--faint);
+}
+html[data-still] .top .tog i::after {
+    background: var(--faint);
+    transform: none;
+}
+.skip-link {
+    position: fixed;
+    left: 12px;
+    top: -80px;
+    z-index: 40;
+    padding: 10px 16px;
+    border-radius: 10px;
+    background: var(--raised);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-weight: 600;
+}
+.skip-link:focus {
+    top: 12px;
+}
+#main:focus {
+    outline: none;
+}
 .view {
     display: none;
 }
@@ -984,12 +1009,12 @@ html.page.snap {
 .still .knock {
     display: none !important;
 }
-.calm h1 {
+.calm .calm-h {
     font-size: clamp(calc(52px * var(--fs)), 8.4cqw, calc(132px * var(--fs)));
     letter-spacing: -0.05em;
     line-height: 0.95;
 }
-.calm h1 span {
+.calm .calm-h span {
     padding-right: 0.06em;
 }
 .calm ul {
@@ -1040,7 +1065,8 @@ html.page.snap {
 .na .calm {
     display: none !important;
 }
-.still.na .calmna {
+.still.na .calmna,
+html.still .na .calmna {
     display: grid;
     gap: clamp(12px, 1.6cqw, 20px);
     justify-items: start;
@@ -1051,7 +1077,7 @@ html.page.snap {
     height: clamp(110px, 13cqw, 190px);
     width: auto;
 }
-.calmna h1 {
+.calmna .calmna-h {
     font-size: clamp(calc(40px * var(--fs)), 5.4cqw, calc(84px * var(--fs)));
     letter-spacing: -0.04em;
     line-height: 1;
@@ -2720,7 +2746,7 @@ html.page.snap {
     }
 }
 @supports (animation-timeline: view()) {
-    .nf:not(.still) .bw {
+    html:not(.still) .nf:not(.still) .bw {
         animation: bwin linear both;
         animation-timeline: view();
         animation-range: entry 0% cover 38%;
@@ -3966,8 +3992,8 @@ html.page.snap {
         0 0 60px 8px #6e7bff33;
 }
 @supports (animation-timeline: view()) {
-    .nf:not(.still) .sec::after,
-    .nf:not(.still) .proof::after {
+    html:not(.still) .nf:not(.still) .sec::after,
+    html:not(.still) .nf:not(.still) .proof::after {
         animation: beam linear both;
         animation-timeline: --reach;
         animation-range: entry 6% entry 80%;
@@ -4082,7 +4108,7 @@ html.page.snap {
 .clock {
     font-size: clamp(32px, 2.7cqw, 39px) !important;
 }
-.calm h1 {
+.calm .calm-h {
     font-size: clamp(48px, 6cqw, calc(96px * var(--fs))) !important;
     font-weight: 560;
 }
@@ -4680,7 +4706,70 @@ html.page.snap {
     position: fixed;
     inset: 0;
     z-index: 1;
+    overflow: hidden;
     pointer-events: none;
+}
+.dust > i {
+    position: absolute;
+    background-repeat: repeat;
+    will-change: transform;
+}
+.still .dust > i {
+    will-change: auto;
+}
+.dust-a {
+    inset: 0 0 -620px;
+    background-size: 620px 620px;
+    background-image:
+        radial-gradient(circle 1.1px at 41px 74px, rgb(190 205 255 / 0.36) 60%, transparent),
+        radial-gradient(circle 1.5px at 118px 206px, rgb(190 205 255 / 0.28) 60%, transparent),
+        radial-gradient(circle 0.9px at 204px 48px, rgb(190 205 255 / 0.39) 60%, transparent),
+        radial-gradient(circle 1.3px at 286px 142px, rgb(190 205 255 / 0.24) 60%, transparent),
+        radial-gradient(circle 1.6px at 372px 89px, rgb(190 205 255 / 0.33) 60%, transparent),
+        radial-gradient(circle 1px at 468px 34px, rgb(190 205 255 / 0.4) 60%, transparent),
+        radial-gradient(circle 1.4px at 549px 118px, rgb(190 205 255 / 0.26) 60%, transparent),
+        radial-gradient(circle 1.2px at 592px 241px, rgb(190 205 255 / 0.35) 60%, transparent),
+        radial-gradient(circle 1px at 76px 318px, rgb(190 205 255 / 0.31) 60%, transparent),
+        radial-gradient(circle 1.7px at 164px 274px, rgb(190 205 255 / 0.23) 60%, transparent),
+        radial-gradient(circle 1.1px at 248px 362px, rgb(190 205 255 / 0.38) 60%, transparent),
+        radial-gradient(circle 1.5px at 334px 232px, rgb(190 205 255 / 0.29) 60%, transparent),
+        radial-gradient(circle 0.9px at 426px 308px, rgb(190 205 255 / 0.41) 60%, transparent),
+        radial-gradient(circle 1.4px at 512px 268px, rgb(190 205 255 / 0.25) 60%, transparent),
+        radial-gradient(circle 1.2px at 28px 446px, rgb(190 205 255 / 0.34) 60%, transparent),
+        radial-gradient(circle 1.6px at 136px 494px, rgb(190 205 255 / 0.27) 60%, transparent),
+        radial-gradient(circle 1px at 218px 428px, rgb(190 205 255 / 0.37) 60%, transparent),
+        radial-gradient(circle 1.3px at 308px 512px, rgb(190 205 255 / 0.22) 60%, transparent),
+        radial-gradient(circle 1.5px at 398px 456px, rgb(190 205 255 / 0.32) 60%, transparent),
+        radial-gradient(circle 1.1px at 484px 394px, rgb(190 205 255 / 0.36) 60%, transparent),
+        radial-gradient(circle 1.7px at 576px 478px, rgb(190 205 255 / 0.24) 60%, transparent),
+        radial-gradient(circle 1px at 64px 578px, rgb(190 205 255 / 0.4) 60%, transparent),
+        radial-gradient(circle 1.4px at 188px 562px, rgb(190 205 255 / 0.3) 60%, transparent),
+        radial-gradient(circle 1.2px at 352px 588px, rgb(190 205 255 / 0.35) 60%, transparent),
+        radial-gradient(circle 0.9px at 462px 544px, rgb(190 205 255 / 0.29) 60%, transparent),
+        radial-gradient(circle 1.3px at 558px 596px, rgb(190 205 255 / 0.38) 60%, transparent);
+}
+.dust-b {
+    inset: 0 0 -1100px;
+    background-size: 1100px 1100px;
+    background-image:
+        radial-gradient(circle 2.2px at 168px 94px, rgb(190 205 255 / 0.11) 50%, transparent),
+        radial-gradient(circle 2.9px at 412px 176px, rgb(190 205 255 / 0.08) 50%, transparent),
+        radial-gradient(circle 1.8px at 684px 68px, rgb(190 205 255 / 0.12) 50%, transparent),
+        radial-gradient(circle 2.5px at 956px 148px, rgb(190 205 255 / 0.09) 50%, transparent),
+        radial-gradient(circle 3.1px at 84px 338px, rgb(190 205 255 / 0.07) 50%, transparent),
+        radial-gradient(circle 2px at 316px 412px, rgb(190 205 255 / 0.11) 50%, transparent),
+        radial-gradient(circle 2.7px at 568px 294px, rgb(190 205 255 / 0.1) 50%, transparent),
+        radial-gradient(circle 2.1px at 824px 376px, rgb(190 205 255 / 0.12) 50%, transparent),
+        radial-gradient(circle 2.8px at 1034px 452px, rgb(190 205 255 / 0.08) 50%, transparent),
+        radial-gradient(circle 1.9px at 212px 618px, rgb(190 205 255 / 0.11) 50%, transparent),
+        radial-gradient(circle 3px at 468px 546px, rgb(190 205 255 / 0.07) 50%, transparent),
+        radial-gradient(circle 2.3px at 732px 658px, rgb(190 205 255 / 0.1) 50%, transparent),
+        radial-gradient(circle 2.6px at 942px 724px, rgb(190 205 255 / 0.09) 50%, transparent),
+        radial-gradient(circle 2px at 118px 864px, rgb(190 205 255 / 0.12) 50%, transparent),
+        radial-gradient(circle 2.9px at 358px 942px, rgb(190 205 255 / 0.08) 50%, transparent),
+        radial-gradient(circle 2.2px at 618px 884px, rgb(190 205 255 / 0.11) 50%, transparent),
+        radial-gradient(circle 3.2px at 864px 986px, rgb(190 205 255 / 0.07) 50%, transparent),
+        radial-gradient(circle 1.8px at 1046px 912px, rgb(190 205 255 / 0.12) 50%, transparent);
 }
 .page .top,
 .top {

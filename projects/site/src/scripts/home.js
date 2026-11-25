@@ -11,8 +11,23 @@ import {
 } from "../features.js"
 
 ;(() => {
+    const ART = {
+        mod: "/art/b-38-moderation-gavel.webp",
+        auto: "/art/b-15-guard-shield.webp",
+        guard: "/art/b-25-errors-beacon.webp",
+        roles: "/art/b-51-roles-tags.webp",
+        ver: "/art/b-36-permission-lock.webp",
+        wel: "/art/b-34-welcome-door.webp",
+        tic: "/art/b-39-support-lifebuoy.webp",
+        help: "/art/b-18-api-book.webp",
+        lev: "/art/b-46-levels-trophy.webp",
+        eve: "/art/b-13-events-bell.webp",
+        pro: "/art/b-35-member-badge.webp",
+        msg: "/art/b-32-announce-megaphone.webp",
+        voi: "/art/b-42-music-headphones.webp",
+    }
     const $ = (i) => document.getElementById(i),
-        art = (k) => document.querySelector(`[data-a="${k}"]`).src,
+        art = (k) => ART[k],
         R = "https://github.com/NeonTechSpace/NeonFlux",
         root = document.documentElement,
         nf = $("nf")
@@ -51,10 +66,11 @@ import {
         const slug = /^\/features\/([^/]+)\/?$/.exec(location.pathname)?.[1]
         return FE.find((f) => f.d === slug)?.k ?? null
     }
-    // Older links used #f-moderation style addresses
+    // Older links used #f-mod or #f-moderation style addresses
     const adoptOldLink = () => {
         const old = /^#f-(.+)$/.exec(location.hash)?.[1]
-        if (byK[old]) history.replaceState(null, "", featurePath(byK[old]))
+        const target = old ? (byK[old] ?? FE.find((f) => f.d === old)) : null
+        if (target) history.replaceState(null, "", featurePath(target))
         else if (location.hash === "#home") history.replaceState(null, "", "/")
     }
     adoptOldLink()
@@ -108,8 +124,9 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         gl.bindVertexArray(gl.createVertexArray())
         const u = {}
         for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
-            const a = gl.getActiveUniform(p, i).name.replace("[0]", "")
-            u[a] = gl.getUniformLocation(p, a)
+            const info = gl.getActiveUniform(p, i)
+            const a = info.name.replace("[0]", "")
+            u[a] = gl.getUniformLocation(p, info.name)
         }
         return u
     }
@@ -152,7 +169,46 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         claim = $("claim"),
         sub = $("sub"),
         ticks = [...$("ticks").children],
-        hits = $("hits")
+        hits = $("hits"),
+        dusta = $("dusta"),
+        dustb = $("dustb")
+    let pinTop = 0,
+        restTop = 0
+    const stickMetrics = { left: 0, width: 0, height: 0 },
+        bgMetrics = { left: 0, topDoc: 0, width: 0, height: 0 },
+        endMetrics = { left: 0, topDoc: 0, width: 0, height: 0 }
+    function measureLayout() {
+        const y = scrollY,
+            pinRect = $("pin").getBoundingClientRect(),
+            restRect = $("rest").getBoundingClientRect(),
+            stRect = stick.getBoundingClientRect(),
+            endRect = $("end").getBoundingClientRect()
+        pinTop = pinRect.top + y
+        restTop = restRect.top + y
+        stickMetrics.left = stRect.left
+        stickMetrics.width = stRect.width
+        stickMetrics.height = stRect.height
+        endMetrics.left = endRect.left
+        endMetrics.topDoc = endRect.top + y
+        endMetrics.width = endRect.width
+        endMetrics.height = endRect.height
+        if (root.classList.contains("page")) {
+            bgMetrics.left = 0
+            bgMetrics.topDoc = 0
+            bgMetrics.width = innerWidth
+            bgMetrics.height = innerHeight
+        } else {
+            const bgRect = $("bg").getBoundingClientRect()
+            bgMetrics.left = bgRect.left
+            bgMetrics.topDoc = bgRect.top + y
+            bgMetrics.width = bgRect.width
+            bgMetrics.height = bgRect.height
+        }
+    }
+    const stickViewTop = (y = scrollY) =>
+        root.classList.contains("page")
+            ? Math.min(restTop - stickMetrics.height - y, Math.max(0, pinTop - y))
+            : pinTop - y
     let act = -1
     claim.innerHTML = CL.map(
         (c, i) =>
@@ -204,7 +260,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     function jump(i) {
         if (root.classList.contains("page"))
             window.scrollTo({
-                top: $("pin").offsetTop + i * stick.offsetHeight,
+                top: pinTop + i * (stickMetrics.height || stick.offsetHeight),
                 behavior: motion ? "smooth" : "auto",
             })
         else {
@@ -251,7 +307,15 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         })
         if (!gl) throw Error("no webgl2")
         const u = prog(gl, HERO)
-        G = { gl, u, scale: 1, wc: document.createElement("canvas"), ec: document.createElement("canvas") }
+        G = {
+            gl,
+            u,
+            scale: 1,
+            wc: document.createElement("canvas"),
+            ec: document.createElement("canvas"),
+            pBuf: new Float32Array(48),
+            piBuf: new Float32Array(12),
+        }
         const ec = G.ec
         ec.width = 1024
         ec.height = 1024
@@ -276,12 +340,17 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         gl.uniform1i(u.W, 0)
         gl.uniform1i(u.A, 1)
         gl.uniform1i(u.E, 2)
-        const at = $("atlas"),
-            up = () => {
-                tex(gl, 1, at, true)
-            }
+        const at = new Image()
+        at.decoding = "async"
+        let atlasUploaded = false
+        const up = () => {
+            if (atlasUploaded) return
+            atlasUploaded = true
+            tex(gl, 1, at, true)
+        }
         at.addEventListener("load", up)
-        at.src = at.dataset.src
+        at.src = "/art/atlas.webp"
+        if (at.complete && at.naturalWidth) up()
         size()
     }
     function size() {
@@ -481,18 +550,17 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
                 sc = sc0 + ((G.cell * (0.88 + (i % 3) * 0.12)) / gp - sc0) * st
             return { x, y: yy, z, sc, i, st, g }
         })
-        list.slice()
-            .sort((a, b) => a.z - b.z)
-            .forEach((s, k) => {
-                gl.uniform4f(
-                    gl.getUniformLocation(G.pg || (G.pg = gl.getParameter(gl.CURRENT_PROGRAM)), `P[${k}]`),
-                    s.x,
-                    s.y,
-                    s.z,
-                    s.sc,
-                )
-                gl.uniform1f(gl.getUniformLocation(G.pg, `PI[${k}]`), s.i)
-            })
+        const sorted = list.slice().sort((a, b) => a.z - b.z)
+        for (let k = 0; k < sorted.length; k++) {
+            const s = sorted[k]
+            G.pBuf[k * 4] = s.x
+            G.pBuf[k * 4 + 1] = s.y
+            G.pBuf[k * 4 + 2] = s.z
+            G.pBuf[k * 4 + 3] = s.sc
+            G.piBuf[k] = s.i
+        }
+        gl.uniform4fv(u.P, G.pBuf)
+        gl.uniform1fv(u.PI, G.piBuf)
         list.forEach((s) => {
             const b = hb[s.i],
                 on = open > 0.82
@@ -520,14 +588,50 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         })
         gl.drawArrays(gl.TRIANGLES, 0, 3)
     }
-    /* ---------- page background, desktop only ---------- */
-    let B = null
+    /* ---------- page background, initialized lazily when needed ---------- */
+    let B = null,
+        bgScheduled = false,
+        restObserver = null
     function initBG() {
         const c = $("bg"),
             gl = c.getContext("webgl2", { antialias: false, alpha: false })
         if (!gl) return
         B = { gl, c, u: prog(gl, BGF) }
         sizeBG()
+    }
+    function ensureBG() {
+        if (B || !window.WebGL2RenderingContext) return
+        try {
+            initBG()
+        } catch {
+            return
+        }
+        if (!B) return
+        nf.classList.add("bgon")
+        if (restObserver) {
+            restObserver.disconnect()
+            restObserver = null
+        }
+        drawBG()
+        bgDirty = false
+    }
+    function scheduleBG() {
+        if (B || bgScheduled || !window.WebGL2RenderingContext) return
+        bgScheduled = true
+        requestAnimationFrame(() => {
+            bgScheduled = false
+            ensureBG()
+        })
+    }
+    function watchBG() {
+        if (B || restObserver || !window.WebGL2RenderingContext) return
+        restObserver = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) ensureBG()
+            },
+            { rootMargin: "400px 0px 400px 0px" },
+        )
+        restObserver.observe($("rest"))
     }
     function sizeBG() {
         bgDirty = true
@@ -540,6 +644,12 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         B.c.height = h * sc
         B.w = w
         B.h = h
+        if (page) {
+            bgMetrics.left = 0
+            bgMetrics.topDoc = 0
+            bgMetrics.width = w
+            bgMetrics.height = h
+        }
         B.gl.viewport(0, 0, B.c.width, B.c.height)
         B.gl.uniform2f(B.u.RS, B.c.width, B.c.height)
         if (!motion) {
@@ -561,27 +671,46 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         gl.drawArrays(gl.TRIANGLES, 0, 3)
     }
     function ripple(cx, cy) {
-        if (!B) return
-        const r = $("bg").getBoundingClientRect(),
-            m = Math.min(r.width, r.height)
-        rp = [(cx - r.left - r.width / 2) / m, -(cy - r.top - r.height / 2) / m, 0]
+        if (!B && !G) return
+        let left, top, width, height
+        if (G && visible && $("v-home").classList.contains("on") && stickMetrics.width && stickMetrics.height) {
+            left = stickMetrics.left
+            top = stickViewTop()
+            width = stickMetrics.width
+            height = stickMetrics.height
+        } else if (bgMetrics.width && bgMetrics.height) {
+            left = bgMetrics.left
+            top = root.classList.contains("page") ? 0 : bgMetrics.topDoc - scrollY
+            width = bgMetrics.width
+            height = bgMetrics.height
+        } else return
+        const m = Math.min(width, height)
+        rp = [(cx - left - width / 2) / m, -(cy - top - height / 2) / m, 0]
     }
+    let ptrRaf = 0,
+        ptrX = 0,
+        ptrY = 0
     nf.addEventListener("pointermove", (e) => {
         if (e.pointerType === "touch" || !motion) return
-        const hero = stick.getBoundingClientRect()
-        if (G && G.r && hero.width) {
-            const r = hero,
-                m = Math.min(r.width, r.height)
-            G.mx = (e.clientX - r.left - r.width / 2) / m
-            G.my = -(e.clientY - r.top - r.height / 2) / m
-            pmT = [(e.clientX - r.left) / r.width - 0.5, (e.clientY - r.top) / r.height - 0.5]
-        }
-        if (B) {
-            const r = B.c.getBoundingClientRect(),
-                m = Math.min(r.width, r.height)
-            B.mx = (e.clientX - r.left - r.width / 2) / m
-            B.my = -(e.clientY - r.top - r.height / 2) / m
-        }
+        ptrX = e.clientX
+        ptrY = e.clientY
+        if (ptrRaf) return
+        ptrRaf = requestAnimationFrame(() => {
+            ptrRaf = 0
+            if (G && G.r && stickMetrics.width && stickMetrics.height) {
+                const top = stickViewTop(),
+                    m = Math.min(stickMetrics.width, stickMetrics.height)
+                G.mx = (ptrX - stickMetrics.left - stickMetrics.width / 2) / m
+                G.my = -(ptrY - top - stickMetrics.height / 2) / m
+                pmT = [(ptrX - stickMetrics.left) / stickMetrics.width - 0.5, (ptrY - top) / stickMetrics.height - 0.5]
+            }
+            if (B && bgMetrics.width && bgMetrics.height) {
+                const top = root.classList.contains("page") ? 0 : bgMetrics.topDoc - scrollY,
+                    m = Math.min(bgMetrics.width, bgMetrics.height)
+                B.mx = (ptrX - bgMetrics.left - bgMetrics.width / 2) / m
+                B.my = -(ptrY - top - bgMetrics.height / 2) / m
+            }
+        })
     })
     /* ---------- the week ---------- */
     const DAY = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -776,7 +905,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             x.el.classList.toggle("done", x[0] <= s[0])
             x.el.classList.toggle("now", k === i)
         })
-        fea.innerHTML = `<img src="${art(f.k)}" alt=""><div><a href="${featurePath(f)}">${s[1] === "msg" && i === 10 ? "Live alerts" : f.n}</a><p>${SAY[i]}</p></div>`
+        fea.innerHTML = `<img src="${art(f.k)}" alt="" loading="lazy" decoding="async"><div><a href="${featurePath(f)}">${s[1] === "msg" && i === 10 ? "Live alerts" : f.n}</a><p>${SAY[i]}</p></div>`
         scene(i, feed, instant || !motion)
     }
     function wStep(dt) {
@@ -801,8 +930,9 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         }
         wClock()
     }
-    function wSeek(e) {
-        const r = rail.getBoundingClientRect(),
+    let railRect = null
+    function wSeek(e, rect) {
+        const r = rect ?? rail.getBoundingClientRect(),
             h = Math.max(0, Math.min(168, ((e.clientX - r.left) / r.width) * 168))
         let best = 0,
             bd = 1e9
@@ -821,18 +951,21 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     let drag = false
     rail.addEventListener("pointerdown", (e) => {
         drag = true
+        railRect = rail.getBoundingClientRect()
         rail.setPointerCapture(e.pointerId)
-        wSeek(e)
+        wSeek(e, railRect)
     })
     rail.addEventListener("pointermove", (e) => {
-        if (drag) {
-            const r = rail.getBoundingClientRect(),
-                h = ((e.clientX - r.left) / r.width) * 168
+        if (drag && railRect) {
+            const h = ((e.clientX - railRect.left) / railRect.width) * 168
             const c = SC.findIndex((s) => Math.abs(s[0] - h) < 2.5)
-            if (c >= 0 && c !== wi) wSeek(e)
+            if (c >= 0 && c !== wi) wSeek(e, railRect)
         }
     })
-    rail.addEventListener("pointerup", () => (drag = false))
+    rail.addEventListener("pointerup", () => {
+        drag = false
+        railRect = null
+    })
     rail.addEventListener("keydown", (e) => {
         if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
             e.preventDefault()
@@ -997,16 +1130,18 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             ["horn", null],
         ],
     }
-    const lv = (n, cls) =>
-        `<div class="lv ${cls || ""}" aria-hidden="true">${LIVE[n]
+    const lv = (n, cls, eager = false) => {
+        const attrs = eager ? 'decoding="async"' : 'loading="lazy" decoding="async"'
+        return `<div class="lv ${cls || ""}" aria-hidden="true">${LIVE[n]
             .map(([name, m]) => {
-                if (!m) return `<img src="/art/parts/${n}/${name}.webp" alt="">`
+                if (!m) return `<img src="/art/parts/${n}/${name}.webp" alt="" ${attrs}>`
                 if (m.kind === "pulse")
-                    return `<img data-m="pulse" style="--sec:${m.seconds}s" src="/art/parts/${n}/${name}.webp" alt="">`
+                    return `<img data-m="pulse" style="--sec:${m.seconds}s" src="/art/parts/${n}/${name}.webp" alt="" ${attrs}>`
                 const a = m.around || [1024, 1024]
-                return `<img data-m="sway" style="--sec:${m.seconds}s;--ox:${a[0] / 20.48}%;--oy:${a[1] / 20.48}%;--dx:${(m.x || 0) / 20.48}%;--dy:${(m.y || 0) / 20.48}%;--turn:${m.turn || 0}deg" src="/art/parts/${n}/${name}.webp" alt="">`
+                return `<img data-m="sway" style="--sec:${m.seconds}s;--ox:${a[0] / 20.48}%;--oy:${a[1] / 20.48}%;--dx:${(m.x || 0) / 20.48}%;--dy:${(m.y || 0) / 20.48}%;--turn:${m.turn || 0}deg" src="/art/parts/${n}/${name}.webp" alt="" ${attrs}>`
             })
             .join("")}</div>`
+    }
     $("pf").innerHTML = [
         [
             "09-logs-scroll",
@@ -1043,7 +1178,8 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         )
         .join("")
     $("cg").innerHTML = FE.map(
-        (f) => `<a class="cp" href="${featurePath(f)}"><img src="${art(f.k)}" alt=""><span>${f.n}</span></a>`,
+        (f) =>
+            `<a class="cp" href="${featurePath(f)}"><img src="${art(f.k)}" alt="" loading="lazy" decoding="async"><span>${f.n}</span></a>`,
     ).join("")
     const io = new IntersectionObserver(
         (es) =>
@@ -1094,7 +1230,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         e.className = "m " + (c || "")
         e.innerHTML =
             (who
-                ? `<i class="av${bot ? " bot" : ""}" style="--h:${HUES[who] ?? 240}">${bot ? '<img src="/art/neonflux-bot.webp" alt="">' : esc(who[0])}</i>`
+                ? `<i class="av${bot ? " bot" : ""}" style="--h:${HUES[who] ?? 240}">${bot ? '<img src="/art/neonflux-bot.webp" alt="" loading="lazy" decoding="async">' : esc(who[0])}</i>`
                 : "") + `<div>${who ? `<b>${esc(who)}${bot ? "<em>Bot</em>" : ""}</b>` : ""}<span>${t}</span></div>`
         b.append(e)
         b.scrollTop = b.scrollHeight
@@ -1104,6 +1240,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     function room(d, k, task, ctrl, head, body) {
         d.className = "dm dm2"
         d.innerHTML = `<div class="dc"><p class="dtask">${task}</p>${ctrl}<button class="again" id="dag">Start again</button></div><div class="cw"><div class="cwh">${head}</div><div class="cwb" id="dlg">${body || ""}</div></div>`
+        enhance(d)
         $("dag").onclick = () => DEMO[k](d)
         return $("dlg")
     }
@@ -1228,11 +1365,12 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             let x = 0.12,
                 y = 0.5,
                 done = false,
-                dr = false
-            const put = () => {
+                dr = false,
+                spkRect = null
+            const put = (rect) => {
                 s.style.left = x * 100 + "%"
                 s.style.top = y * 100 + "%"
-                const r = a.getBoundingClientRect()
+                const r = rect ?? a.getBoundingClientRect()
                 if (!done && Math.hypot((x - 0.82) * r.width, (y - 0.5) * r.height) < 26) {
                     done = true
                     M(lg, "NeonFlux", "Verified, Riley. You now have the Member role")
@@ -1240,16 +1378,19 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             }
             s.addEventListener("pointerdown", (e) => {
                 dr = true
+                spkRect = a.getBoundingClientRect()
                 s.setPointerCapture(e.pointerId)
             })
             s.addEventListener("pointermove", (e) => {
-                if (!dr) return
-                const r = a.getBoundingClientRect()
-                x = Math.max(0.03, Math.min(0.97, (e.clientX - r.left) / r.width))
-                y = Math.max(0.1, Math.min(0.9, (e.clientY - r.top) / r.height))
-                put()
+                if (!dr || !spkRect) return
+                x = Math.max(0.03, Math.min(0.97, (e.clientX - spkRect.left) / spkRect.width))
+                y = Math.max(0.1, Math.min(0.9, (e.clientY - spkRect.top) / spkRect.height))
+                put(spkRect)
             })
-            s.addEventListener("pointerup", () => (dr = false))
+            s.addEventListener("pointerup", () => {
+                dr = false
+                spkRect = null
+            })
             s.addEventListener("keydown", (e) => {
                 const k = {
                     ArrowLeft: [-0.03, 0],
@@ -1715,7 +1856,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             .split("")
             .map((c, j) => `<span style="--k:${j}">${c === " " ? "&nbsp;" : c}</span>`)
             .join("")
-        v.innerHTML = `<div class="fh pad ${f.cls || "floaty"}" style="--len:${f.n.length}"><h1>${letters}</h1><p>${f.l}</p>${{ tic: "39-support-lifebuoy", eve: "13-events-bell", msg: "32-announce-megaphone" }[k] ? lv({ tic: "39-support-lifebuoy", eve: "13-events-bell", msg: "32-announce-megaphone" }[k], "ic") : `<img class="ic" src="${art(k)}" alt="">`}</div><section class="pad fdm"><div class="scnd" style="--tc:${TINT[k]}">${k === "mod" ? modBlock() : k === "roles" ? rolesBlock() : demoBlock()}</div></section>
+        v.innerHTML = `<div class="fh pad ${f.cls || "floaty"}" style="--len:${f.n.length}"><h1>${letters}</h1><p>${f.l}</p>${{ tic: "39-support-lifebuoy", eve: "13-events-bell", msg: "32-announce-megaphone" }[k] ? lv({ tic: "39-support-lifebuoy", eve: "13-events-bell", msg: "32-announce-megaphone" }[k], "ic", true) : `<img class="ic" src="${art(k)}" alt="" decoding="async">`}</div><section class="pad fdm"><div class="scnd" style="--tc:${TINT[k]}">${k === "mod" ? modBlock() : k === "roles" ? rolesBlock() : demoBlock()}</div></section>
 <section class="sec pad fcv"><h2>What it covers</h2><div class="two"><div><ul class="facts">${f.f.map((x) => `<li class="rv">${esc(x)}</li>`).join("")}</ul><div class="src">${featureDocs(
             f,
         )
@@ -1723,11 +1864,12 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             .join(
                 "",
             )}${f.c ? "" : `<a href="${R}/tree/main/projects/bot/src">Read the code</a>`}</div><div class="acts" style="margin-top:18px"><a class="main" href="${dashboardUrl}">Open dashboard</a></div></div></div></section>
-<nav class="nxs pad" aria-label="Other features"><a class="nx" href="${featurePath(pv)}"><img src="${art(pv.k)}" alt=""><span><small>Previous</small><b>${pv.n}</b></span></a><a class="nx nt" href="${featurePath(nx)}"><span><small>Next</small><b>${nx.n}</b></span><img src="${art(nx.k)}" alt=""></a></nav><footer class="foot pad"><strong>NeonFlux, open source under Apache 2.0</strong><a href="/docs/">Docs</a><a href="https://github.com/NeonTechSpace/NeonFlux">GitHub</a><a href="https://github.com/NeonTechSpace/NeonFlux/blob/main/docs/SECURITY.md">Security</a><p class="lgl">NeonFlux is an independent project. It is not affiliated with, endorsed by or sponsored by Fluxer</p></footer>`
+<nav class="nxs pad" aria-label="Other features"><a class="nx" href="${featurePath(pv)}"><img src="${art(pv.k)}" alt="" loading="lazy" decoding="async"><span><small>Previous</small><b>${pv.n}</b></span></a><a class="nx nt" href="${featurePath(nx)}"><span><small>Next</small><b>${nx.n}</b></span><img src="${art(nx.k)}" alt="" loading="lazy" decoding="async"></a></nav><footer class="foot pad"><strong>NeonFlux, open source under Apache 2.0</strong><a href="/docs/">Docs</a><a href="https://github.com/NeonTechSpace/NeonFlux">GitHub</a><a href="https://github.com/NeonTechSpace/NeonFlux/blob/main/docs/SECURITY.md">Security</a><p class="lgl">NeonFlux is an independent project. It is not affiliated with, endorsed by or sponsored by Fluxer</p></footer>`
         if (k === "mod") modInit()
         else if (k === "roles") rolesInit()
         else DEMO[k]($("dm"))
         watch()
+        enhance(v)
         if (f.cls === "slam" && motion)
             setTimeout(() => {
                 const r = v.querySelector(".ic")?.getBoundingClientRect()
@@ -1736,7 +1878,9 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     }
     const canonical = document.querySelector('link[rel="canonical"]')
     let navLink = false,
-        lastPlace = location.pathname + location.hash
+        lastPlace = location.pathname + location.hash,
+        activeFeature = pageFeature(),
+        activeNa = location.hash === "#no-access"
     // Moving inside the page keeps the animation running, while the address stays a real one that can be shared and indexed
     const go = (place) => {
         history.pushState(null, "", place)
@@ -1744,7 +1888,13 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
     }
     const placeChanged = () => {
         adoptOldLink()
-        if (location.pathname + location.hash !== lastPlace) route()
+        if (location.pathname + location.hash === lastPlace) return
+        if (location.hash === "#main" && pageFeature() === activeFeature && !activeNa) {
+            lastPlace = location.pathname + location.hash
+            $("main")?.focus()
+            return
+        }
+        route()
     }
     function route() {
         const h = location.hash.slice(1),
@@ -1753,6 +1903,8 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             link = navLink
         navLink = false
         lastPlace = location.pathname + location.hash
+        activeFeature = k
+        activeNa = na
         const shown = k ? byK[k] : null
         document.title = shown ? featureTitle(shown) : homeTitle
         document.querySelector('meta[name="description"]').content = shown ? featureDescription(shown) : homeDescription
@@ -1777,6 +1929,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
                     $("hacts").innerHTML =
                         `<a class="main" href="${dashboardUrl}">Open dashboard</a><a class="alt" href="/docs/self-hosting/overview/">Run your own</a>`
                 }
+                markLinks($("hacts"))
             }
             $("v-home").classList.toggle("on", !k)
             $("v-f").classList.toggle("on", !!k)
@@ -1784,16 +1937,31 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
                 $("stage").innerHTML = ""
                 feature(k)
                 window.scrollTo(0, 0)
+                measureLayout()
+                if (ready) ensureBG()
+                else scheduleBG()
             } else {
                 $("v-f").innerHTML = ""
                 if (!$("stage").firstChild) deckShow(deckK)
                 if (na) window.scrollTo(0, 0)
-                else if (h && h !== "home" && away && !link) window.scrollTo(0, homeY)
+                else if (h && h !== "home" && h !== "main" && away && !link) window.scrollTo(0, homeY)
                 else if (h && h !== "home" && $(h)) $(h).scrollIntoView()
                 else if (!h || h === "home") window.scrollTo(0, homeY)
+                if (motion && ready && !G && window.WebGL2RenderingContext) {
+                    try {
+                        initGL()
+                    } catch {
+                        noGL()
+                    }
+                }
                 size()
+                measureLayout()
                 scrollP()
                 if (B) sizeBG()
+                else if (!motion || !heroCovers()) {
+                    if (ready) ensureBG()
+                    else scheduleBG()
+                } else watchBG()
             }
             snapSync()
         }
@@ -1808,10 +1976,22 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         knock = 1
         $("knr").textContent = KN[knocks % KN.length]
         knocks++
-        const r = stick.getBoundingClientRect()
-        ripple(e.clientX || r.left + r.width / 2, e.clientY || r.top + r.height / 2)
+        ripple(
+            e.clientX || stickMetrics.left + stickMetrics.width / 2,
+            e.clientY || stickViewTop() + stickMetrics.height / 2,
+        )
     })
     document.addEventListener("click", (e) => {
+        const skip = e.target.closest(".skip-link")
+        if (skip) {
+            e.preventDefault()
+            const target = $("main")
+            if (target) {
+                target.focus()
+                target.scrollIntoView({ block: "start" })
+            }
+            return
+        }
         const a = e.target.closest('.nf a[href="#"]')
         if (a) e.preventDefault()
         if (e.target.closest('a[href="/"]')) homeY = 0
@@ -1875,13 +2055,14 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             .querySelectorAll("button")
             .forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === k)))
         const mv = { tic: "39-support-lifebuoy", eve: "13-events-bell", msg: "32-announce-megaphone" }[k]
-        st.innerHTML = `<div class="scn" style="--tc:${TINT[k]}"><div class="scnd"><div class="scna">${mv ? lv(mv, "ic") : `<img src="${art(k)}" alt="">`}</div><div class="scnh"><div><h3>${f.n}</h3><p>${f.l}</p></div><a class="more" href="#f-${k}">More about ${f.n}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></div>${
+        st.innerHTML = `<div class="scn" style="--tc:${TINT[k]}"><div class="scnd"><div class="scna">${mv ? lv(mv, "ic") : `<img src="${art(k)}" alt="" loading="lazy" decoding="async">`}</div><div class="scnh"><div><h3>${f.n}</h3><p>${f.l}</p></div><a class="more" href="${featurePath(f)}">More about ${f.n}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></div>${
             k === "mod" ? modBlock() : k === "roles" ? rolesBlock() : demoBlock()
         }</div></div>`
         if (k === "mod") modInit()
         else if (k === "roles") rolesInit()
         else DEMO[k]($("dm"))
         watch()
+        enhance(st)
     }
     $("rail2").addEventListener("click", (e) => {
         const b = e.target.closest("button")
@@ -1979,11 +2160,21 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         const t = (i / FE.length) * Math.PI * 2 + 0.26
         return `<a href="${featurePath(f)}" aria-label="${f.n}" title="${f.n}" style="left:${(50 + 45 * Math.cos(t)).toFixed(1)}%;top:${(50 + 41 * Math.sin(t)).toFixed(1)}%;--d:${(0.5 + (i % 3) * 0.5).toFixed(1)};--o:${i}"><img src="${art(f.k)}" alt="" loading="lazy"></a>`
     }).join("")
+    let endMoveRaf = 0,
+        endX = 0,
+        endY = 0
     $("end").addEventListener("pointermove", (e) => {
         if (!motion || e.pointerType === "touch") return
-        const r = $("end").getBoundingClientRect()
-        $("orb").style.setProperty("--px", ((e.clientX - r.left) / r.width - 0.5).toFixed(3))
-        $("orb").style.setProperty("--py", ((e.clientY - r.top) / r.height - 0.5).toFixed(3))
+        endX = e.clientX
+        endY = e.clientY
+        if (endMoveRaf) return
+        endMoveRaf = requestAnimationFrame(() => {
+            endMoveRaf = 0
+            if (!endMetrics.width || !endMetrics.height) return
+            const top = endMetrics.topDoc - scrollY
+            $("orb").style.setProperty("--px", ((endX - endMetrics.left) / endMetrics.width - 0.5).toFixed(3))
+            $("orb").style.setProperty("--py", ((endY - top) / endMetrics.height - 0.5).toFixed(3))
+        })
     })
     function bindPill(row) {
         if (row._pill) return
@@ -2010,7 +2201,19 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         })
         new ResizeObserver(place).observe(row)
     }
-    const bindPills = () => document.querySelectorAll(".dock,.bwt,.seg:not(.multi)").forEach(bindPill)
+    function markLinks(scope = nf) {
+        scope.querySelectorAll('a[href^="http"]:not([target])').forEach((l) => {
+            l.target = "_blank"
+            l.rel = "noopener"
+        })
+    }
+    function bindPills(scope = nf) {
+        scope.querySelectorAll(".dock,.bwt,.seg:not(.multi)").forEach(bindPill)
+    }
+    function enhance(scope = nf) {
+        markLinks(scope)
+        bindPills(scope)
+    }
     $("tbk").innerHTML = lv("12-data-database")
     document.addEventListener("click", (e) => {
         if (!motion) return
@@ -2039,34 +2242,12 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             obj.classList.add("act-" + kind)
         }
     })
-    {
-        const tile = (size, n, r, alpha) => {
-            const cv = document.createElement("canvas")
-            cv.width = cv.height = size
-            const x = cv.getContext("2d")
-            for (let i = 0; i < n; i++) {
-                x.fillStyle = `rgba(190,205,255,${alpha * (0.5 + Math.random() / 2)})`
-                x.beginPath()
-                x.arc(Math.random() * size, Math.random() * size, r * (0.6 + Math.random() * 0.8), 0, 7)
-                x.fill()
-            }
-            return `url(${cv.toDataURL()})`
-        }
-        const dust = $("dust")
-        dust.style.backgroundImage = `${tile(620, 26, 1.3, 0.42)},${tile(1100, 18, 2.4, 0.13)}`
-        let queued = false
-        addEventListener(
-            "scroll",
-            () => {
-                if (queued || !motion) return
-                queued = true
-                requestAnimationFrame(() => {
-                    queued = false
-                    dust.style.backgroundPosition = `0 ${-scrollY * 0.09}px,120px ${-scrollY * 0.03}px`
-                })
-            },
-            { passive: true },
-        )
+    function syncDust(y) {
+        if (!motion || !dusta || !dustb) return
+        const y1 = -((y * 0.09) % 620) || 0,
+            y2 = -((y * 0.03) % 1100) || 0
+        dusta.style.transform = `translate3d(0,${y1}px,0)`
+        dustb.style.transform = `translate3d(0,${y2}px,0)`
     }
     {
         const items = [...document.querySelectorAll("#faq details")]
@@ -2105,17 +2286,7 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             }),
         )
     }
-    const markLinks = () =>
-        document.querySelectorAll('a[href^="http"]:not([target])').forEach((l) => {
-            l.target = "_blank"
-            l.rel = "noopener"
-        })
-    markLinks()
-    bindPills()
-    new MutationObserver(() => {
-        markLinks()
-        bindPills()
-    }).observe(nf, { childList: true, subtree: true })
+    enhance(nf)
     const tog = $("tog")
     function applyMotion() {
         const home = $("v-home").classList.contains("on"),
@@ -2131,12 +2302,9 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
                       })()
                     : null
         tog.setAttribute("aria-checked", String(motion))
+        root.toggleAttribute("data-still", !motion)
+        root.classList.toggle("still", !motion)
         nf.classList.toggle("still", !motion)
-        nf.classList.add("bgon")
-        if (!B && window.WebGL2RenderingContext)
-            try {
-                initBG()
-            } catch {}
         bgDirty = true
         if (!motion) {
             autoT = null
@@ -2146,8 +2314,15 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
             rp = [0, 0, 9]
         }
         root.classList.toggle("snap", motion && snapState[0] && snapState[1])
-        if (motion && ready) {
-            if (!G && document.fonts) initGL()
+        if (motion && ready && home) {
+            if (!G && document.fonts) {
+                try {
+                    initGL()
+                } catch {
+                    noGL()
+                    return
+                }
+            }
             size()
         }
         if (motion && !running) {
@@ -2160,9 +2335,18 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
                 const e = anc.c.offsetHeight ? anc.c : anc.c.nextElementSibling
                 window.scrollTo(0, e.getBoundingClientRect().top + scrollY + (e === anc.c ? anc.d : 0))
             } else window.scrollTo(0, 0)
+            measureLayout()
             snapSync()
             lastY = scrollY
             document.querySelector(".top").classList.remove("hide")
+        } else {
+            measureLayout()
+        }
+        if (!B) {
+            if (!motion || !heroCovers()) {
+                if (ready) ensureBG()
+                else scheduleBG()
+            } else watchBG()
         }
     }
     let ready = false
@@ -2178,38 +2362,33 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         $("tog").style.display = "none"
         applyMotion()
     }
-    if (!window.WebGL2RenderingContext) noGL()
-    else
-        (document.fonts?.ready ?? Promise.resolve())
-            .then(() => {
-                if (motion && !G) initGL()
-                size()
-                sizeBG()
-            })
-            .catch(noGL)
-    function scrollP() {
+    function scrollP(y = scrollY) {
         if (!root.classList.contains("page") || NA) return
-        const r = $("pin").getBoundingClientRect(),
-            vh = stick.offsetHeight
+        const vh = stickMetrics.height
         if (!vh) return
-        idx = Math.max(0, Math.min(3, Math.round(-r.top / vh)))
+        idx = Math.max(0, Math.min(3, Math.round((y - pinTop) / vh)))
         tp = STOP[idx]
     }
+    let scrollRaf = 0
     addEventListener(
         "scroll",
         () => {
-            if ($("v-home").classList.contains("on") && !NA) homeY = scrollY
-            snapSync()
-            scrollP()
-            if (!motion) {
-                p = tp
-            }
-            const y = scrollY,
-                top = document.querySelector(".top")
-            if (Math.abs(y - lastY) > 6) {
-                top.classList.toggle("hide", y > lastY && y > hideFrom() && !fmOpen())
-                lastY = y
-            }
+            if (scrollRaf) return
+            scrollRaf = requestAnimationFrame(() => {
+                scrollRaf = 0
+                const y = scrollY
+                if ($("v-home").classList.contains("on") && !NA) homeY = y
+                snapSync(y)
+                scrollP(y)
+                if (!motion) p = tp
+                const top = document.querySelector(".top")
+                if (Math.abs(y - lastY) > 6) {
+                    top.classList.toggle("hide", y > lastY && y > hideFrom() && !fmOpen())
+                    lastY = y
+                }
+                syncDust(y)
+                if (!B && !heroCovers(y)) ensureBG()
+            })
         },
         { passive: true },
     )
@@ -2219,24 +2398,22 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         wlast = 0,
         wprev = 0
     const inHero = () => motion && snapState[0] && snapState[1] && root.classList.contains("page"),
-        restY = () => $("rest").getBoundingClientRect().top + scrollY
+        restY = () => restTop
     function hideFrom() {
         if (!$("v-home").classList.contains("on")) return 70
         if (NA) return Infinity
-        return $("rest").getBoundingClientRect().top + scrollY + 1
+        return restTop + 1
     }
-    let restTop = 0
-    const heroCovers = () =>
-        !NA && $("v-home").classList.contains("on") && motion && scrollY <= restTop - innerHeight + 2
-    function snapSync() {
-        restTop = restY()
-        root.classList.toggle("snap", motion && snapState[0] && snapState[1] && scrollY < restY() - 1)
+    const heroCovers = (y = scrollY) =>
+        !NA && $("v-home").classList.contains("on") && motion && y <= restTop - innerHeight + 2
+    function snapSync(y = scrollY) {
+        root.classList.toggle("snap", motion && snapState[0] && snapState[1] && y < restTop - 1)
     }
     function stepHero(dir) {
         const y = scrollY,
             ry = restY(),
-            vh = stick.offsetHeight
-        if (y > ry + 2) return false
+            vh = stickMetrics.height
+        if (!vh || y > ry + 2) return false
         if (y >= ry - 2) {
             if (dir > 0) return false
             jump(3)
@@ -2277,12 +2454,22 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         if (stepHero(e.shiftKey && e.key === " " ? -1 : d)) e.preventDefault()
     })
     document.querySelector(".top").addEventListener("focusin", (e) => e.currentTarget.classList.remove("hide"))
-    new ResizeObserver(() => {
-        size()
-        sizeBG()
-        if (motion && $("v-home").classList.contains("on") && G) drawHero()
-        if (motion && desktop()) drawBG()
-    }).observe(nf)
+    let resizeRaf = 0
+    const onResize = () => {
+        if (resizeRaf) return
+        resizeRaf = requestAnimationFrame(() => {
+            resizeRaf = 0
+            size()
+            measureLayout()
+            sizeBG()
+            snapSync()
+            scrollP()
+            if (motion && $("v-home").classList.contains("on") && G) drawHero()
+            if (motion && desktop() && B) drawBG()
+        })
+    }
+    new ResizeObserver(onResize).observe(nf)
+    addEventListener("resize", onResize, { passive: true })
     let last = performance.now(),
         slow = 0,
         okf = 0
@@ -2308,13 +2495,17 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
                     G.scale = Math.max(0.5, G.scale - 0.17)
                     slow = 0
                     size()
+                    measureLayout()
                 }
                 if (okf > 300) {
                     slow = 0
                     okf = 0
                 }
             }
-            if (desktop() && !heroCovers()) drawBG()
+            if (desktop() && !heroCovers()) {
+                if (!B) ensureBG()
+                drawBG()
+            }
             wStep(dt)
         }
         setAct(NA ? 4 : idx)
@@ -2325,10 +2516,24 @@ void main(){vec2 fc=gl_FragCoord.xy,p=(fc-.5*RS)/min(RS.x,RS.y);o=vec4(sky(p,T,M
         if (motion) requestAnimationFrame(frame)
         else running = false
     }
-    applyMotion()
+    if (!window.WebGL2RenderingContext) noGL()
+    else {
+        applyMotion()
+        ;(document.fonts?.ready ?? Promise.resolve())
+            .then(() => {
+                ready = true
+                if (motion && !G && $("v-home").classList.contains("on")) initGL()
+                size()
+                measureLayout()
+                sizeBG()
+            })
+            .catch(noGL)
+    }
     setAct(0)
     route()
+    measureLayout()
     scrollP()
+    syncDust(scrollY)
     if (motion && !running) {
         running = true
         requestAnimationFrame(frame)

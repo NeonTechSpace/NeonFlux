@@ -12,40 +12,27 @@ const { title, description, graph, feature = false } = Astro.props
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <Seo {title} {description} {graph} />
+        <link rel="alternate" type="text/plain" href="/llms.txt" title="NeonFlux for LLMs" />
         <link rel="preload" href="/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin />
         <link rel="preload" href="/fonts/atkinson.woff2" as="font" type="font/woff2" crossorigin />
+        {!feature && <link rel="preload" href="/art/atlas.webp" as="image" type="image/webp" fetchpriority="high" />}
+        <script is:inline>
+            // Read before the first paint, with the same remembered choice as docs and the 404 page
+            ;(() => {
+                let stored = null
+                try {
+                    stored = localStorage.getItem("nf.motion")
+                } catch {}
+                const still = stored ? stored !== "on" : matchMedia("(prefers-reduced-motion: reduce)").matches
+                document.documentElement.toggleAttribute("data-still", still)
+                document.documentElement.classList.toggle("still", still)
+            })()
+        </script>
     </head>
     <body style="margin: 0">
         <div class="nf" id="nf">
             <canvas id="bg" aria-hidden="true"></canvas>
-            <div hidden id="art">
-                <img id="atlas" data-src="/art/atlas.webp" alt="" />
-                <img data-a="mod" src="/art/b-38-moderation-gavel.webp" alt="" /><img
-                    data-a="auto"
-                    src="/art/b-15-guard-shield.webp"
-                    alt=""
-                /><img data-a="guard" src="/art/b-25-errors-beacon.webp" alt="" /><img data-a="roles" src="/art/b-51-roles-tags.webp" alt="" /><img
-                    data-a="ver"
-                    src="/art/b-36-permission-lock.webp"
-                    alt=""
-                /><img data-a="wel" src="/art/b-34-welcome-door.webp" alt="" /><img
-                    data-a="tic"
-                    src="/art/b-39-support-lifebuoy.webp"
-                    alt=""
-                /><img data-a="help" src="/art/b-18-api-book.webp" alt="" /><img
-                    data-a="lev"
-                    src="/art/b-46-levels-trophy.webp"
-                    alt=""
-                /><img data-a="eve" src="/art/b-13-events-bell.webp" alt="" /><img
-                    data-a="pro"
-                    src="/art/b-35-member-badge.webp"
-                    alt=""
-                /><img data-a="msg" src="/art/b-32-announce-megaphone.webp" alt="" /><img
-                    data-a="voi"
-                    src="/art/b-42-music-headphones.webp"
-                    alt=""
-                />
-            </div>
+            <a class="skip-link" href="#main">Skip to content</a>
             <nav class="top" aria-label="Main">
                 <strong
                     ><a href="/">Neon<span class="g">Flux</span></a></strong
@@ -76,11 +63,14 @@ const { title, description, graph, feature = false } = Astro.props
             </nav>
 
             <div class="fms" id="fms" aria-hidden="true"></div>
-            <div class="dust" id="dust" aria-hidden="true"></div>
+            <div class="dust" id="dust" aria-hidden="true">
+                <i class="dust-a" id="dusta"></i><i class="dust-b" id="dustb"></i>
+            </div>
+            <main id="main" tabindex="-1">
             <div class:list={["view", { on: !feature }]} id="v-home">
                 <section class="calm pad">
                     <div>
-                        <h1>Neon<span class="g">Flux</span></h1>
+                        <h2 class="calm-h">Neon<span class="g">Flux</span></h2>
                         <p class="tag big">An open-source Fluxer bot you can host for yourself or for others</p>
                         <ul>
                             <li>
@@ -105,8 +95,8 @@ const { title, description, graph, feature = false } = Astro.props
                     <div class="cg" id="cg"></div>
                 </section>
                 <section class="calmna pad">
-                    <img src="/art/b-36-permission-lock.webp" alt="" />
-                    <h1>You can look, but this one's private</h1>
+                    <img src="/art/b-36-permission-lock.webp" alt="" loading="lazy" />
+                    <h2 class="calmna-h">You can look, but this one's private</h2>
                     <p>It runs for one community. Join its server, or ask for permission to manage it</p>
                     <div class="acts"><a class="main" href="/">Back to the homepage</a></div>
                 </section>
@@ -115,7 +105,7 @@ const { title, description, graph, feature = false } = Astro.props
                     ><i class="mark" style="top: 200svh"></i><i class="mark" style="top: 300svh"></i>
                     <div class="stick" id="stick">
                         <canvas id="gl" aria-hidden="true"></canvas>
-                        <h1 class="h-word" id="hword">NeonFlux</h1>
+                        {feature ? <h2 class="h-word" id="hword">NeonFlux</h2> : <h1 class="h-word" id="hword">NeonFlux</h1>}
                         <div class="anchor" id="anchor"></div>
                         <div id="hits"></div>
                         <div class="h-say">
@@ -225,7 +215,7 @@ const { title, description, graph, feature = false } = Astro.props
                             </div>
                             <div class="bwv" data-v="out" hidden>
                                 <div class="bwo">
-                                    <img src="/art/b-36-permission-lock.webp" alt="" />
+                                    <img src="/art/b-36-permission-lock.webp" alt="" loading="lazy" />
                                     <h3>You can look, but this one's private</h3>
                                     <p>You need to be on the server to see anything here</p>
                                     <a href="#no-access">See the full page</a>
@@ -343,7 +333,7 @@ const { title, description, graph, feature = false } = Astro.props
                                 <div class="tv">
                                     <div class="uis">
                                         <div class="uic">
-                                            <i class="av bot"><img src="/art/neonflux-bot.webp" alt="" /></i>
+                                            <i class="av bot"><img src="/art/neonflux-bot.webp" alt="" loading="lazy" /></i>
                                             <div><b>NeonFlux</b><span>Happy birthday, @Sam</span></div>
                                         </div>
                                         <div class="uic">
@@ -402,7 +392,7 @@ const { title, description, graph, feature = false } = Astro.props
                                 <div class="tv">
                                     <div class="uis">
                                         <div class="uic">
-                                            <i class="av bot"><img src="/art/neonflux-bot.webp" alt="" /></i>
+                                            <i class="av bot"><img src="/art/neonflux-bot.webp" alt="" loading="lazy" /></i>
                                             <div><b>NeonFlux</b><span>Take out the bins</span></div>
                                         </div>
                                     </div>
@@ -586,6 +576,7 @@ pnpm run start</code></pre>
             <div class:list={["view", { on: feature }]} id="v-f">
                 <slot />
             </div>
+            </main>
         </div>
         <script src="../scripts/home.js"></script>
     </body>

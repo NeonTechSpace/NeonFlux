@@ -67,3 +67,55 @@ test("Pages kept out of search say so", () => {
     assert.match(readFileSync(join(dist, "404.html"), "utf8"), /name="robots" content="noindex"/)
     assert.match(readFileSync(join(dist, "docs/nightly/index.html"), "utf8"), /name="robots" content="noindex"/)
 })
+
+test("LLM text endpoints are generated from features and docs, linked from layouts and kept out of the sitemap", () => {
+    const summary = readFileSync(join(dist, "llms.txt"), "utf8")
+    const full = readFileSync(join(dist, "llms-full.txt"), "utf8")
+    assert.match(summary, /^# NeonFlux\n/)
+    assert.match(summary, /https:\/\/neonflux\.neontechspace\.com\/llms-full\.txt/)
+    for (const feature of FE) {
+        assert.ok(summary.includes(new URL(featurePath(feature), site).href), `llms.txt missing ${feature.d}`)
+        assert.ok(full.includes(`### ${feature.n}`), `llms-full.txt missing ${feature.n}`)
+    }
+    assert.ok(summary.includes(`${site}/docs/features/first-steps/`))
+    assert.ok(summary.includes(`${site}/docs/self-hosting/overview/`))
+    assert.ok(full.includes(`URL: ${site}/docs/features/moderation/`))
+    assert.doesNotMatch(full, /\]\(\.\/[^)]+\.md/)
+    assert.ok(!summary.includes("\u2014"))
+    assert.ok(!full.includes("\u2014"))
+    assert.deepEqual(
+        listed.filter((address) => /\/llms(?:-full)?\.txt/.test(address)),
+        [],
+    )
+    for (const path of ["/", "/docs/"]) {
+        const html = pageOf(new URL(path, site).href)
+        assert.match(html, /<link rel="alternate" type="text\/plain" href="\/llms\.txt"/)
+    }
+})
+
+test("Cloudflare Pages headers set security, caching and noindex rules", () => {
+    const headersPath = join(dist, "_headers")
+    assert.ok(existsSync(headersPath), "_headers is missing from dist")
+    const headers = readFileSync(headersPath, "utf8")
+    assert.match(headers, /^\/\*\n[\s\S]*X-Content-Type-Options: nosniff/m)
+    assert.match(headers, /Referrer-Policy: strict-origin-when-cross-origin/)
+    assert.match(headers, /X-Frame-Options: DENY/)
+    assert.match(headers, /Content-Security-Policy: .*script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'/)
+    assert.match(headers, /\/_astro\/\*\n\s+Cache-Control: public, max-age=31536000, immutable/)
+    assert.match(headers, /\/fonts\/\*\n\s+Cache-Control: public, max-age=31536000, immutable/)
+    assert.match(headers, /\/art\/\*\n\s+Cache-Control: [^\n]*stale-while-revalidate/)
+    assert.match(headers, /\/pagefind\/\*\n\s+Cache-Control: [^\n]*stale-while-revalidate/)
+    for (const path of ["/404.html", "/llms.txt", "/llms-full.txt"]) {
+        assert.match(headers, new RegExp(`${path.replace(".", "\\.")}\\n\\s+X-Robots-Tag: noindex`))
+    }
+})
+
+test("The homepage and feature pages each have one h1 and a skip link to main", () => {
+    for (const path of ["/", ...FE.map(featurePath)]) {
+        const html = pageOf(new URL(path, site).href)
+        const h1s = [...html.matchAll(/<h1\b[^>]*>/g)]
+        assert.equal(h1s.length, 1, `${path} has ${h1s.length} h1 elements`)
+        assert.match(html, /<a class="skip-link" href="#main">Skip to content<\/a>/)
+        assert.match(html, /<main id="main"/)
+    }
+})

@@ -24,7 +24,7 @@ The public homepage and this documentation site are not needed to run a bot
 
 ## What is needed before starting
 
-- Node.js 24 and pnpm 12, installed without Corepack. The exact Node version is in `projects/.node-version`, and the workspace selects its own pnpm version
+- Node.js 26 and pnpm 12, installed without Corepack. The exact Node version is in `projects/.node-version`, and the workspace selects its own pnpm version
 - A Convex account with a cloud development deployment
 - A Fluxer account and a server to manage
 - For the dashboard on other devices: A public HTTPS address and a reverse proxy

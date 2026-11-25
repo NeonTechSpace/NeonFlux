@@ -40,3 +40,21 @@ test("Every tile links a docs page that exists", () => {
         assert.ok(existsSync(join(dist, href, "index.html")), `${href} is not a page`)
     }
 })
+
+test("The homepage avoids eager hidden art fetches, preloads the atlas and fonts, and uses canonical feature links", () => {
+    assert.doesNotMatch(page, /id="art"/)
+    assert.match(
+        page,
+        /<link rel="preload" href="\/art\/atlas\.webp" as="image" type="image\/webp" fetchpriority="high"/,
+    )
+    assert.match(page, /localStorage\.getItem\("nf\.motion"\)/)
+    const docsPage = readFileSync(join(dist, "docs/index.html"), "utf8")
+    const lostPage = readFileSync(join(dist, "404.html"), "utf8")
+    for (const html of [page, docsPage, lostPage]) {
+        assert.match(html, /<link rel="preload" href="\/fonts\/bricolage\.woff2" as="font"/)
+        assert.match(html, /<link rel="preload" href="\/fonts\/atkinson\.woff2" as="font"/)
+    }
+    assert.doesNotMatch(built, /href=\\?["']#f-/)
+    assert.doesNotMatch(built, /\.toDataURL\(/)
+    assert.doesNotMatch(built, /CURRENT_PROGRAM/)
+})
