@@ -1,6 +1,6 @@
 # Configure the backend
 
-This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. The bot calls public Convex functions for every persisted feature, each checked with a key derived from the bot secret, and the web dashboard and verification pages use their own public Convex functions. See [the bot guide](BOT.md) for commands and [the web guide](WEB.md) for dashboard and verification setup
+This guide is for operators deploying NeonFlux's Convex backend and contributors changing its contracts. Convex was chosen for its best-in-class live-update UX and because it is self-hostable with open-source Apache 2.0 client SDKs and a source-available FSL-1.1-Apache-2.0 backend (converting to Apache 2.0 after two years). The bot calls public Convex functions for every persisted feature, each checked with a key derived from the bot secret, and the web dashboard and verification pages use their own public Convex functions. See [the bot guide](BOT.md) for commands and [the web guide](WEB.md) for dashboard and verification setup
 
 ## Shared setup
 

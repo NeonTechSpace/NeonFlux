@@ -7,11 +7,11 @@ NeonFlux is a bot for Fluxer, a chat platform. Running it means running three pa
 
 ## What gets run
 
-| Part              | What it does                                                                                                    | Needed                                    |
-| ----------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Convex backend    | Stores settings and server data, runs scheduled cleanup and answers the bot and the website                     | Yes                                       |
-| Bot               | Connects to Fluxer, answers commands and carries out actions in servers                                         | Yes                                       |
-| Dashboard website | Lets managers change settings in a browser, and holds the member role picker and the advanced verification page | No, chat commands keep working without it |
+| Part              | What it does                                                                                                                                                                                                                                                                      | Needed                                    |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Convex backend    | Self-hostable backend (open-source Apache 2.0 SDKs and source-available FSL-1.1-Apache-2.0 backend converting to Apache 2.0 after two years) chosen for best-in-class live-update UX. Stores settings and server data, runs scheduled cleanup and answers the bot and the website | Yes                                       |
+| Bot               | Connects to Fluxer, answers commands and carries out actions in servers                                                                                                                                                                                                           | Yes                                       |
+| Dashboard website | Lets managers change settings in a browser, and holds the member role picker and the advanced verification page                                                                                                                                                                   | No, chat commands keep working without it |
 
 The public homepage and this documentation site are not needed to run a bot
 

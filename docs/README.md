@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  Built with TypeScript 7 and Fluxerly's native Effect API, with Convex state, a reactive configuration dashboard, and single-server defaults plus a public multi-server mode that serves every server the bot joins. Docker distribution through GHCR and public documentation pages are planned
+  Built with TypeScript 7 and Fluxerly's native Effect API, backed by Convex (chosen for its best-in-class live-sync UX and self-hostable FSL-1.1-Apache-2.0 backend, converting to Apache 2.0 after two years), with a reactive configuration dashboard, single-server defaults and a public multi-server mode that serves every server the bot joins. Docker distribution through GHCR is planned
 </p>
 
 <p align="center">

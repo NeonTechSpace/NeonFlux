@@ -48,6 +48,22 @@ pnpm run dev:web
 
 Open `http://localhost:3000` and sign in with Fluxer. Localhost links only work on the machine running the website
 
+## Deploy on Cloudflare Workers
+
+The dashboard deploys separately from the static homepage and docs (`projects/site`), on its own subdomain such as `https://dashboard.example.com`
+
+1. Build the Cloudflare Workers bundle from `projects/`:
+
+    ```sh
+    pnpm --filter @neonflux/web run build:cloudflare
+    ```
+
+2. Set the Worker secrets and variables: `CONVEX_URL`, `FLUXER_CLIENT_SECRET`, `WEB_SESSION_SECRET`, `TRUST_PROXY=cloudflare`, `NEONFLUX_WEBSITE_URL` (matching the dashboard HTTPS origin) and optionally `TURNSTILE_SITE_KEY`
+3. Deploy the generated output from `projects/web/` with `npx wrangler deploy` (or `pnpm dlx wrangler deploy`), or configure Cloudflare Workers Git integration with `projects/` as the root directory, build command `pnpm --filter @neonflux/web run build:cloudflare` and deploy command `pnpm --dir web dlx wrangler deploy` (the generated config sets `keep_vars: true` so redeploys keep dashboard variables)
+4. Keep the static homepage and docs (`projects/site`) deployed separately on Cloudflare Pages, with `PUBLIC_DASHBOARD_URL` pointing to the dashboard subdomain
+
+In-memory rate limiting and concurrent token-refresh deduplication run per Worker isolate. Add a Cloudflare WAF rate-limiting rule on `/auth/*` and `/api/*` to share rate limits across isolates within each Cloudflare edge location
+
 ## Move it to a public address
 
 1. Register the public callback and set the public origin as `NEONFLUX_WEBSITE_URL`
@@ -61,11 +77,11 @@ Open `http://localhost:3000` and sign in with Fluxer. Localhost links only work 
 
 The built server listens on port 3000 unless `PORT` is set
 
-Put a reverse proxy with HTTPS in front of it. The proxy must pass on the original `Host` header, because the website compares it with the origin and refuses sign-ins that do not match
+Put a reverse proxy with HTTPS in front of it. The proxy must pass on the original `Host` header, because the website compares it with the origin and refuses sign-ins that do not match. Set `TRUST_PROXY=forwarded` (with the proxy forwarding `X-Forwarded-Proto: https`) or `NEONFLUX_WEBSITE_URL` in `web/.env` so HSTS applies from the very first response
 
 The website reads the origin and the application ID once from the deployment, so restart it after changing either
 
-> **Planned:** Website hosting and packaging. Neither is selected yet, so running the built server and its proxy is left to the operator
+> **Planned:** Packaged Node hosting and containers. Self-hosted Node builds run directly from a source checkout behind a reverse proxy, while Cloudflare Workers is supported through `build:cloudflare`
 
 ## Turn on Turnstile
 

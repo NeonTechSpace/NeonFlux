@@ -3,9 +3,9 @@ title: Backend
 description: Create the Convex deployment NeonFlux stores its data in, set its variables and publish the functions
 ---
 
-Convex is the hosted database and function platform NeonFlux runs on. The bot and the website both depend on it, so it comes first
+Convex is a self-hostable database and function platform (open-source Apache 2.0 client SDKs and source-available FSL-1.1-Apache-2.0 backend converting to Apache 2.0 after two years) chosen for its best-in-class developer and live-update UX. It powers reactive dashboard updates, scheduled cleanup and shared state for the bot and website, so it comes first
 
-This setup uses a Convex cloud development deployment, reached with a key made for that one deployment. Production keys, preview keys and project tokens are not part of it. Running Convex on a private server has no documented or tested procedure
+This walkthrough uses a Convex cloud development deployment, reached with a key made for that one deployment. Production keys, preview keys and project tokens are not part of it. Self-hosting Convex on a private server is supported by Convex itself, though this guide does not yet include a tested self-hosted Convex walkthrough
 
 ## Create the deploy key
 

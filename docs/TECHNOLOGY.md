@@ -8,7 +8,7 @@ Feature behavior and its limits are documented in [the bot guide](BOT.md), [the 
 
 | Area | Selection |
 | --- | --- |
-| Bot SDK | [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js) as `@neontechspace/fluxerly` 1003.1.0-nightly.20261125.106, through its `@neontechspace/fluxerly/effect` entry point |
+| Bot SDK | [Fluxerly.js](https://github.com/NeonTechSpace/Fluxerly.js) as `@neontechspace/fluxerly` 1003.1.1, through its `@neontechspace/fluxerly/effect` entry point |
 | Runtime composition | Effect 4 |
 | Language and modules | TypeScript 7 with ECMAScript modules in the bot, backend, contracts and dashboard packages, and JavaScript modules in the public site |
 | Runtime | Node.js 26 |
@@ -87,8 +87,9 @@ Node does not strip types in files under `node_modules`, so the planned bot imag
 
 ## Backend
 
+Convex was chosen for its best-in-class live-update UX (reactive dashboard subscriptions, end-to-end typed functions and transactional state) and because its backend is source-available and self-hostable under FSL-1.1-Apache-2.0 (converting to Apache 2.0 after two years, with Apache 2.0 client SDKs).
 Convex owns durable state that the bot and dashboard share, separately from the bot image.
-One deployment serves the bot's key-checked functions and work signal, the dashboard's live subscriptions and scheduled cleanup, and Convex meets the requirement for self-hosting support.
+One deployment serves the bot's key-checked functions and work signal, the dashboard's live subscriptions and scheduled cleanup.
 Domain validation, reservations and retention live in Convex functions, while the bot keeps fresh platform permission reads and native writes.
 Development targets a Convex cloud development deployment with a deployment-specific key and no CLI account login.
 See [the backend guide](BACKEND.md) for setup and the bot's function contract
@@ -140,4 +141,4 @@ Typechecks of the bot, backend and contracts also report the Effect language ser
 ## Planned
 
 - Bot container image: One Docker image published to GHCR, with build and release automation. It must build or bundle the [shared contracts](#shared-contracts)
-- Website hosting and packaging: Not selected yet
+- Website hosting and packaging: Cloudflare Workers and source-checkout Node builds are supported, while packaged Node hosting remains planned
